@@ -11,6 +11,7 @@ from typing import Callable, Optional
 import websocket
 
 from .config import OopzConfig
+from .models import ChatMessageEvent, LifecycleEvent
 
 logger = logging.getLogger("oopz.client")
 
@@ -45,8 +46,9 @@ class OopzClient:
     def __init__(
         self,
         config: OopzConfig,
-        on_chat_message: Optional[Callable[[dict], None]] = None,
-        on_other_event: Optional[Callable[[int, dict], None]] = None,
+        on_chat_message: Optional[Callable[[ChatMessageEvent], None]] = None,
+        on_other_event: Optional[Callable[[int, dict[str, object]], None]] = None,
+        on_lifecycle_event: Optional[Callable[[LifecycleEvent], None]] = None,
         reconnect_interval: float = 2.0,
         max_reconnect_interval: float = 120.0,
         heartbeat_interval: float = 10.0,
@@ -54,6 +56,7 @@ class OopzClient:
         self._config = config
         self.on_chat_message = on_chat_message
         self.on_other_event = on_other_event
+        self.on_lifecycle_event = on_lifecycle_event
         self._base_reconnect = reconnect_interval
         self._max_reconnect = max_reconnect_interval
         self.heartbeat_interval = heartbeat_interval
@@ -64,6 +67,30 @@ class OopzClient:
         self._consecutive_failures = 0
         self._fail_lock = threading.Lock()
         self._hb_body = json.dumps({"person": config.person_uid})
+
+    def _emit_lifecycle(
+        self,
+        state: str,
+        *,
+        attempt: int = 0,
+        code: int | None = None,
+        reason: str = "",
+        error: str = "",
+    ) -> None:
+        if not self.on_lifecycle_event:
+            return
+        try:
+            self.on_lifecycle_event(
+                LifecycleEvent(
+                    state=state,
+                    attempt=attempt,
+                    code=code,
+                    reason=reason,
+                    error=error,
+                )
+            )
+        except Exception as exc:
+            logger.debug("on_lifecycle_event 处理异常: %s", exc)
 
     # ------------------------------------------------------------------
     # 公共接口
@@ -83,13 +110,16 @@ class OopzClient:
         self._running = True
         while self._running:
             try:
+                self._emit_lifecycle("connecting", attempt=self._consecutive_failures)
                 self._connect_and_run()
             except Exception as e:
                 logger.error("WebSocket 异常: %s", e)
+                self._emit_lifecycle("error", attempt=self._consecutive_failures, error=str(e))
 
             if self._running:
                 delay = self._next_reconnect_delay()
                 logger.info("%.1fs 后重连 (第 %d 次)", delay, self._consecutive_failures)
+                self._emit_lifecycle("reconnecting", attempt=self._consecutive_failures)
                 time.sleep(delay)
 
     def start_async(self):
@@ -139,6 +169,7 @@ class OopzClient:
         logger.info("WebSocket 连接已建立")
         with self._fail_lock:
             self._consecutive_failures = 0
+        self._emit_lifecycle("connected")
         self._send_auth(ws)
         threading.Thread(target=self._heartbeat_loop, args=(ws,), daemon=True).start()
 
@@ -183,9 +214,11 @@ class OopzClient:
 
     def _on_error(self, ws, error):
         logger.error("WebSocket 错误: %s", error)
+        self._emit_lifecycle("error", error=str(error))
 
     def _on_close(self, ws, code, reason):
         logger.warning("连接关闭 (code=%s, reason=%s)", code, reason)
+        self._emit_lifecycle("closed", code=code, reason=str(reason or ""))
 
     # -- 认证 --
 
@@ -206,6 +239,7 @@ class OopzClient:
         }
         ws.send(json.dumps(payload))
         logger.info("已发送认证信息")
+        self._emit_lifecycle("auth_sent")
 
     # -- 心跳 --
 
@@ -240,7 +274,7 @@ class OopzClient:
                 return fallback if fallback is not None else {}
         return fallback if fallback is not None else {}
 
-    def _handle_chat(self, data: dict):
+    def _handle_chat(self, data: dict[str, object]) -> None:
         try:
             body = self._safe_json_parse(data.get("body", {}))
             msg_data = self._safe_json_parse(body.get("data", {}))
@@ -261,7 +295,20 @@ class OopzClient:
             )
 
             if self.on_chat_message:
-                self.on_chat_message(msg_data)
+                event = ChatMessageEvent(
+                    message_id=str(msg_data.get("messageId") or msg_data.get("id") or ""),
+                    area=str(area_id),
+                    channel=str(channel_id),
+                    person=str(person_id),
+                    content=str(msg_data.get("content") or ""),
+                    timestamp=str(msg_data.get("timestamp") or ""),
+                    attachments=[
+                        item for item in msg_data.get("attachments", [])
+                        if isinstance(item, dict)
+                    ] if isinstance(msg_data.get("attachments"), list) else [],
+                    raw=msg_data,
+                )
+                self.on_chat_message(event)
 
         except Exception as e:
             logger.error("解析聊天消息失败: %s", e)

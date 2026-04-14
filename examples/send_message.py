@@ -1,6 +1,6 @@
 """最小发送消息示例。"""
 
-from oopz import OopzConfig, OopzSender
+from oopz import MessageSendResult, OopzConfig, OopzSender
 
 
 def main() -> None:
@@ -14,7 +14,8 @@ def main() -> None:
     )
 
     with OopzSender(config) as sender:
-        sender.send_message("Hello Oopz!")
+        result: MessageSendResult = sender.send_message("Hello Oopz!")
+        print(f"发送成功，message_id={result.message_id or 'unknown'}")
 
 
 if __name__ == "__main__":

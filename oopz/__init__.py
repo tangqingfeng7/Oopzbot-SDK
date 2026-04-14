@@ -28,6 +28,19 @@ from .client import (
     EVENT_SERVER_ID,
     OopzClient,
 )
+from .models import (
+    AreaInfo,
+    AreaMembersPage,
+    ChannelGroup,
+    ChannelInfo,
+    ChatMessageEvent,
+    LifecycleEvent,
+    MessageSendResult,
+    OperationResult,
+    PrivateSessionResult,
+    UploadAttachment,
+    UploadResult,
+)
 from .exceptions import (
     OopzApiError,
     OopzAuthError,
@@ -40,11 +53,18 @@ from .signer import Signer
 from .upload import UploadMixin, get_image_info
 
 __all__ = [
+    "AreaInfo",
+    "AreaMembersPage",
+    "ChannelGroup",
+    "ChannelInfo",
+    "ChatMessageEvent",
     "DEFAULT_HEADERS",
     "EVENT_AUTH",
     "EVENT_CHAT_MESSAGE",
     "EVENT_HEARTBEAT",
     "EVENT_SERVER_ID",
+    "LifecycleEvent",
+    "MessageSendResult",
     "OopzApiError",
     "OopzAuthError",
     "OopzClient",
@@ -53,9 +73,13 @@ __all__ = [
     "OopzError",
     "OopzRateLimitError",
     "OopzSender",
+    "OperationResult",
+    "PrivateSessionResult",
     "Signer",
+    "UploadAttachment",
+    "UploadResult",
     "UploadMixin",
     "get_image_info",
 ]
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"

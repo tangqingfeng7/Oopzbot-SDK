@@ -1,10 +1,20 @@
+import json
+
+import pytest
+from cryptography.hazmat.primitives.asymmetric import rsa
+
 from oopz import (
+    ChatMessageEvent,
+    MessageSendResult,
     OopzApiError,
     OopzAuthError,
+    OopzClient,
     OopzConfig,
     OopzRateLimitError,
     OopzSender,
+    PrivateSessionResult,
     Signer,
+    UploadResult,
     __version__,
 )
 
@@ -15,6 +25,7 @@ class _FakeResponse:
         self._payload = payload
         self.text = text
         self.headers = headers or {}
+        self.content = text.encode("utf-8") if text else b"{}"
 
     def json(self):
         if self._payload is None:
@@ -22,31 +33,55 @@ class _FakeResponse:
         return self._payload
 
 
-def _make_config() -> OopzConfig:
-    return OopzConfig(
+class _FakeWebSocket:
+    def __init__(self):
+        self.sent: list[str] = []
+        self.sock = type("Sock", (), {"connected": True})()
+
+    def send(self, payload: str) -> None:
+        self.sent.append(payload)
+
+    def close(self) -> None:
+        self.sock.connected = False
+
+
+def _make_private_key():
+    return rsa.generate_private_key(public_exponent=65537, key_size=2048)
+
+
+def _make_config(**overrides) -> OopzConfig:
+    config = OopzConfig(
         device_id="device",
         person_uid="person",
         jwt_token="jwt",
-        private_key=None,
+        private_key=_make_private_key(),
         default_area="area",
         default_channel="channel",
     )
+    for key, value in overrides.items():
+        setattr(config, key, value)
+    return config
 
 
 def test_version_is_exposed() -> None:
-    assert __version__ == "0.2.0"
+    assert __version__ == "0.3.0"
+
+
+def test_config_requires_private_key() -> None:
+    with pytest.raises(ValueError):
+        OopzConfig(
+            device_id="device",
+            person_uid="person",
+            jwt_token="jwt",
+            private_key=None,
+        )
 
 
 def test_signer_invalid_private_key_raises_auth_error() -> None:
-    config = _make_config()
-    config.private_key = object()
+    config = _make_config(private_key=object())
 
-    try:
+    with pytest.raises(OopzAuthError):
         Signer(config)
-    except OopzAuthError:
-        return
-
-    raise AssertionError("Signer 应在无效私钥类型时抛出 OopzAuthError")
 
 
 def test_sender_context_manager_closes_session(monkeypatch) -> None:
@@ -64,6 +99,25 @@ def test_sender_context_manager_closes_session(monkeypatch) -> None:
     assert state["closed"] is True
 
 
+def test_send_message_returns_result_model(monkeypatch) -> None:
+    sender = OopzSender(_make_config())
+
+    def _fake_post(url_path: str, body: dict):
+        return _FakeResponse(
+            200,
+            payload={"status": True, "data": {"messageId": "msg-1"}},
+        )
+
+    monkeypatch.setattr(sender, "_post", _fake_post)
+
+    result = sender.send_message("hello", auto_recall=False)
+
+    assert isinstance(result, MessageSendResult)
+    assert result.message_id == "msg-1"
+    assert result.area == "area"
+    assert result.channel == "channel"
+
+
 def test_send_message_raises_rate_limit_error(monkeypatch) -> None:
     sender = OopzSender(_make_config())
 
@@ -76,32 +130,143 @@ def test_send_message_raises_rate_limit_error(monkeypatch) -> None:
 
     monkeypatch.setattr(sender, "_post", _fake_post)
 
-    try:
+    with pytest.raises(OopzRateLimitError) as exc_info:
         sender.send_message("hello", auto_recall=False)
-    except OopzRateLimitError as exc:
-        assert exc.retry_after == 3
-        assert exc.status_code == 429
-        return
 
-    raise AssertionError("send_message 应在 429 时抛出 OopzRateLimitError")
+    assert exc_info.value.retry_after == 3
+    assert exc_info.value.status_code == 429
 
 
-def test_send_message_raises_api_error_on_business_failure(monkeypatch) -> None:
+def test_send_private_message_returns_result_model(monkeypatch) -> None:
     sender = OopzSender(_make_config())
+
+    monkeypatch.setattr(
+        sender,
+        "open_private_session",
+        lambda target: PrivateSessionResult(channel="DM12345678901234567890"),
+    )
 
     def _fake_post(url_path: str, body: dict):
         return _FakeResponse(
             200,
-            payload={"status": False, "message": "业务失败"},
+            payload={"status": True, "data": {"messageId": "dm-1"}},
         )
 
     monkeypatch.setattr(sender, "_post", _fake_post)
 
-    try:
-        sender.send_message("hello", auto_recall=False)
-    except OopzApiError as exc:
-        assert "业务失败" in str(exc)
-        assert exc.status_code == 200
-        return
+    result = sender.send_private_message("target-uid", "hello")
 
-    raise AssertionError("send_message 应在业务失败时抛出 OopzApiError")
+    assert isinstance(result, MessageSendResult)
+    assert result.message_id == "dm-1"
+    assert result.target == "target-uid"
+    assert result.channel == "DM12345678901234567890"
+
+
+def test_upload_file_returns_upload_result(monkeypatch, tmp_path) -> None:
+    sender = OopzSender(_make_config())
+    sample = tmp_path / "sample.bin"
+    sample.write_bytes(b"hello")
+
+    monkeypatch.setattr(
+        sender,
+        "_put",
+        lambda url_path, body: _FakeResponse(
+            200,
+            payload={
+                "status": True,
+                "data": {
+                    "signedUrl": "https://upload.example.com",
+                    "file": "file-key",
+                    "url": "https://cdn.example.com/file-key",
+                },
+            },
+        ),
+    )
+
+    class _UploadResp:
+        status_code = 200
+        text = ""
+
+    monkeypatch.setattr(sender.session, "put", lambda *args, **kwargs: _UploadResp())
+
+    result = sender.upload_file(str(sample), file_type="IMAGE", ext=".bin")
+
+    assert isinstance(result, UploadResult)
+    assert result.attachment.file_key == "file-key"
+    assert result.attachment.url == "https://cdn.example.com/file-key"
+
+
+def test_get_area_members_returns_stale_cache_on_rate_limit(monkeypatch) -> None:
+    sender = OopzSender(_make_config())
+    cache_key = ("area", 0, 49)
+    sender._area_members_cache[cache_key] = {
+        "ts": 10_000_000.0,
+        "data": {"members": [{"uid": "u1", "online": 1}]},
+    }
+
+    monkeypatch.setattr("oopz.api.time.time", lambda: 10_000_010.0)
+    monkeypatch.setattr(
+        sender,
+        "_get",
+        lambda url_path, params=None: _FakeResponse(429, payload={"message": "too fast"}),
+    )
+
+    result = sender.get_area_members()
+
+    assert result["stale"] is True
+    assert result["rateLimited"] is True
+    assert result["members"][0]["uid"] == "u1"
+
+
+def test_client_emits_typed_chat_event_and_lifecycle() -> None:
+    chat_events: list[ChatMessageEvent] = []
+    lifecycle_states: list[str] = []
+    client = OopzClient(
+        _make_config(),
+        on_chat_message=chat_events.append,
+        on_lifecycle_event=lambda event: lifecycle_states.append(event.state),
+    )
+
+    ws = _FakeWebSocket()
+    client._running = True
+    client._on_open(ws)
+    client._on_message(
+        ws,
+        json.dumps(
+            {
+                "event": 9,
+                "body": json.dumps(
+                    {
+                        "data": {
+                            "messageId": "msg-1",
+                            "person": "other",
+                            "channel": "channel-1",
+                            "area": "area-1",
+                            "content": "hello",
+                        }
+                    }
+                ),
+            }
+        ),
+    )
+
+    assert "connected" in lifecycle_states
+    assert "auth_sent" in lifecycle_states
+    assert len(chat_events) == 1
+    assert chat_events[0].content == "hello"
+    assert chat_events[0].message_id == "msg-1"
+
+
+def test_get_channel_messages_raises_api_error_on_business_failure(monkeypatch) -> None:
+    sender = OopzSender(_make_config())
+    monkeypatch.setattr(
+        sender,
+        "_get",
+        lambda url_path, params=None: _FakeResponse(
+            200,
+            payload={"status": False, "message": "业务失败"},
+        ),
+    )
+
+    with pytest.raises(OopzApiError):
+        sender.get_channel_messages()

@@ -13,7 +13,9 @@ import requests
 
 from .api import OopzApiMixin
 from .config import OopzConfig
-from .exceptions import OopzApiError, OopzRateLimitError
+from .exceptions import OopzApiError
+from .models import MessageSendResult, PrivateSessionResult
+from .response import ensure_success_payload
 from .signer import Signer
 from .upload import UploadMixin
 
@@ -58,7 +60,7 @@ class OopzSender(UploadMixin, OopzApiMixin):
             body_str = json.dumps(body, separators=(",", ":"), ensure_ascii=False)
             sign_str = body_str
             data = body_str.encode("utf-8")
-        elif method.upper() in ("POST", "PUT"):
+        elif method.upper() in ("POST", "PUT", "PATCH"):
             sign_str = "{}"
             data = b"{}"
         else:
@@ -66,19 +68,25 @@ class OopzSender(UploadMixin, OopzApiMixin):
             data = None
         headers = {**self.session.headers, **self.signer.oopz_headers(url_path, sign_str)}
         url = self._config.base_url + url_path
-        return self.session.request(
-            method,
-            url,
-            headers=headers,
-            data=data,
-            timeout=self._config.request_timeout,
-        )
+        try:
+            return self.session.request(
+                method,
+                url,
+                headers=headers,
+                data=data,
+                timeout=self._config.request_timeout,
+            )
+        except requests.RequestException as exc:
+            raise OopzApiError(f"请求失败: {exc}") from exc
 
     def _post(self, url_path: str, body: dict) -> requests.Response:
         return self._request("POST", url_path, body)
 
     def _put(self, url_path: str, body: dict) -> requests.Response:
         return self._request("PUT", url_path, body)
+
+    def _patch(self, url_path: str, body: dict) -> requests.Response:
+        return self._request("PATCH", url_path, body)
 
     def _delete(self, url_path: str, body: Optional[dict] = None) -> requests.Response:
         return self._request("DELETE", url_path, body)
@@ -93,44 +101,37 @@ class OopzSender(UploadMixin, OopzApiMixin):
 
         headers = {**self.session.headers, **self.signer.oopz_headers(sign_path, "")}
         url = self._config.base_url + url_path
-        return self.session.get(
-            url,
-            headers=headers,
-            params=params,
-            timeout=self._config.request_timeout,
-        )
+        try:
+            return self.session.get(
+                url,
+                headers=headers,
+                params=params,
+                timeout=self._config.request_timeout,
+            )
+        except requests.RequestException as exc:
+            raise OopzApiError(f"请求失败: {exc}") from exc
+
+    def _resolve_area(self, area: Optional[str]) -> str:
+        value = str(area or self._config.default_area).strip()
+        if not value:
+            raise ValueError("缺少 area，且未配置 default_area")
+        return value
+
+    def _resolve_channel(self, channel: Optional[str]) -> str:
+        value = str(channel or self._config.default_channel).strip()
+        if not value:
+            raise ValueError("缺少 channel，且未配置 default_channel")
+        return value
 
     @staticmethod
-    def _safe_json(response: requests.Response) -> dict | None:
-        try:
-            payload = response.json()
-        except ValueError:
-            return None
-        return payload if isinstance(payload, dict) else None
-
-    @classmethod
-    def _raise_api_error(cls, response: requests.Response, default_message: str) -> None:
-        payload = cls._safe_json(response)
-        message = default_message
-        retry_after = 0
-
-        if response.status_code == 429:
-            try:
-                retry_after = int(response.headers.get("Retry-After", "0") or "0")
-            except Exception:
-                retry_after = 0
-            if payload:
-                message = str(payload.get("message") or payload.get("error") or message)
-            elif response.text:
-                message = f"{message}: {response.text[:200]}"
-            raise OopzRateLimitError(message=message, retry_after=retry_after, response=payload)
-
-        if payload:
-            message = str(payload.get("message") or payload.get("error") or message)
-        elif response.text:
-            message = f"{message}: {response.text[:200]}"
-
-        raise OopzApiError(message, status_code=response.status_code, response=payload)
+    def _extract_message_id(payload: dict[str, object]) -> str:
+        data = payload.get("data", {})
+        if isinstance(data, dict):
+            value = data.get("messageId") or data.get("id")
+            if value is not None:
+                return str(value)
+        value = payload.get("messageId") or payload.get("id")
+        return str(value or "")
 
     def close(self) -> None:
         """关闭底层 HTTP Session。"""
@@ -151,7 +152,7 @@ class OopzSender(UploadMixin, OopzApiMixin):
         channel: Optional[str] = None,
         auto_recall: Optional[bool] = None,
         **kwargs,
-    ) -> requests.Response:
+    ) -> MessageSendResult:
         """发送聊天消息。
 
         Args:
@@ -161,8 +162,8 @@ class OopzSender(UploadMixin, OopzApiMixin):
             auto_recall: 是否自动撤回（None=按配置决定）
             **kwargs: attachments, mentionList, referenceMessageId, styleTags 等
         """
-        area = area or self._config.default_area
-        channel = channel or self._config.default_channel
+        area = self._resolve_area(area)
+        channel = self._resolve_channel(channel)
         default_style = ["IMPORTANT"] if self._config.use_announcement_style else []
 
         body = {
@@ -190,21 +191,24 @@ class OopzSender(UploadMixin, OopzApiMixin):
             logger.info("响应状态: %d", resp.status_code)
             if resp.text:
                 logger.debug("响应内容: %s", resp.text[:200])
-            if resp.status_code != 200:
-                self._raise_api_error(resp, "发送消息失败")
-            result = self._safe_json(resp)
-            if result is None:
-                raise OopzApiError("发送消息失败: 响应非 JSON", status_code=resp.status_code)
-            if not result.get("status") and result.get("code") not in (0, "0", 200, "200", "success"):
-                self._raise_api_error(resp, "发送消息失败")
+            result = ensure_success_payload(resp, "发送消息失败")
             if auto_recall is not False:
-                self._schedule_auto_recall(resp, area, channel)
-            return resp
+                self._schedule_auto_recall(result, area, channel)
+            return MessageSendResult(
+                message_id=self._extract_message_id(result),
+                area=area,
+                channel=channel,
+                target=str(body.get("target") or ""),
+                client_message_id=str(body["clientMessageId"]),
+                timestamp=str(body["timestamp"]),
+                payload=result,
+                response=resp,
+            )
         except Exception as e:
             logger.error("发送失败: %s", e)
             raise
 
-    def send_to_default(self, text: str, **kwargs) -> requests.Response:
+    def send_to_default(self, text: str, **kwargs) -> MessageSendResult:
         """发送到默认频道。"""
         return self.send_message(text, **kwargs)
 
@@ -312,47 +316,26 @@ class OopzSender(UploadMixin, OopzApiMixin):
 
         return False, "HTTP 200 但响应未明确确认私信已发送"
 
-    def open_private_session(self, target: str) -> dict:
+    def open_private_session(self, target: str) -> PrivateSessionResult:
         """打开或创建与指定用户的私信会话。"""
         target = str(target or "").strip()
         if not target:
-            return {"error": "缺少 target"}
+            raise ValueError("target 不能为空")
 
         url_path = "/client/v1/chat/v1/to"
         query = f"?target={target}"
         full_path = url_path + query
         body = {"target": target}
 
-        try:
-            self._throttle()
-            body_str = json.dumps(body, separators=(",", ":"), ensure_ascii=False)
-            headers = {**self.session.headers, **self.signer.oopz_headers(full_path, body_str)}
-            url = self._config.base_url + full_path
-            resp = self.session.patch(url, headers=headers, data=body_str.encode("utf-8"))
-        except Exception as e:
-            logger.error("打开私信会话异常: %s", e)
-            return {"error": str(e)}
-
+        resp = self._patch(full_path, body)
         raw = resp.text or ""
         logger.info("打开私信会话 PATCH %s -> HTTP %d, body: %s", full_path, resp.status_code, raw[:300])
-
-        if resp.status_code != 200:
-            return {"error": f"HTTP {resp.status_code}" + (f" | {raw[:200]}" if raw else "")}
-
-        try:
-            result = resp.json()
-        except Exception:
-            return {"error": f"响应非 JSON: {raw[:200]}"}
+        result = ensure_success_payload(resp, "打开私信会话失败")
 
         channel = self._extract_private_channel(result)
         if not channel:
-            logger.error("打开私信会话成功但未提取到 channel，响应: %s", self._short_payload(result))
-            return {
-                "error": "未能从响应中提取私信 channel",
-                "raw": result,
-                "debug_reason": "open_session_missing_channel",
-            }
-        return {"status": True, "channel": channel, "raw": result}
+            raise OopzApiError("打开私信会话失败: 未能提取私信 channel", status_code=resp.status_code, response=result)
+        return PrivateSessionResult(channel=channel, payload=result, response=resp)
 
     def send_private_message(
         self,
@@ -362,21 +345,17 @@ class OopzSender(UploadMixin, OopzApiMixin):
         attachments: Optional[list] = None,
         style_tags: Optional[list] = None,
         channel: Optional[str] = None,
-    ) -> dict:
+    ) -> MessageSendResult:
         """发送私信消息。"""
         target = str(target or "").strip()
         if not target:
-            return {"error": "缺少 target"}
+            raise ValueError("target 不能为空")
 
         if not channel:
-            opened = self.open_private_session(target)
-            if "error" in opened:
-                return opened
-            channel = opened.get("channel")
+            channel = self.open_private_session(target).channel
 
         if not channel:
-            logger.error("发送私信失败：私信 channel 不可用 (target=%s)", target[:12])
-            return {"error": "私信 channel 不可用", "debug_reason": "missing_channel"}
+            raise OopzApiError("发送私信失败: 私信 channel 不可用")
 
         body = {
             "message": {
@@ -397,49 +376,32 @@ class OopzSender(UploadMixin, OopzApiMixin):
             }
         }
         url_path = "/im/session/v2/sendImMessage"
-
-        try:
-            self._throttle()
-            body_str = json.dumps(body, separators=(",", ":"), ensure_ascii=False)
-            headers = {**self.session.headers, **self.signer.oopz_headers(url_path, body_str)}
-            url = self._config.base_url + url_path
-            resp = self.session.post(url, headers=headers, data=body_str.encode("utf-8"))
-        except Exception as e:
-            logger.error("发送私信异常: %s", e)
-            return {"error": str(e)}
+        resp = self._post(url_path, body)
 
         raw = resp.text or ""
         logger.info("发送私信 POST %s -> HTTP %d, body: %s", url_path, resp.status_code, raw[:300])
-
-        if resp.status_code != 200:
-            logger.error("发送私信失败：HTTP %s，响应: %s", resp.status_code, raw[:240])
-            return {
-                "error": f"HTTP {resp.status_code}" + (f" | {raw[:200]}" if raw else ""),
-                "channel": channel,
-                "debug_reason": "send_dm_http_error",
-            }
-
-        try:
-            result = resp.json()
-        except Exception:
-            result = {"raw": raw}
+        result = ensure_success_payload(resp, "发送私信失败")
 
         ok, reason = self._validate_private_send_result(result)
         if not ok:
-            logger.error("发送私信未获确认: %s, 响应: %s", reason, self._short_payload(result))
-            return {
-                "error": f"HTTP 200 但未确认发送成功: {reason}",
-                "channel": channel,
-                "result": result,
-                "debug_reason": "send_dm_unconfirmed",
-            }
+            raise OopzApiError(f"发送私信失败: {reason}", status_code=resp.status_code, response=result)
 
         logger.info("发送私信成功: channel=%s", str(channel)[:24])
-        return {"status": True, "channel": channel, "result": result}
+        message = body["message"]
+        return MessageSendResult(
+            message_id=self._extract_message_id(result),
+            area="",
+            channel=str(channel),
+            target=target,
+            client_message_id=str(message["clientMessageId"]),
+            timestamp=str(message["timestamp"]),
+            payload=result,
+            response=resp,
+        )
 
     # ---- 自动撤回 ----
 
-    def _schedule_auto_recall(self, resp: requests.Response, area: str, channel: str):
+    def _schedule_auto_recall(self, payload: dict[str, object], area: str, channel: str) -> None:
         if not self._config.auto_recall_enabled:
             return
         delay = self._config.auto_recall_delay
@@ -447,13 +409,12 @@ class OopzSender(UploadMixin, OopzApiMixin):
             return
 
         try:
-            result = resp.json()
-            data = result.get("data", {})
+            data = payload.get("data", {})
             msg_id = None
             if isinstance(data, dict):
                 msg_id = data.get("messageId")
             if not msg_id:
-                msg_id = result.get("messageId")
+                msg_id = payload.get("messageId")
             if not msg_id:
                 logger.debug("自动撤回: 无法从响应中提取 messageId，跳过")
                 return
@@ -470,25 +431,18 @@ class OopzSender(UploadMixin, OopzApiMixin):
 
     def _do_auto_recall(self, message_id: str, area: str, channel: str):
         try:
-            result = self.recall_message(message_id, area=area, channel=channel)
-            if "error" in result:
-                logger.warning("自动撤回失败: %s (msgId=%s...)", result["error"], message_id[:16])
-            else:
-                logger.info("自动撤回成功: %s...", message_id[:16])
+            self.recall_message(message_id, area=area, channel=channel)
+            logger.info("自动撤回成功: %s...", message_id[:16])
         except Exception as e:
             logger.error("自动撤回异常: %s", e)
 
     # ---- 批量 ----
 
-    def send_multiple(self, messages: list[str], interval: float = 1.0) -> list[dict]:
+    def send_multiple(self, messages: list[str], interval: float = 1.0) -> list[MessageSendResult]:
         """批量发送消息。"""
-        results = []
+        results: list[MessageSendResult] = []
         for i, msg in enumerate(messages, 1):
-            try:
-                resp = self.send_to_default(msg)
-                results.append({"message": msg, "status_code": resp.status_code, "success": resp.status_code == 200})
-                if i < len(messages):
-                    time.sleep(interval)
-            except Exception as e:
-                results.append({"message": msg, "status_code": None, "success": False, "error": str(e)})
+            results.append(self.send_to_default(msg))
+            if i < len(messages):
+                time.sleep(interval)
         return results

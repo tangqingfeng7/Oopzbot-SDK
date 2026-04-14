@@ -11,7 +11,7 @@ from typing import Any, Dict
 
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import padding, rsa
+from cryptography.hazmat.primitives.asymmetric import padding
 
 from .config import OopzConfig
 from .exceptions import OopzAuthError
@@ -54,11 +54,7 @@ class Signer:
     def _resolve_key(key_input: Any):
         """将 PEM 字符串、字节或已加载的 key 对象统一为 RSA 私钥。"""
         if key_input is None:
-            return rsa.generate_private_key(
-                public_exponent=65537,
-                key_size=2048,
-                backend=default_backend(),
-            )
+            raise OopzAuthError("private_key 未配置")
 
         if isinstance(key_input, (str, bytes)):
             raw = key_input.encode("utf-8") if isinstance(key_input, str) else key_input

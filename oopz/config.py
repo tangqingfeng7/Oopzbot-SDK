@@ -3,7 +3,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Protocol
+
+
+class SupportsSign(Protocol):
+    """最小私钥协议。"""
+
+    def sign(self, data: bytes, padding: object, algorithm: object) -> bytes:
+        """执行签名。"""
 
 
 @dataclass
@@ -19,7 +26,7 @@ class OopzConfig:
     jwt_token: str
 
     # RSA 私钥：接受 PEM 字符串或已加载的 cryptography 私钥对象
-    private_key: Any = None
+    private_key: str | bytes | SupportsSign | None = None
 
     base_url: str = "https://gateway.oopz.cn"
     ws_url: str = "wss://ws.oopz.cn"
@@ -50,6 +57,46 @@ class OopzConfig:
 
     # 自定义请求头（留空则使用 DEFAULT_HEADERS）
     headers: dict[str, str] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        self.device_id = self._require_non_empty(self.device_id, "device_id")
+        self.person_uid = self._require_non_empty(self.person_uid, "person_uid")
+        self.jwt_token = self._require_non_empty(self.jwt_token, "jwt_token")
+        if self.private_key is None:
+            raise ValueError("private_key 不能为空")
+
+        self.default_area = str(self.default_area or "").strip()
+        self.default_channel = str(self.default_channel or "").strip()
+        self.headers = {
+            str(key): str(value)
+            for key, value in self.headers.items()
+            if str(key).strip()
+        }
+        self._validate_timeouts()
+
+    @staticmethod
+    def _require_non_empty(value: str, field_name: str) -> str:
+        text = str(value or "").strip()
+        if not text:
+            raise ValueError(f"{field_name} 不能为空")
+        return text
+
+    def _validate_timeouts(self) -> None:
+        timeout = self.request_timeout
+        if isinstance(timeout, tuple):
+            if len(timeout) != 2 or any(float(item) <= 0 for item in timeout):
+                raise ValueError("request_timeout 必须是正数或长度为 2 的正数元组")
+            return
+        if float(timeout) <= 0:
+            raise ValueError("request_timeout 必须大于 0")
+
+    def require_default_area(self) -> str:
+        """返回默认域，未配置则抛错。"""
+        return self._require_non_empty(self.default_area, "default_area")
+
+    def require_default_channel(self) -> str:
+        """返回默认频道，未配置则抛错。"""
+        return self._require_non_empty(self.default_channel, "default_channel")
 
     def get_headers(self) -> dict[str, str]:
         """返回实际使用的 HTTP 请求头。"""

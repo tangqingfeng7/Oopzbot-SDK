@@ -11,7 +11,9 @@ from typing import TYPE_CHECKING
 import requests
 from PIL import Image
 
-from .exceptions import OopzApiError, OopzRateLimitError
+from .exceptions import OopzApiError
+from .models import MessageSendResult, UploadAttachment, UploadResult
+from .response import ensure_success_payload
 
 if TYPE_CHECKING:
     from .config import OopzConfig
@@ -29,256 +31,145 @@ def get_image_info(file_path: str) -> tuple[int, int, int]:
     return width, height, file_size
 
 
-def _safe_json(response: requests.Response) -> dict | None:
-    try:
-        payload = response.json()
-    except ValueError:
-        return None
-    return payload if isinstance(payload, dict) else None
-
-
-def _raise_upload_error(response: requests.Response, default_message: str) -> None:
-    payload = _safe_json(response)
-    message = default_message
-
-    if payload:
-        message = str(payload.get("message") or payload.get("error") or message)
-    elif response.text:
-        message = f"{message}: {response.text[:200]}"
-
-    if response.status_code == 429:
-        retry_after = 0
-        try:
-            retry_after = int(response.headers.get("Retry-After", "0") or "0")
-        except Exception:
-            retry_after = 0
-        raise OopzRateLimitError(message=message, retry_after=retry_after, response=payload)
-
-    raise OopzApiError(message, status_code=response.status_code, response=payload)
-
-
 class UploadMixin:
     """Oopz 文件上传 Mixin -- 图片、音频上传与发送。
 
     使用方需在实例上提供 ``session``、``_put`` 等底层方法。
     """
 
-    def upload_file(self, file_path: str, file_type: str = "IMAGE", ext: str = ".webp") -> dict:
-        """上传本地文件，返回 { fileKey, url }。"""
-        url_path = "/rtc/v1/cos/v1/signedUploadUrl"
-        body = {"type": file_type, "ext": ext}
+    def _request_upload_slot(self, file_type: str, ext: str) -> tuple[dict[str, object], requests.Response]:
+        resp = self._put("/rtc/v1/cos/v1/signedUploadUrl", {"type": file_type, "ext": ext})
+        payload = ensure_success_payload(resp, "获取上传地址失败")
+        data = payload.get("data", {})
+        if not isinstance(data, dict):
+            raise OopzApiError("获取上传地址失败: 响应格式异常", status_code=resp.status_code, response=payload)
+        return data, resp
 
-        resp = self._put(url_path, body)
-        if resp.status_code != 200:
-            _raise_upload_error(resp, "获取上传 URL 失败")
-
-        data = resp.json()["data"]
-        upload_url = data["signedUrl"]
-        file_key = data["file"]
-        cdn_url = data["url"]
-
-        with open(file_path, "rb") as f:
+    def _put_file_bytes(self, upload_url: str, data: bytes) -> None:
+        try:
             put_resp = self.session.put(
                 upload_url,
-                data=f,
+                data=data,
                 headers={"Content-Type": "application/octet-stream"},
                 timeout=UPLOAD_PUT_TIMEOUT,
             )
+        except requests.RequestException as exc:
+            raise OopzApiError(f"文件上传失败: {exc}") from exc
         if put_resp.status_code not in (200, 201):
             raise OopzApiError(f"文件上传失败: {put_resp.text}", status_code=put_resp.status_code)
 
-        return {"fileKey": file_key, "url": cdn_url}
+    def upload_file(self, file_path: str, file_type: str = "IMAGE", ext: str = ".webp") -> UploadResult:
+        """上传本地文件。"""
+        with open(file_path, "rb") as f:
+            file_bytes = f.read()
 
-    def upload_file_from_url(self, image_url: str) -> dict:
+        data, resp = self._request_upload_slot(file_type, ext)
+        self._put_file_bytes(str(data["signedUrl"]), file_bytes)
+
+        attachment = UploadAttachment(
+            file_key=str(data["file"]),
+            url=str(data["url"]),
+            attachment_type=file_type,
+            file_size=len(file_bytes),
+        )
+        return UploadResult(attachment=attachment, payload=dict(data), response=resp)
+
+    def upload_file_from_url(self, image_url: str) -> UploadResult:
         """从网络 URL 下载图片并上传到 Oopz（不落地磁盘）。"""
         try:
             resp = self.session.get(image_url, stream=True, timeout=15)
             resp.raise_for_status()
-            image_bytes = resp.content
+        except requests.RequestException as exc:
+            raise OopzApiError(f"下载图片失败: {exc}") from exc
 
-            img = Image.open(io.BytesIO(image_bytes))
-            width, height = img.size
-            file_size = len(image_bytes)
-            ext = "." + (img.format or "webp").lower()
-            md5 = hashlib.md5(image_bytes).hexdigest()
+        image_bytes = resp.content
+        img = Image.open(io.BytesIO(image_bytes))
+        width, height = img.size
+        file_size = len(image_bytes)
+        ext = "." + (img.format or "webp").lower()
+        md5 = hashlib.md5(image_bytes).hexdigest()
 
-            url_path = "/rtc/v1/cos/v1/signedUploadUrl"
-            body = {"type": "IMAGE", "ext": ext}
-            resp2 = self._put(url_path, body)
-            resp2.raise_for_status()
-            data = resp2.json()["data"]
+        data, slot_resp = self._request_upload_slot("IMAGE", ext)
+        self._put_file_bytes(str(data["signedUrl"]), image_bytes)
 
-            signed_url = data["signedUrl"]
-            file_key = data["file"]
-            cdn_url = data["url"]
-
-            put_resp = self.session.put(
-                signed_url,
-                data=image_bytes,
-                headers={"Content-Type": "application/octet-stream"},
-                timeout=UPLOAD_PUT_TIMEOUT,
-            )
-            put_resp.raise_for_status()
-
-            attachment = {
-                "fileKey": file_key,
-                "url": cdn_url,
-                "width": width,
-                "height": height,
-                "fileSize": file_size,
-                "hash": md5,
-                "animated": False,
-                "displayName": "",
-                "attachmentType": "IMAGE",
-            }
-            return {"code": "success", "message": "上传成功", "data": attachment}
-
-        except Exception as e:
-            logger.error("从 URL 上传失败: %s", e)
-            return {"code": "error", "message": str(e), "data": None}
+        attachment = UploadAttachment(
+            file_key=str(data["file"]),
+            url=str(data["url"]),
+            attachment_type="IMAGE",
+            file_size=file_size,
+            width=width,
+            height=height,
+            file_hash=md5,
+        )
+        return UploadResult(attachment=attachment, payload=dict(data), response=slot_resp)
 
     def upload_audio_from_url(
         self, audio_url: str, filename: str = "music.mp3", duration_ms: int = 0
-    ) -> dict:
+    ) -> UploadResult:
         """从网络 URL 下载音频并上传到 Oopz（AUDIO 类型）。"""
         try:
             resp = self.session.get(audio_url, timeout=30, headers={
                 "Referer": "https://music.163.com/",
             })
             resp.raise_for_status()
-            audio_bytes = resp.content
-            file_size = len(audio_bytes)
+        except requests.RequestException as exc:
+            raise OopzApiError(f"下载音频失败: {exc}") from exc
 
-            content_type = resp.headers.get("Content-Type", "")
-            if "mp4" in content_type or "m4a" in content_type:
-                ext = ".m4a"
-            elif "flac" in content_type:
-                ext = ".flac"
-            else:
-                ext = ".mp3"
+        audio_bytes = resp.content
+        file_size = len(audio_bytes)
 
-            md5 = hashlib.md5(audio_bytes).hexdigest()
+        content_type = resp.headers.get("Content-Type", "")
+        if "mp4" in content_type or "m4a" in content_type:
+            ext = ".m4a"
+        elif "flac" in content_type:
+            ext = ".flac"
+        else:
+            ext = ".mp3"
 
-            url_path = "/rtc/v1/cos/v1/signedUploadUrl"
-            body = {"type": "AUDIO", "ext": ext}
-            resp2 = self._put(url_path, body)
-            resp2.raise_for_status()
-            data = resp2.json()["data"]
+        md5 = hashlib.md5(audio_bytes).hexdigest()
+        data, slot_resp = self._request_upload_slot("AUDIO", ext)
+        self._put_file_bytes(str(data["signedUrl"]), audio_bytes)
 
-            signed_url = data["signedUrl"]
-            file_key = data["file"]
-            cdn_url = data["url"]
+        base_name = os.path.splitext(filename or "")[0] or "music"
+        display_name = base_name + ext
+        duration_sec = duration_ms // 1000 if duration_ms else 0
+        attachment = UploadAttachment(
+            file_key=str(data["file"]),
+            url=str(data["url"]),
+            attachment_type="AUDIO",
+            file_size=file_size,
+            file_hash=md5,
+            display_name=display_name,
+            duration=duration_sec,
+        )
+        logger.info("音频上传成功: %s (%d bytes, %ds)", display_name, file_size, duration_sec)
+        return UploadResult(attachment=attachment, payload=dict(data), response=slot_resp)
 
-            put_resp = self.session.put(
-                signed_url,
-                data=audio_bytes,
-                headers={"Content-Type": "application/octet-stream"},
-                timeout=UPLOAD_PUT_TIMEOUT,
-            )
-            put_resp.raise_for_status()
-
-            base_name = os.path.splitext(filename or "")[0] or "music"
-            display_name = base_name + ext
-            duration_sec = duration_ms // 1000 if duration_ms else 0
-
-            attachment = {
-                "fileKey": file_key,
-                "url": cdn_url,
-                "fileSize": file_size,
-                "hash": md5,
-                "animated": False,
-                "displayName": display_name,
-                "attachmentType": "AUDIO",
-                "duration": duration_sec,
-            }
-            logger.info("音频上传成功: %s (%d bytes, %ds)", display_name, file_size, duration_sec)
-            return {"code": "success", "data": attachment}
-
-        except Exception as e:
-            logger.error("音频上传失败: %s", e)
-            return {"code": "error", "message": str(e), "data": None}
-
-    def upload_and_send_image(self, file_path: str, text: str = "", **kwargs) -> requests.Response:
+    def upload_and_send_image(self, file_path: str, text: str = "", **kwargs) -> MessageSendResult:
         """上传本地图片并作为消息发送。"""
         width, height, file_size = get_image_info(file_path)
+        upload = self.upload_file(file_path, file_type="IMAGE", ext=os.path.splitext(file_path)[1])
+        attachment = upload.attachment
+        attachment.width = width
+        attachment.height = height
+        attachment.file_size = file_size
 
-        url_path = "/rtc/v1/cos/v1/signedUploadUrl"
-        body = {"type": "IMAGE", "ext": os.path.splitext(file_path)[1]}
-        resp = self._put(url_path, body)
-        resp.raise_for_status()
-        data = resp.json()["data"]
-
-        signed_url = data["signedUrl"]
-        file_key = data["file"]
-        cdn_url = data["url"]
-
-        with open(file_path, "rb") as f:
-            self.session.put(
-                signed_url,
-                data=f,
-                headers={"Content-Type": "application/octet-stream"},
-                timeout=UPLOAD_PUT_TIMEOUT,
-            ).raise_for_status()
-
-        attachments = [{
-            "fileKey": file_key,
-            "url": cdn_url,
-            "width": width,
-            "height": height,
-            "fileSize": file_size,
-            "hash": "",
-            "animated": False,
-            "displayName": "",
-            "attachmentType": "IMAGE",
-        }]
-
-        msg_text = f"![IMAGEw{width}h{height}]({file_key})"
+        msg_text = f"![IMAGEw{width}h{height}]({attachment.file_key})"
         if text:
             msg_text += f"\n{text}"
 
-        return self.send_message(text=msg_text, attachments=attachments, **kwargs)
+        return self.send_message(text=msg_text, attachments=[attachment.as_payload()], **kwargs)
 
-    def upload_and_send_private_image(self, target: str, file_path: str, text: str = "") -> dict:
+    def upload_and_send_private_image(self, target: str, file_path: str, text: str = "") -> MessageSendResult:
         """上传本地图片并通过私信发送。"""
         width, height, file_size = get_image_info(file_path)
+        upload = self.upload_file(file_path, file_type="IMAGE", ext=os.path.splitext(file_path)[1])
+        attachment = upload.attachment
+        attachment.width = width
+        attachment.height = height
+        attachment.file_size = file_size
 
-        url_path = "/rtc/v1/cos/v1/signedUploadUrl"
-        body = {"type": "IMAGE", "ext": os.path.splitext(file_path)[1]}
-        try:
-            resp = self._put(url_path, body)
-            resp.raise_for_status()
-            data = resp.json()["data"]
-            signed_url = data["signedUrl"]
-            file_key = data["file"]
-            cdn_url = data["url"]
-
-            with open(file_path, "rb") as f:
-                self.session.put(
-                    signed_url,
-                    data=f,
-                    headers={"Content-Type": "application/octet-stream"},
-                    timeout=UPLOAD_PUT_TIMEOUT,
-                ).raise_for_status()
-        except Exception as e:
-            logger.error("上传私信图片失败: %s", e)
-            return {"error": str(e)}
-
-        attachment = {
-            "fileKey": file_key,
-            "url": cdn_url,
-            "width": width,
-            "height": height,
-            "fileSize": file_size,
-            "hash": "",
-            "animated": False,
-            "displayName": "",
-            "attachmentType": "IMAGE",
-        }
-        msg_text = f"![IMAGEw{width}h{height}]({file_key})"
+        msg_text = f"![IMAGEw{width}h{height}]({attachment.file_key})"
         if text:
             msg_text += f"\n{text}"
-        result = self.send_private_message(target, msg_text, attachments=[attachment])
-        if "error" in result:
-            logger.error("私信图片发送失败: %s", result.get("error"))
-            return result
-        return {"status": True, "channel": result.get("channel"), "attachment": attachment}
+        return self.send_private_message(target, msg_text, attachments=[attachment.as_payload()])
