@@ -12,6 +12,7 @@ import websocket
 
 from .config import OopzConfig
 from .models import ChatMessageEvent, LifecycleEvent
+from .response import error_message_from_payload, is_success_payload
 
 logger = logging.getLogger("oopz.client")
 
@@ -67,6 +68,7 @@ class OopzClient:
         self._consecutive_failures = 0
         self._fail_lock = threading.Lock()
         self._hb_body = json.dumps({"person": config.person_uid})
+        self._auth_confirmed = False
 
     def _emit_lifecycle(
         self,
@@ -76,6 +78,7 @@ class OopzClient:
         code: int | None = None,
         reason: str = "",
         error: str = "",
+        payload: dict[str, object] | None = None,
     ) -> None:
         if not self.on_lifecycle_event:
             return
@@ -87,6 +90,7 @@ class OopzClient:
                     code=code,
                     reason=reason,
                     error=error,
+                    payload=payload or {},
                 )
             )
         except Exception as exc:
@@ -169,6 +173,7 @@ class OopzClient:
         logger.info("WebSocket 连接已建立")
         with self._fail_lock:
             self._consecutive_failures = 0
+        self._auth_confirmed = False
         self._emit_lifecycle("connected")
         self._send_auth(ws)
         threading.Thread(target=self._heartbeat_loop, args=(ws,), daemon=True).start()
@@ -194,18 +199,31 @@ class OopzClient:
             else:
                 body = {}
             if body.get("r") == 1:
+                self._confirm_auth({"event": EVENT_HEARTBEAT, **body})
                 self._send_heartbeat(ws)
             return
 
         if event == EVENT_SERVER_ID:
+            self._confirm_auth({"event": EVENT_SERVER_ID, **data})
             self._send_heartbeat(ws)
             logger.info("收到 serverId，已发送首次心跳")
             return
 
+        if event == EVENT_AUTH:
+            self._handle_auth_event(ws, data)
+            if self.on_other_event:
+                try:
+                    self.on_other_event(event, data)
+                except Exception as e:
+                    logger.debug("on_other_event 处理异常: %s", e)
+            return
+
         if event == EVENT_CHAT_MESSAGE:
+            self._confirm_auth({"event": EVENT_CHAT_MESSAGE})
             self._handle_chat(data)
             return
 
+        self._confirm_auth({"event": int(event) if isinstance(event, int) else -1})
         if self.on_other_event:
             try:
                 self.on_other_event(event, data)
@@ -240,6 +258,44 @@ class OopzClient:
         ws.send(json.dumps(payload))
         logger.info("已发送认证信息")
         self._emit_lifecycle("auth_sent")
+
+    def _confirm_auth(self, payload: dict[str, object] | None = None) -> None:
+        if self._auth_confirmed:
+            return
+        self._auth_confirmed = True
+        logger.info("WebSocket 认证已确认")
+        self._emit_lifecycle("auth_ok", payload=payload or {})
+
+    def _handle_auth_event(self, ws, data: dict[str, object]) -> None:
+        body = self._safe_json_parse(data.get("body", {}))
+        candidates: list[dict[str, object]] = []
+        if isinstance(body, dict):
+            candidates.append(body)
+            for key in ("data", "result"):
+                nested = body.get(key)
+                if isinstance(nested, dict):
+                    candidates.append(nested)
+
+        for candidate in candidates:
+            if "status" not in candidate and "success" not in candidate and "code" not in candidate:
+                continue
+            if is_success_payload(candidate):
+                self._confirm_auth(candidate)
+                return
+
+            reason = error_message_from_payload(candidate, "WebSocket 认证失败")
+            code = candidate.get("code")
+            try:
+                code_value = int(code) if code is not None else None
+            except (TypeError, ValueError):
+                code_value = None
+            logger.warning("WebSocket 认证失败: %s", reason)
+            self._emit_lifecycle("auth_failed", code=code_value, reason=reason, payload=candidate)
+            try:
+                ws.close()
+            except Exception:
+                logger.debug("关闭认证失败的连接时出现异常")
+            return
 
     # -- 心跳 --
 

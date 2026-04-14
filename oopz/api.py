@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import dataclasses
 import json
 import logging
 import re
@@ -11,11 +12,43 @@ from typing import TYPE_CHECKING, Optional
 
 if TYPE_CHECKING:
     from .config import OopzConfig
-    from .models import AreaInfo, AreaMembersPage, ChannelGroup, OperationResult, PersonInfo
+    from .models import (
+        AreaInfo,
+        AreaMembersPage,
+        AreaBlocksResult,
+        ChannelGroupsResult,
+        ChannelMessage,
+        ChannelSetting,
+        DailySpeechResult,
+        JoinedAreasResult,
+        OperationResult,
+        PersonDetail,
+        PersonInfo,
+        SelfDetail,
+        VoiceChannelMembersResult,
+    )
 
-from .exceptions import OopzApiError
-from .models import OperationResult
-from .response import ensure_success_payload, raise_api_error, require_dict_data, require_list_data
+from .exceptions import OopzApiError, OopzConnectionError, OopzRateLimitError
+from .models import (
+    AreaBlock,
+    AreaBlocksResult,
+    ChannelGroupsResult,
+    ChannelMessage,
+    ChannelSetting,
+    DailySpeechResult,
+    JoinedAreasResult,
+    OperationResult,
+    PersonDetail,
+    SelfDetail,
+    VoiceChannelMembersResult,
+)
+from .response import (
+    ensure_success_payload,
+    raise_api_error,
+    require_dict_data,
+    require_list_data,
+    retry_delay_from_exception,
+)
 
 logger = logging.getLogger("oopz.api")
 
@@ -56,6 +89,233 @@ class OopzApiMixin:
         response=None,
     ) -> OperationResult:
         return OperationResult(ok=True, message=message, payload=payload, response=response)
+
+    def _get_query_cache_store(self) -> dict[tuple[object, ...], dict[str, object]]:
+        store = getattr(self, "_query_cache", None)
+        if not isinstance(store, dict):
+            store = {}
+            self._query_cache = store
+        return store
+
+    def _copy_cache_value(self, value: object) -> object:
+        if dataclasses.is_dataclass(value):
+            if hasattr(value, "response"):
+                value = dataclasses.replace(value, response=None)
+            return copy.deepcopy(value)
+        return copy.deepcopy(value)
+
+    def _get_cached_value(
+        self,
+        cache_key: tuple[object, ...],
+        *,
+        max_age: float,
+    ) -> object | None:
+        store = self._get_query_cache_store()
+        cached = store.get(cache_key)
+        if not isinstance(cached, dict):
+            return None
+        ts = cached.get("ts")
+        data = cached.get("data")
+        if not isinstance(ts, (int, float)):
+            return None
+        if time.time() - float(ts) > max_age:
+            return None
+        return self._copy_cache_value(data)
+
+    def _set_cached_value(self, cache_key: tuple[object, ...], data: object) -> None:
+        store = self._get_query_cache_store()
+        max_entries = int(getattr(self._config, "cache_max_entries", 200))
+        if len(store) >= max_entries:
+            oldest = min(store, key=lambda key: store[key].get("ts", 0) if isinstance(store[key], dict) else 0)
+            store.pop(oldest, None)
+        store[cache_key] = {"ts": time.time(), "data": self._copy_cache_value(data)}
+
+    @staticmethod
+    def _mark_result_from_cache(result: object, *, stale: bool = False, rate_limited: bool = False) -> object:
+        if isinstance(result, dict):
+            result["from_cache"] = True
+            if stale:
+                result["stale"] = True
+            if rate_limited:
+                result["rateLimited"] = True
+            return result
+        if hasattr(result, "from_cache"):
+            setattr(result, "from_cache", True)
+        if stale and hasattr(result, "stale"):
+            setattr(result, "stale", True)
+        if rate_limited and hasattr(result, "rate_limited"):
+            setattr(result, "rate_limited", True)
+        return result
+
+    def _load_cached_fallback(
+        self,
+        cache_key: tuple[object, ...],
+        *,
+        max_age: float,
+        stale: bool = False,
+        rate_limited: bool = False,
+    ) -> object | None:
+        cached = self._get_cached_value(cache_key, max_age=max_age)
+        if cached is None:
+            return None
+        return self._mark_result_from_cache(cached, stale=stale, rate_limited=rate_limited)
+
+    def _call_with_retries(
+        self,
+        action: str,
+        callback,
+        *,
+        max_attempts: int = 3,
+    ):
+        last_error: Exception | None = None
+        for attempt in range(1, max_attempts + 1):
+            try:
+                return callback()
+            except (OopzRateLimitError, OopzConnectionError) as exc:
+                last_error = exc
+                if attempt >= max_attempts:
+                    break
+                wait_seconds = retry_delay_from_exception(exc, attempt)
+                logger.warning("%s，%.1fs 后重试 (%d/%d): %s", action, wait_seconds, attempt, max_attempts - 1, exc)
+                time.sleep(wait_seconds)
+        if last_error is not None:
+            raise last_error
+        raise OopzApiError(f"{action}: 未知错误")
+
+    def _build_channel_setting_result(self, payload: dict[str, object], *, response=None) -> ChannelSetting:
+        accessible_members = [
+            str(item) for item in payload.get("accessibleMembers", []) if str(item).strip()
+        ] if isinstance(payload.get("accessibleMembers"), list) else []
+        return ChannelSetting(
+            channel=str(payload.get("channel") or payload.get("id") or ""),
+            area=str(payload.get("area") or ""),
+            name=str(payload.get("name") or ""),
+            text_gap_second=int(payload.get("textGapSecond", 0) or 0),
+            voice_quality=str(payload.get("voiceQuality") or "64k"),
+            voice_delay=str(payload.get("voiceDelay") or "LOW"),
+            max_member=int(payload.get("maxMember", 30000) or 30000),
+            voice_control_enabled=bool(payload.get("voiceControlEnabled")),
+            text_control_enabled=bool(payload.get("textControlEnabled")),
+            text_roles=list(payload.get("textRoles") or []),
+            voice_roles=list(payload.get("voiceRoles") or []),
+            access_control_enabled=bool(payload.get("accessControlEnabled")),
+            accessible=list(payload.get("accessible") or []),
+            accessible_members=accessible_members,
+            secret=bool(payload.get("secret")),
+            has_password=bool(payload.get("hasPassword")),
+            password=str(payload.get("password") or ""),
+            payload=dict(payload),
+            response=response,
+        )
+
+    def _build_person_detail_result(self, payload: dict[str, object], *, response=None) -> PersonDetail:
+        return PersonDetail(
+            uid=str(payload.get("uid") or payload.get("id") or ""),
+            name=str(payload.get("name") or payload.get("nickname") or ""),
+            avatar=str(payload.get("avatar") or payload.get("avatarUrl") or ""),
+            common_id=str(payload.get("commonId") or ""),
+            bio=str(payload.get("bio") or payload.get("signature") or ""),
+            payload=dict(payload),
+            response=response,
+        )
+
+    def _build_self_detail_result(
+        self,
+        payload: dict[str, object],
+        *,
+        response=None,
+        from_cache: bool = False,
+    ) -> SelfDetail:
+        return SelfDetail(
+            uid=str(payload.get("uid") or payload.get("id") or self._config.person_uid),
+            name=str(payload.get("name") or payload.get("nickname") or ""),
+            avatar=str(payload.get("avatar") or payload.get("avatarUrl") or ""),
+            mobile=str(payload.get("mobile") or ""),
+            from_cache=from_cache,
+            payload=dict(payload),
+            response=response,
+        )
+
+    @staticmethod
+    def _build_voice_channel_members_result(
+        payload: dict[str, object],
+        *,
+        response=None,
+    ) -> VoiceChannelMembersResult:
+        raw_members = payload.get("channelMembers", {})
+        channels: dict[str, list[dict[str, object]]] = {}
+        if isinstance(raw_members, dict):
+            for channel_id, members in raw_members.items():
+                normalized: list[dict[str, object]] = []
+                if isinstance(members, list):
+                    for member in members:
+                        if isinstance(member, dict):
+                            normalized.append(member)
+                channels[str(channel_id)] = normalized
+        return VoiceChannelMembersResult(channels=channels, payload=dict(payload), response=response)
+
+    @staticmethod
+    def _build_daily_speech_result(payload: dict[str, object], *, response=None) -> DailySpeechResult:
+        return DailySpeechResult(
+            words=str(payload.get("words") or payload.get("content") or ""),
+            author=str(payload.get("author") or payload.get("from") or ""),
+            source=str(payload.get("source") or payload.get("book") or ""),
+            payload=dict(payload),
+            response=response,
+        )
+
+    @staticmethod
+    def _build_channel_messages_result(
+        payload: dict[str, object],
+        *,
+        response=None,
+    ) -> list[ChannelMessage]:
+        raw_list = payload.get("messages", [])
+        if not isinstance(raw_list, list):
+            raise OopzApiError("获取频道消息失败: 响应格式异常", status_code=getattr(response, "status_code", None), response=payload)
+        messages: list[ChannelMessage] = []
+        for item in raw_list:
+            if not isinstance(item, dict):
+                continue
+            attachments = item.get("attachments", [])
+            messages.append(
+                ChannelMessage(
+                    message_id=str(item.get("messageId") or item.get("id") or ""),
+                    area=str(item.get("area") or ""),
+                    channel=str(item.get("channel") or ""),
+                    person=str(item.get("person") or ""),
+                    content=str(item.get("content") or item.get("text") or ""),
+                    timestamp=str(item.get("timestamp") or ""),
+                    attachments=[entry for entry in attachments if isinstance(entry, dict)] if isinstance(attachments, list) else [],
+                    payload=dict(item),
+                    response=response,
+                )
+            )
+        return messages
+
+    @staticmethod
+    def _build_area_blocks_result(payload: object, *, response=None) -> AreaBlocksResult:
+        blocks: list[AreaBlock] = []
+        if isinstance(payload, list):
+            raw_blocks = payload
+        elif isinstance(payload, dict):
+            raw_blocks = payload.get("blocks", payload.get("list", []))
+        else:
+            raw_blocks = []
+        if isinstance(raw_blocks, list):
+            for item in raw_blocks:
+                if not isinstance(item, dict):
+                    continue
+                blocks.append(
+                    AreaBlock(
+                        uid=str(item.get("uid") or item.get("target") or item.get("id") or ""),
+                        name=str(item.get("name") or item.get("nickname") or ""),
+                        reason=str(item.get("reason") or item.get("message") or ""),
+                        payload=dict(item),
+                    )
+                )
+        normalized_payload = payload if isinstance(payload, dict) else {"blocks": [block.payload for block in blocks]}
+        return AreaBlocksResult(blocks=blocks, payload=dict(normalized_payload), response=response)
 
     # ---- 域成员查询 ----
 
@@ -105,6 +365,7 @@ class OopzApiMixin:
         if quiet:
             cached = self._get_cached_area_members(cache_key, max_age=cache_ttl)
             if cached is not None:
+                cached["from_cache"] = True
                 return cached
 
         try:
@@ -126,6 +387,7 @@ class OopzApiMixin:
                     if stale_cached is not None:
                         stale_cached["stale"] = True
                         stale_cached["rateLimited"] = True
+                        stale_cached["from_cache"] = True
                         logger.warning(
                             "获取域成员被限流，返回 %.1fs 内缓存数据 (area=%s, offset=%s-%s)",
                             stale_ttl, area, offset_start, offset_end,
@@ -169,6 +431,9 @@ class OopzApiMixin:
             data["totalCount"] = total
             data["userCount"] = total
             data["fetchedCount"] = fetched
+            data["stale"] = False
+            data["rateLimited"] = False
+            data["from_cache"] = False
             self._set_cached_area_members(cache_key, data)
             return data
         except Exception as e:
@@ -176,34 +441,59 @@ class OopzApiMixin:
             stale = self._get_cached_area_members(cache_key, max_age=stale_ttl)
             if stale is not None:
                 stale["stale"] = True
+                stale["from_cache"] = True
                 return stale
             raise
 
     # ---- 频道列表 ----
 
-    def get_area_channels(self, area: Optional[str] = None, quiet: bool = False) -> list["ChannelGroup"]:
+    def get_area_channels(self, area: Optional[str] = None, quiet: bool = False) -> "ChannelGroupsResult":
         """获取域内完整频道列表（含分组）。"""
         area = self._resolve_area(area)
         url_path = "/client/v1/area/v1/detail/v1/channels"
         params = {"area": area}
 
-        resp = self._get(url_path, params=params)
-        result = ensure_success_payload(resp, "获取频道列表失败")
-        groups = require_list_data(result, "获取频道列表失败")
-        if not quiet:
-            total = sum(len(g.get("channels") or []) for g in groups if isinstance(g, dict))
-            logger.info("获取频道列表: %d 个频道, %d 个分组", total, len(groups))
-        return [group for group in groups if isinstance(group, dict)]
+        cache_key = ("area_channels", area)
+        cache_ttl = float(getattr(self._config, "query_cache_ttl", 15.0))
+        stale_ttl = float(getattr(self._config, "query_cache_stale_ttl", 300.0))
+        if quiet:
+            cached = self._load_cached_fallback(cache_key, max_age=cache_ttl)
+            if cached is not None:
+                return cached
 
-    def get_channel_setting_info(self, channel: str) -> dict:
+        def _load_channels() -> tuple[dict[str, object], object]:
+            resp_local = self._get(url_path, params=params)
+            return ensure_success_payload(resp_local, "获取频道列表失败"), resp_local
+
+        try:
+            result, resp = self._call_with_retries("获取频道列表失败", _load_channels)
+        except (OopzRateLimitError, OopzConnectionError):
+            cached = self._load_cached_fallback(cache_key, max_age=stale_ttl, stale=True)
+            if cached is not None:
+                return cached
+            raise
+        groups = require_list_data(result, "获取频道列表失败")
+        typed_groups = [group for group in groups if isinstance(group, dict)]
+        payload = ChannelGroupsResult(groups=typed_groups, from_cache=False, payload=result, response=resp)
+        self._set_cached_value(cache_key, payload)
+        if not quiet:
+            total = sum(len(g.get("channels") or []) for g in payload.groups if isinstance(g, dict))
+            logger.info("获取频道列表: %d 个频道, %d 个分组", total, len(payload.groups))
+        return payload
+
+    def get_channel_setting_info(self, channel: str) -> "ChannelSetting":
         """获取频道设置详情（名称、访问权限等）。"""
         channel = self._require_text(channel, "channel")
 
         url_path = "/area/v3/channel/setting/info"
         params = {"channel": channel}
-        resp = self._get(url_path, params=params)
-        result = ensure_success_payload(resp, "获取频道设置失败")
-        return require_dict_data(result, "获取频道设置失败")
+        def _load_setting() -> tuple[dict[str, object], object]:
+            resp_local = self._get(url_path, params=params)
+            return ensure_success_payload(resp_local, "获取频道设置失败"), resp_local
+
+        result, resp = self._call_with_retries("获取频道设置失败", _load_setting)
+        data = require_dict_data(result, "获取频道设置失败")
+        return self._build_channel_setting_result(data, response=resp)
 
     def _pick_channel_group(
         self,
@@ -211,7 +501,8 @@ class OopzApiMixin:
         preferred_channel: Optional[str] = None,
         preferred_group_name: Optional[str] = None,
     ) -> Optional[str]:
-        groups = self.get_area_channels(area=area, quiet=True) or []
+        groups_result = self.get_area_channels(area=area, quiet=True)
+        groups = groups_result.groups
         preferred_channel = str(preferred_channel or "").strip()
         preferred_group_name = str(preferred_group_name or "").strip().lower()
 
@@ -294,25 +585,7 @@ class OopzApiMixin:
         _INT_FIELDS = ("textGapSecond", "maxMember")
         _STR_FIELDS = ("name", "voiceQuality", "voiceDelay", "password")
 
-        edit_body = {
-            "channel": channel_id,
-            "area": area,
-            "name": str(setting.get("name") or ""),
-            "textGapSecond": int(setting.get("textGapSecond", 0) or 0),
-            "voiceQuality": str(setting.get("voiceQuality") or "64k"),
-            "voiceDelay": str(setting.get("voiceDelay") or "LOW"),
-            "maxMember": int(setting.get("maxMember", 30000) or 30000),
-            "voiceControlEnabled": bool(setting.get("voiceControlEnabled")),
-            "textControlEnabled": bool(setting.get("textControlEnabled")),
-            "textRoles": list(setting.get("textRoles") or []),
-            "voiceRoles": list(setting.get("voiceRoles") or []),
-            "accessControlEnabled": bool(setting.get("accessControlEnabled")),
-            "accessible": list(setting.get("accessible") or []),
-            "accessibleMembers": list(setting.get("accessibleMembers") or []),
-            "secret": bool(setting.get("secret")),
-            "hasPassword": bool(setting.get("hasPassword")),
-            "password": str(setting.get("password") or ""),
-        }
+        edit_body = setting.to_edit_body(area=area)
 
         if name:
             edit_body["name"] = name
@@ -382,18 +655,9 @@ class OopzApiMixin:
             raise OopzApiError("创建受限频道失败: 未能提取频道 ID", status_code=resp.status_code, response=result)
 
         setting = self.get_channel_setting_info(channel_id)
-        edit_body = {
-            "channel": channel_id,
-            "name": str(setting.get("name") or channel_name),
-            "textGapSecond": int(setting.get("textGapSecond", 0) or 0),
-            "area": area,
-            "voiceQuality": str(setting.get("voiceQuality") or "64k"),
-            "voiceDelay": str(setting.get("voiceDelay") or "LOW"),
-            "maxMember": int(setting.get("maxMember", 30000) or 30000),
-            "voiceControlEnabled": bool(setting.get("voiceControlEnabled", False)),
-            "textControlEnabled": bool(setting.get("textControlEnabled", False)),
-            "textRoles": list(setting.get("textRoles") or []),
-            "voiceRoles": list(setting.get("voiceRoles") or []),
+        edit_body = setting.to_edit_body(area=area)
+        edit_body.update({
+            "name": setting.name or channel_name,
             "accessControlEnabled": True,
             "accessible": [],
             "accessibleMembers": [
@@ -402,10 +666,10 @@ class OopzApiMixin:
                     str(self._config.person_uid or ""),
                 ]) if uid
             ],
-            "secret": bool(setting.get("secret", True)),
-            "hasPassword": bool(setting.get("hasPassword", False)),
-            "password": str(setting.get("password") or ""),
-        }
+            "secret": setting.secret,
+            "hasPassword": setting.has_password,
+            "password": setting.password,
+        })
 
         edit_path = "/area/v3/channel/setting/edit"
         try:
@@ -439,18 +703,40 @@ class OopzApiMixin:
 
     # ---- 已加入的域列表 ----
 
-    def get_joined_areas(self, quiet: bool = False) -> list["AreaInfo"]:
+    def get_joined_areas(self, quiet: bool = False) -> "JoinedAreasResult":
         """获取当前用户已加入（订阅）的域列表。"""
         url_path = "/userSubscribeArea/v1/list"
-        resp = self._get(url_path)
-        result = ensure_success_payload(resp, "获取已加入域列表失败")
+        cache_key = ("joined_areas", self._config.person_uid)
+        cache_ttl = float(getattr(self._config, "query_cache_ttl", 15.0))
+        stale_ttl = float(getattr(self._config, "query_cache_stale_ttl", 300.0))
+        if quiet:
+            cached = self._load_cached_fallback(cache_key, max_age=cache_ttl)
+            if cached is not None:
+                return cached
+        
+
+        def _load_areas() -> tuple[dict[str, object], object]:
+            resp_local = self._get(url_path)
+            return ensure_success_payload(resp_local, "获取已加入域列表失败"), resp_local
+
+        try:
+            result, resp = self._call_with_retries("获取已加入域列表失败", _load_areas)
+        except (OopzRateLimitError, OopzConnectionError):
+            cached = self._load_cached_fallback(cache_key, max_age=stale_ttl, stale=True)
+            if cached is not None:
+                return cached
+            raise
+
         areas = require_list_data(result, "获取已加入域列表失败")
+        typed_areas = [area for area in areas if isinstance(area, dict)]
+        payload = JoinedAreasResult(areas=typed_areas, from_cache=False, payload=result, response=resp)
+        self._set_cached_value(cache_key, payload)
         if not quiet:
-            logger.info("获取已加入域列表: %d 个域", len(areas))
-            for a in areas:
+            logger.info("获取已加入域列表: %d 个域", len(payload.areas))
+            for a in payload.areas:
                 if isinstance(a, dict):
                     logger.info("  域: %s (ID=%s, code=%s)", a.get("name"), a.get("id"), a.get("code"))
-        return [area for area in areas if isinstance(area, dict)]
+        return payload
 
     # ---- 域详情 ----
 
@@ -488,38 +774,61 @@ class OopzApiMixin:
 
     # ---- 个人详细信息 ----
 
-    def get_person_detail(self, uid: Optional[str] = None) -> dict:
+    def get_person_detail(self, uid: Optional[str] = None) -> PersonDetail:
         """获取用户信息（可查询任意用户）。"""
         uid = str(uid or self._config.person_uid).strip()
         url_path = "/client/v1/person/v1/personInfos"
         body = {"persons": [uid], "commonIds": []}
 
-        resp = self._post(url_path, body)
-        result = ensure_success_payload(resp, "获取个人信息失败")
+        def _load_person() -> tuple[dict[str, object], object]:
+            resp_local = self._post(url_path, body)
+            return ensure_success_payload(resp_local, "获取个人信息失败"), resp_local
+
+        result, resp = self._call_with_retries("获取个人信息失败", _load_person)
         data_list = require_list_data(result, "获取个人信息失败")
         if not data_list or not isinstance(data_list[0], dict):
             raise OopzApiError("获取个人信息失败: 未找到该用户", status_code=resp.status_code, response=result)
 
         person = data_list[0]
         logger.info("获取个人信息成功: %s", person.get("name", "未知"))
-        return person
+        return self._build_person_detail_result(person, response=resp)
 
-    def get_person_detail_full(self, uid: str) -> dict:
+    def get_person_detail_full(self, uid: str) -> PersonDetail:
         """获取他人完整详细资料（含 VIP、IP 属地等）。"""
         url_path = "/client/v1/person/v1/personDetail"
         params = {"uid": self._require_text(uid, "uid")}
-        resp = self._get(url_path, params=params)
-        result = ensure_success_payload(resp, "获取他人详细资料失败")
-        return require_dict_data(result, "获取他人详细资料失败")
+        def _load_person_full() -> tuple[dict[str, object], object]:
+            resp_local = self._get(url_path, params=params)
+            return ensure_success_payload(resp_local, "获取他人详细资料失败"), resp_local
 
-    def get_self_detail(self) -> dict:
+        result, resp = self._call_with_retries("获取他人详细资料失败", _load_person_full)
+        data = require_dict_data(result, "获取他人详细资料失败")
+        return self._build_person_detail_result(data, response=resp)
+
+    def get_self_detail(self) -> SelfDetail:
         """获取当前登录用户的完整详细资料。"""
         uid = self._config.person_uid
         url_path = "/client/v1/person/v2/selfDetail"
         params = {"uid": uid}
-        resp = self._get(url_path, params=params)
-        result = ensure_success_payload(resp, "获取自身详细资料失败")
-        return require_dict_data(result, "获取自身详细资料失败")
+        cache_key = ("self_detail", uid)
+        stale_ttl = float(getattr(self._config, "query_cache_stale_ttl", 300.0))
+
+        def _load_self_detail() -> tuple[dict[str, object], object]:
+            resp_local = self._get(url_path, params=params)
+            return ensure_success_payload(resp_local, "获取自身详细资料失败"), resp_local
+
+        try:
+            result, resp = self._call_with_retries("获取自身详细资料失败", _load_self_detail)
+        except (OopzRateLimitError, OopzConnectionError):
+            cached = self._load_cached_fallback(cache_key, max_age=stale_ttl, stale=True)
+            if cached is not None:
+                return cached
+            raise
+
+        data = require_dict_data(result, "获取自身详细资料失败")
+        detail = self._build_self_detail_result(data, response=resp, from_cache=False)
+        self._set_cached_value(cache_key, detail)
+        return detail
 
     def get_level_info(self) -> dict:
         """获取当前用户等级、积分信息。"""
@@ -605,7 +914,7 @@ class OopzApiMixin:
         cached = self._voice_ids_cache.get(area)
         if cached and time.time() - cached["ts"] < 300:
             return cached["ids"]
-        groups = self.get_area_channels(area, quiet=True)
+        groups = self.get_area_channels(area, quiet=True).groups
         ids = []
         for g in groups:
             for ch in g.get("channels") or []:
@@ -614,35 +923,27 @@ class OopzApiMixin:
         self._voice_ids_cache[area] = {"ids": ids, "ts": time.time()}
         return ids
 
-    def get_voice_channel_members(self, area: Optional[str] = None) -> dict:
+    def get_voice_channel_members(self, area: Optional[str] = None) -> VoiceChannelMembersResult:
         """获取域内各语音频道的在线成员列表。"""
         area = self._resolve_area(area)
         voice_ids = self._get_voice_channel_ids(area)
         if not voice_ids:
-            return {}
+            return VoiceChannelMembersResult(channels={})
 
         url_path = "/area/v3/channel/membersByChannels"
         body = {"area": area, "channels": voice_ids}
-        max_retries = 3
-        for attempt in range(max_retries):
-            resp = self._post(url_path, body)
-            if resp.status_code == 429:
-                wait = min(2 ** attempt, 4)
-                logger.warning("获取语音频道成员被限流 (429)，%ds 后重试 (%d/%d)", wait, attempt + 1, max_retries)
-                time.sleep(wait)
-                continue
-            result = ensure_success_payload(resp, "获取语音频道成员失败")
-            data = require_dict_data(result, "获取语音频道成员失败")
-            members = data.get("channelMembers", {})
-            if not isinstance(members, dict):
-                raise OopzApiError("获取语音频道成员失败: 响应格式异常", status_code=resp.status_code, response=result)
-            return members
-        raise OopzApiError("获取语音频道成员失败: 重试次数用尽")
+        def _load_voice_members() -> tuple[dict[str, object], object]:
+            resp_local = self._post(url_path, body)
+            return ensure_success_payload(resp_local, "获取语音频道成员失败"), resp_local
+
+        result, resp = self._call_with_retries("获取语音频道成员失败", _load_voice_members)
+        data = require_dict_data(result, "获取语音频道成员失败")
+        return self._build_voice_channel_members_result(data, response=resp)
 
     def get_voice_channel_for_user(self, user_uid: str, area: Optional[str] = None) -> Optional[str]:
         """获取用户当前所在的语音频道 ID，不在任何语音频道则返回 None。"""
         members = self.get_voice_channel_members(area=area)
-        for ch_id, ch_members in members.items():
+        for ch_id, ch_members in members.channels.items():
             if not ch_members:
                 continue
             for m in ch_members:
@@ -701,15 +1002,19 @@ class OopzApiMixin:
 
     # ---- 每日一句 ----
 
-    def get_daily_speech(self) -> dict:
+    def get_daily_speech(self) -> DailySpeechResult:
         """获取开屏每日一句（名言）。"""
         url_path = "/general/v1/speech"
 
-        resp = self._get(url_path)
-        result = ensure_success_payload(resp, "获取每日一句失败")
+        def _load_speech() -> tuple[dict[str, object], object]:
+            resp_local = self._get(url_path)
+            return ensure_success_payload(resp_local, "获取每日一句失败"), resp_local
+
+        result, resp = self._call_with_retries("获取每日一句失败", _load_speech)
         data = require_dict_data(result, "获取每日一句失败")
-        logger.info("每日一句: %s...", str(data.get("words", ""))[:30])
-        return data
+        speech = self._build_daily_speech_result(data, response=resp)
+        logger.info("每日一句: %s...", speech.words[:30])
+        return speech
 
     # ---- 获取频道消息 ----
 
@@ -718,27 +1023,20 @@ class OopzApiMixin:
         area: Optional[str] = None,
         channel: Optional[str] = None,
         size: int = 50,
-    ) -> list[dict]:
+    ) -> list[ChannelMessage]:
         """获取频道最近的消息列表。"""
         area = self._resolve_area(area)
         channel = self._resolve_channel(channel)
         url_path = "/im/session/v2/messageBefore"
         params = {"area": area, "channel": channel, "size": str(size)}
 
-        resp = self._get(url_path, params=params)
-        result = ensure_success_payload(resp, "获取频道消息失败")
+        def _load_messages() -> tuple[dict[str, object], object]:
+            resp_local = self._get(url_path, params=params)
+            return ensure_success_payload(resp_local, "获取频道消息失败"), resp_local
+
+        result, resp = self._call_with_retries("获取频道消息失败", _load_messages)
         data = require_dict_data(result, "获取频道消息失败")
-        raw_list = data.get("messages", [])
-        if not isinstance(raw_list, list):
-            raise OopzApiError("获取频道消息失败: 响应格式异常", status_code=resp.status_code, response=result)
-        messages = []
-        for m in raw_list:
-            if not isinstance(m, dict):
-                continue
-            mid = m.get("messageId") or m.get("id")
-            if mid is not None:
-                m = {**m, "messageId": str(mid)}
-            messages.append(m)
+        messages = self._build_channel_messages_result(data, response=resp)
         logger.info("获取频道消息: %d 条", len(messages))
         return messages
 
@@ -751,8 +1049,8 @@ class OopzApiMixin:
         """从频道最近消息中查找指定 messageId 的 timestamp。"""
         messages = self.get_channel_messages(area=area, channel=channel)
         for msg in messages:
-            if msg.get("messageId") == message_id:
-                return msg.get("timestamp")
+            if msg.message_id == message_id:
+                return msg.timestamp
         return None
 
     # ---- 禁言 / 禁麦 ----
@@ -823,20 +1121,21 @@ class OopzApiMixin:
         logger.info("封禁成功: %s", msg)
         return self._build_operation_result(result, message=msg, response=resp)
 
-    def get_area_blocks(self, area: Optional[str] = None, name: str = "") -> dict:
+    def get_area_blocks(self, area: Optional[str] = None, name: str = "") -> AreaBlocksResult:
         """获取域内封禁列表。"""
         area = self._resolve_area(area)
         url_path = "/client/v1/area/v1/areaSettings/v1/blocks"
         params = {"area": area, "name": name}
 
-        resp = self._get(url_path, params=params)
-        result = ensure_success_payload(resp, "获取域封禁列表失败")
+        def _load_blocks() -> tuple[dict[str, object], object]:
+            resp_local = self._get(url_path, params=params)
+            return ensure_success_payload(resp_local, "获取域封禁列表失败"), resp_local
+
+        result, resp = self._call_with_retries("获取域封禁列表失败", _load_blocks)
         data = result.get("data", {})
-        blocks = data if isinstance(data, list) else data.get("blocks", data.get("list", []))
-        if not isinstance(blocks, list):
-            blocks = []
-        logger.info("获取域封禁列表: %d 人", len(blocks))
-        return {"blocks": blocks}
+        blocks = self._build_area_blocks_result(data, response=resp)
+        logger.info("获取域封禁列表: %d 人", len(blocks.blocks))
+        return blocks
 
     def unblock_user_in_area(self, uid: str, area: Optional[str] = None) -> OperationResult:
         """解除域内封禁。"""
@@ -905,7 +1204,7 @@ class OopzApiMixin:
         """
         areas_count = 0
         channels_count = 0
-        areas = self.get_joined_areas()
+        areas = self.get_joined_areas().areas
         for a in areas:
             area_id = a.get("id", "")
             area_name = a.get("name", "")
@@ -913,7 +1212,7 @@ class OopzApiMixin:
                 set_area(area_id, area_name)
                 areas_count += 1
 
-            groups = self.get_area_channels(area_id) or []
+            groups = self.get_area_channels(area_id).groups
             for group in groups:
                 for ch in (group.get("channels") or []):
                     ch_id = ch.get("id", "")

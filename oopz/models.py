@@ -48,6 +48,16 @@ class PersonInfo(TypedDict, total=False):
     online: int
 
 
+class VoiceChannelMember(TypedDict, total=False):
+    """语音频道成员信息。"""
+
+    uid: str
+    id: str
+    name: str
+    avatar: str
+    online: int
+
+
 class AreaMembersPage(TypedDict, total=False):
     """域成员分页结果。"""
 
@@ -58,6 +68,7 @@ class AreaMembersPage(TypedDict, total=False):
     fetchedCount: int
     stale: bool
     rateLimited: bool
+    from_cache: bool
 
 
 class ChatMessagePayload(TypedDict, total=False):
@@ -150,6 +161,153 @@ class PrivateSessionResult:
 
 
 @dataclass(slots=True)
+class ChannelGroupsResult:
+    """域内频道分组结果。"""
+
+    groups: list[ChannelGroup]
+    from_cache: bool = False
+    payload: JsonObject = field(default_factory=dict)
+    response: requests.Response | None = field(default=None, repr=False)
+
+
+@dataclass(slots=True)
+class JoinedAreasResult:
+    """已加入域列表结果。"""
+
+    areas: list[AreaInfo]
+    from_cache: bool = False
+    payload: JsonObject = field(default_factory=dict)
+    response: requests.Response | None = field(default=None, repr=False)
+
+
+@dataclass(slots=True)
+class PersonDetail:
+    """用户资料结果。"""
+
+    uid: str = ""
+    name: str = ""
+    avatar: str = ""
+    common_id: str = ""
+    bio: str = ""
+    payload: JsonObject = field(default_factory=dict)
+    response: requests.Response | None = field(default=None, repr=False)
+
+
+@dataclass(slots=True)
+class SelfDetail:
+    """当前登录用户资料结果。"""
+
+    uid: str = ""
+    name: str = ""
+    avatar: str = ""
+    mobile: str = ""
+    from_cache: bool = False
+    payload: JsonObject = field(default_factory=dict)
+    response: requests.Response | None = field(default=None, repr=False)
+
+
+@dataclass(slots=True)
+class ChannelSetting:
+    """频道设置结果。"""
+
+    channel: str
+    area: str = ""
+    name: str = ""
+    text_gap_second: int = 0
+    voice_quality: str = "64k"
+    voice_delay: str = "LOW"
+    max_member: int = 30000
+    voice_control_enabled: bool = False
+    text_control_enabled: bool = False
+    text_roles: list[object] = field(default_factory=list)
+    voice_roles: list[object] = field(default_factory=list)
+    access_control_enabled: bool = False
+    accessible: list[object] = field(default_factory=list)
+    accessible_members: list[str] = field(default_factory=list)
+    secret: bool = False
+    has_password: bool = False
+    password: str = ""
+    payload: JsonObject = field(default_factory=dict)
+    response: requests.Response | None = field(default=None, repr=False)
+
+    def to_edit_body(self, *, area: str | None = None) -> JsonObject:
+        """转换为编辑频道设置时使用的请求体。"""
+        return {
+            "channel": self.channel,
+            "area": area or self.area,
+            "name": self.name,
+            "textGapSecond": self.text_gap_second,
+            "voiceQuality": self.voice_quality,
+            "voiceDelay": self.voice_delay,
+            "maxMember": self.max_member,
+            "voiceControlEnabled": self.voice_control_enabled,
+            "textControlEnabled": self.text_control_enabled,
+            "textRoles": list(self.text_roles),
+            "voiceRoles": list(self.voice_roles),
+            "accessControlEnabled": self.access_control_enabled,
+            "accessible": list(self.accessible),
+            "accessibleMembers": list(self.accessible_members),
+            "secret": self.secret,
+            "hasPassword": self.has_password,
+            "password": self.password,
+        }
+
+
+@dataclass(slots=True)
+class VoiceChannelMembersResult:
+    """语音频道成员结果。"""
+
+    channels: dict[str, list[VoiceChannelMember]]
+    payload: JsonObject = field(default_factory=dict)
+    response: requests.Response | None = field(default=None, repr=False)
+
+
+@dataclass(slots=True)
+class DailySpeechResult:
+    """每日一句结果。"""
+
+    words: str
+    author: str = ""
+    source: str = ""
+    payload: JsonObject = field(default_factory=dict)
+    response: requests.Response | None = field(default=None, repr=False)
+
+
+@dataclass(slots=True)
+class ChannelMessage:
+    """频道消息结果。"""
+
+    message_id: str
+    area: str = ""
+    channel: str = ""
+    person: str = ""
+    content: str = ""
+    timestamp: str = ""
+    attachments: list[JsonObject] = field(default_factory=list)
+    payload: JsonObject = field(default_factory=dict)
+    response: requests.Response | None = field(default=None, repr=False)
+
+
+@dataclass(slots=True)
+class AreaBlock:
+    """域封禁成员结果。"""
+
+    uid: str = ""
+    name: str = ""
+    reason: str = ""
+    payload: JsonObject = field(default_factory=dict)
+
+
+@dataclass(slots=True)
+class AreaBlocksResult:
+    """域封禁列表结果。"""
+
+    blocks: list[AreaBlock]
+    payload: JsonObject = field(default_factory=dict)
+    response: requests.Response | None = field(default=None, repr=False)
+
+
+@dataclass(slots=True)
 class ChatMessageEvent:
     """聊天事件。"""
 
@@ -172,3 +330,4 @@ class LifecycleEvent:
     code: int | None = None
     reason: str = ""
     error: str = ""
+    payload: JsonObject = field(default_factory=dict)

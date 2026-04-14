@@ -6,7 +6,7 @@ from typing import NoReturn
 
 import requests
 
-from .exceptions import OopzApiError, OopzRateLimitError
+from .exceptions import OopzApiError, OopzConnectionError, OopzRateLimitError
 from .models import JsonObject
 
 SUCCESS_CODES = (0, "0", 200, "200", "success")
@@ -35,11 +35,16 @@ def error_message_from_payload(payload: JsonObject | None, default_message: str)
     """从平台响应中提取错误信息。"""
     if not payload:
         return default_message
-    for key in ("message", "error", "msg"):
+    for key in ("message", "error", "msg", "reason"):
         value = payload.get(key)
         if isinstance(value, str) and value.strip():
             return value.strip()
     return default_message
+
+
+def raise_connection_error(exc: requests.RequestException, default_message: str = "请求失败") -> NoReturn:
+    """将 requests 异常翻译为 SDK 连接异常。"""
+    raise OopzConnectionError(f"{default_message}: {exc}") from exc
 
 
 def raise_api_error(response: requests.Response, default_message: str) -> NoReturn:
@@ -89,6 +94,10 @@ def is_success_payload(payload: JsonObject) -> bool:
         return True
     if status is False:
         return code in SUCCESS_CODES
+    if payload.get("success") is True:
+        return True
+    if payload.get("success") is False:
+        return False
     if code in SUCCESS_CODES:
         return True
     return False
@@ -119,3 +128,10 @@ def require_list_data(payload: JsonObject, default_message: str) -> list[object]
     if not isinstance(data, list):
         raise_payload_error(payload, default_message=default_message)
     return data
+
+
+def retry_delay_from_exception(exc: Exception, attempt: int, *, max_delay: float = 4.0) -> float:
+    """根据异常和重试次数计算等待时间。"""
+    if isinstance(exc, OopzRateLimitError) and exc.retry_after > 0:
+        return float(exc.retry_after)
+    return min(float(2 ** (attempt - 1)), max_delay)

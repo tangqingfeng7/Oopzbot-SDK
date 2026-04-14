@@ -1,11 +1,12 @@
 # Oopz SDK
 
-Oopz 平台 Python SDK，提供消息发送、私信、文件上传、频道管理和 WebSocket 实时事件能力。
+Oopz 平台 Python SDK，提供频道消息、私信、文件上传、平台查询与 WebSocket 实时事件能力。
 
-SDK 的公开契约已经统一到两条主线：
+`v0.4` 在 `v0.3` 的统一异常和结果模型基础上，继续补了三件事：
 
-- 失败统一抛出 `OopzError` 体系异常
-- 成功优先返回稳定结果模型，而不是原始 `requests.Response`
+- 真实联调入口 `smoke/smoke_test.py`
+- 更统一的读接口重试与缓存回退语义
+- 高频查询结果模型与更明确的 WebSocket 认证生命周期
 
 ## 安装
 
@@ -24,7 +25,7 @@ pip install -e .[dev]
 ### 运行环境
 
 - Python `3.10+`
-- `requests[socks]`
+- `requests`
 - `cryptography`
 - `websocket-client`
 - `pillow`
@@ -38,16 +39,19 @@ pip install -e .[dev]
 - `jwt_token`
 - `private_key`
 
-其中 `private_key` 支持：
-
-- PEM 字符串
-- PEM 字节串
-- 已加载好的 `cryptography` 私钥对象
-
 如果你要依赖默认上下文发送频道消息，还需要配置：
 
 - `default_area`
 - `default_channel`
+
+当前稳定配置面还包括：
+
+- `request_timeout`
+- `rate_limit_interval`
+- `area_members_cache_ttl`
+- `area_members_stale_ttl`
+- `query_cache_ttl`
+- `query_cache_stale_ttl`
 
 ```python
 from oopz import OopzConfig
@@ -68,15 +72,6 @@ config = OopzConfig(
 
 ```python
 from oopz import MessageSendResult, OopzConfig, OopzSender
-
-config = OopzConfig(
-    device_id="你的设备ID",
-    person_uid="你的用户UID",
-    jwt_token="你的JWT Token",
-    private_key="-----BEGIN RSA PRIVATE KEY-----\n...\n-----END RSA PRIVATE KEY-----",
-    default_area="默认域ID",
-    default_channel="默认频道ID",
-)
 
 with OopzSender(config) as sender:
     result: MessageSendResult = sender.send_message("Hello Oopz!")
@@ -107,7 +102,20 @@ with OopzSender(config) as sender:
 
 ## WebSocket 实时事件
 
-聊天消息回调接收 `ChatMessageEvent`，生命周期事件可通过 `on_lifecycle_event` 订阅。
+聊天消息回调接收 `ChatMessageEvent`，生命周期回调接收 `LifecycleEvent`。
+
+`v0.4` 的生命周期状态包括：
+
+- `connecting`
+- `connected`
+- `auth_sent`
+- `auth_ok`
+- `auth_failed`
+- `reconnecting`
+- `closed`
+- `error`
+
+其中 `auth_sent` 表示已发起认证，`auth_ok` / `auth_failed` 才表示协议级认证结果。
 
 ```python
 from oopz import ChatMessageEvent, LifecycleEvent, OopzClient, OopzSender
@@ -134,22 +142,32 @@ client.start()
 
 ## 公开返回值
 
-当前常用公开返回值模型包括：
+发送、上传和管理类接口返回：
 
 - `MessageSendResult`
 - `UploadResult`
 - `UploadAttachment`
 - `PrivateSessionResult`
 - `OperationResult`
-- `ChatMessageEvent`
-- `LifecycleEvent`
 
-常用查询接口返回稳定的 `dict` / `list` 结构，并附带类型标注：
+高频查询接口返回：
+
+- `ChannelGroupsResult`
+- `JoinedAreasResult`
+- `SelfDetail`
+- `PersonDetail`
+- `ChannelSetting`
+- `VoiceChannelMembersResult`
+- `DailySpeechResult`
+- `AreaBlocksResult`
+- `list[ChannelMessage]`
+
+其中带缓存回退能力的读接口会通过 `from_cache` 明确标识缓存命中，而不是让调用方猜测：
 
 - `get_area_members`
 - `get_area_channels`
 - `get_joined_areas`
-- `get_channel_messages`
+- `get_self_detail`
 
 ## 异常处理
 
@@ -164,13 +182,15 @@ OopzError
 ```
 
 ```python
-from oopz import OopzApiError, OopzRateLimitError, OopzSender
+from oopz import OopzApiError, OopzConnectionError, OopzRateLimitError, OopzSender
 
 try:
     with OopzSender(config) as sender:
         sender.send_message("test")
 except OopzRateLimitError as exc:
     print(f"被限流，建议 {exc.retry_after}s 后重试")
+except OopzConnectionError as exc:
+    print(f"网络失败: {exc}")
 except OopzApiError as exc:
     print(f"请求失败: {exc} (HTTP {exc.status_code})")
 ```
@@ -183,9 +203,56 @@ except OopzApiError as exc:
 - `reply_bot.py`：接收消息并自动回复
 - `upload_private_image.py`：上传图片并通过私信发送
 
+## 真实联调
+
+`smoke/smoke_test.py` 用于跑真实账号联调，不会进入默认 CI。
+
+### 联调前准备
+
+- 准备测试域和测试频道
+- 准备可用的 `device_id / person_uid / jwt_token / private_key`
+- 如需私信联调，准备 `OOPZ_TARGET_UID`
+- 如需严格验证 WebSocket 收消息，准备第二个账号在等待窗口内发消息
+
+### 环境变量
+
+- `OOPZ_DEVICE_ID`
+- `OOPZ_PERSON_UID`
+- `OOPZ_JWT_TOKEN`
+- `OOPZ_PRIVATE_KEY` 或 `OOPZ_PRIVATE_KEY_FILE`
+- `OOPZ_AREA_ID`
+- `OOPZ_CHANNEL_ID`
+- `OOPZ_TARGET_UID` 可选
+- `OOPZ_SMOKE_IMAGE` 可选
+- `OOPZ_SMOKE_EXPECT_WS_MESSAGE=1` 可选
+- `OOPZ_SMOKE_WS_WAIT_SECONDS` 可选，默认 `20`
+
+### 执行方式
+
+```bash
+python smoke/smoke_test.py
+```
+
+### 通过标准
+
+- 域列表、自身信息、频道列表、域成员查询成功
+- 频道发消息和撤回成功
+- 文件上传和发图成功
+- WebSocket 至少完成 `auth_ok`
+- 提供 `OOPZ_TARGET_UID` 时私信成功
+- 设置 `OOPZ_SMOKE_EXPECT_WS_MESSAGE=1` 时，等待窗口内收到真实消息事件
+
+### 常见失败原因
+
+- `jwt_token` 过期，导致 HTTP 或 WebSocket 认证失败
+- `private_key` 与账号不匹配，导致签名异常
+- `default_area/default_channel` 或环境变量填写错误
+- 给自己发私信，触发平台已知异常
+- 仅用单账号联调时，WebSocket 默认无法验证“收到他人消息”这条链路
+
 ## 测试与构建
 
-运行测试：
+运行单元测试：
 
 ```bash
 python -m pytest tests -q
@@ -203,6 +270,6 @@ python -m pip wheel . --no-deps -w dist-check
 python -m build
 ```
 
-## v0.3 变更
+## 版本变更
 
-`v0.2 -> v0.3` 的主要变化见 [CHANGELOG.md](CHANGELOG.md)。
+- `v0.3 -> v0.4` 变化见 [CHANGELOG.md](CHANGELOG.md)

@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.4.0 - 2026-04-15
+
+### 新增
+
+- 新增 `smoke/smoke_test.py` 真实环境联调入口，支持通过环境变量验证频道消息、撤回、上传、发图、私信和 WebSocket 认证。
+- 新增高频查询结果模型：
+  - `ChannelGroupsResult`
+  - `JoinedAreasResult`
+  - `SelfDetail`
+  - `PersonDetail`
+  - `ChannelSetting`
+  - `VoiceChannelMembersResult`
+  - `DailySpeechResult`
+  - `AreaBlocksResult`
+  - `ChannelMessage`
+
+### 改进
+
+- 为幂等读接口和上传签名请求统一了限流 / 网络异常重试策略。
+- 为 `get_area_members`、`get_area_channels`、`get_joined_areas`、`get_self_detail` 增加了更明确的 `from_cache` 语义。
+- `OopzClient` 生命周期事件新增 `auth_ok` / `auth_failed`，将“已发送认证”和“认证成功/失败”区分开。
+- 网络异常统一翻译为 `OopzConnectionError`。
+
 ## 0.3.0 - 2026-04-14
 
 ### 变更

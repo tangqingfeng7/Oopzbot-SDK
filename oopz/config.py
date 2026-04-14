@@ -53,6 +53,8 @@ class OopzConfig:
     # 成员缓存
     area_members_cache_ttl: float = 15.0
     area_members_stale_ttl: float = 300.0
+    query_cache_ttl: float = 15.0
+    query_cache_stale_ttl: float = 300.0
     cache_max_entries: int = 200
 
     # 自定义请求头（留空则使用 DEFAULT_HEADERS）
@@ -73,6 +75,7 @@ class OopzConfig:
             if str(key).strip()
         }
         self._validate_timeouts()
+        self._validate_cache_settings()
 
     @staticmethod
     def _require_non_empty(value: str, field_name: str) -> str:
@@ -89,6 +92,17 @@ class OopzConfig:
             return
         if float(timeout) <= 0:
             raise ValueError("request_timeout 必须大于 0")
+
+    def _validate_cache_settings(self) -> None:
+        for field_name in (
+            "area_members_cache_ttl",
+            "area_members_stale_ttl",
+            "query_cache_ttl",
+            "query_cache_stale_ttl",
+        ):
+            value = float(getattr(self, field_name))
+            if value <= 0:
+                raise ValueError(f"{field_name} 必须大于 0")
 
     def require_default_area(self) -> str:
         """返回默认域，未配置则抛错。"""

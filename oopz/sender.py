@@ -15,7 +15,7 @@ from .api import OopzApiMixin
 from .config import OopzConfig
 from .exceptions import OopzApiError
 from .models import MessageSendResult, PrivateSessionResult
-from .response import ensure_success_payload
+from .response import ensure_success_payload, raise_connection_error
 from .signer import Signer
 from .upload import UploadMixin
 
@@ -35,6 +35,7 @@ class OopzSender(UploadMixin, OopzApiMixin):
         self.session = requests.Session()
         self.session.headers.update(config.get_headers())
         self._area_members_cache: dict[tuple[str, int, int], dict] = {}
+        self._query_cache: dict[tuple[object, ...], dict[str, object]] = {}
         self._rate_lock = threading.Lock()
         self._last_request_time = 0.0
 
@@ -77,7 +78,7 @@ class OopzSender(UploadMixin, OopzApiMixin):
                 timeout=self._config.request_timeout,
             )
         except requests.RequestException as exc:
-            raise OopzApiError(f"请求失败: {exc}") from exc
+            raise_connection_error(exc)
 
     def _post(self, url_path: str, body: dict) -> requests.Response:
         return self._request("POST", url_path, body)
@@ -109,7 +110,7 @@ class OopzSender(UploadMixin, OopzApiMixin):
                 timeout=self._config.request_timeout,
             )
         except requests.RequestException as exc:
-            raise OopzApiError(f"请求失败: {exc}") from exc
+            raise_connection_error(exc)
 
     def _resolve_area(self, area: Optional[str]) -> str:
         value = str(area or self._config.default_area).strip()

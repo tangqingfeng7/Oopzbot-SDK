@@ -6,14 +6,15 @@ import hashlib
 import io
 import logging
 import os
+import time
 from typing import TYPE_CHECKING
 
 import requests
 from PIL import Image
 
-from .exceptions import OopzApiError
+from .exceptions import OopzApiError, OopzConnectionError, OopzRateLimitError
 from .models import MessageSendResult, UploadAttachment, UploadResult
-from .response import ensure_success_payload
+from .response import ensure_success_payload, raise_connection_error, retry_delay_from_exception
 
 if TYPE_CHECKING:
     from .config import OopzConfig
@@ -38,12 +39,25 @@ class UploadMixin:
     """
 
     def _request_upload_slot(self, file_type: str, ext: str) -> tuple[dict[str, object], requests.Response]:
-        resp = self._put("/rtc/v1/cos/v1/signedUploadUrl", {"type": file_type, "ext": ext})
-        payload = ensure_success_payload(resp, "获取上传地址失败")
-        data = payload.get("data", {})
-        if not isinstance(data, dict):
-            raise OopzApiError("获取上传地址失败: 响应格式异常", status_code=resp.status_code, response=payload)
-        return data, resp
+        last_error: Exception | None = None
+        for attempt in range(1, 4):
+            try:
+                resp = self._put("/rtc/v1/cos/v1/signedUploadUrl", {"type": file_type, "ext": ext})
+                payload = ensure_success_payload(resp, "获取上传地址失败")
+                data = payload.get("data", {})
+                if not isinstance(data, dict):
+                    raise OopzApiError("获取上传地址失败: 响应格式异常", status_code=resp.status_code, response=payload)
+                return data, resp
+            except (OopzConnectionError, OopzRateLimitError) as exc:
+                last_error = exc
+                if attempt >= 3:
+                    break
+                wait_seconds = retry_delay_from_exception(exc, attempt)
+                logger.warning("获取上传地址失败，%.1fs 后重试 (%d/%d): %s", wait_seconds, attempt, 2, exc)
+                time.sleep(wait_seconds)
+        if last_error is not None:
+            raise last_error
+        raise OopzApiError("获取上传地址失败: 未知错误")
 
     def _put_file_bytes(self, upload_url: str, data: bytes) -> None:
         try:
@@ -54,7 +68,7 @@ class UploadMixin:
                 timeout=UPLOAD_PUT_TIMEOUT,
             )
         except requests.RequestException as exc:
-            raise OopzApiError(f"文件上传失败: {exc}") from exc
+            raise_connection_error(exc, "文件上传失败")
         if put_resp.status_code not in (200, 201):
             raise OopzApiError(f"文件上传失败: {put_resp.text}", status_code=put_resp.status_code)
 
@@ -80,7 +94,7 @@ class UploadMixin:
             resp = self.session.get(image_url, stream=True, timeout=15)
             resp.raise_for_status()
         except requests.RequestException as exc:
-            raise OopzApiError(f"下载图片失败: {exc}") from exc
+            raise_connection_error(exc, "下载图片失败")
 
         image_bytes = resp.content
         img = Image.open(io.BytesIO(image_bytes))
@@ -113,7 +127,7 @@ class UploadMixin:
             })
             resp.raise_for_status()
         except requests.RequestException as exc:
-            raise OopzApiError(f"下载音频失败: {exc}") from exc
+            raise_connection_error(exc, "下载音频失败")
 
         audio_bytes = resp.content
         file_size = len(audio_bytes)
