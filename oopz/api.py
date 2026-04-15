@@ -265,6 +265,55 @@ class OopzApiMixin:
         )
 
     @staticmethod
+    def _extract_dict_list(
+        payload: dict[str, object],
+        *,
+        default_message: str,
+        response=None,
+        keys: tuple[str, ...] = ("list",),
+    ) -> list[dict[str, object]]:
+        data = payload.get("data", [])
+        if isinstance(data, list):
+            return [item for item in data if isinstance(item, dict)]
+        if isinstance(data, dict):
+            for key in keys:
+                value = data.get(key)
+                if isinstance(value, list):
+                    return [item for item in value if isinstance(item, dict)]
+        raise OopzApiError(
+            f"{default_message}: 响应格式异常",
+            status_code=getattr(response, "status_code", 200),
+            response=payload,
+        )
+
+    @staticmethod
+    def _extract_json_dict_data(
+        payload: dict[str, object],
+        *,
+        default_message: str,
+        response=None,
+    ) -> dict[str, object]:
+        data = payload.get("data", {})
+        if isinstance(data, dict):
+            return dict(data)
+        if isinstance(data, str):
+            try:
+                parsed = json.loads(data)
+            except json.JSONDecodeError as exc:
+                raise OopzApiError(
+                    f"{default_message}: 响应格式异常",
+                    status_code=getattr(response, "status_code", 200),
+                    response=payload,
+                ) from exc
+            if isinstance(parsed, dict):
+                return parsed
+        raise OopzApiError(
+            f"{default_message}: 响应格式异常",
+            status_code=getattr(response, "status_code", 200),
+            response=payload,
+        )
+
+    @staticmethod
     def _build_channel_messages_result(
         payload: dict[str, object],
         *,
@@ -701,6 +750,37 @@ class OopzApiMixin:
         result = ensure_success_payload(resp, "删除频道失败")
         return self._build_operation_result(result, message=str(result.get("message") or "已删除频道"), response=resp)
 
+    def copy_channel(
+        self,
+        channel: str,
+        *,
+        name: str,
+        area: Optional[str] = None,
+    ) -> OperationResult:
+        """复制频道。"""
+        area = self._resolve_area(area)
+        channel = self._require_text(channel, "channel")
+        name = self._require_text(name, "name")
+
+        body = {
+            "area": area,
+            "channel": channel,
+            "name": name,
+        }
+        resp = self._post("/area/v1/channel/v1/copy", body)
+        result = ensure_success_payload(resp, "复制频道失败")
+        data = require_dict_data(result, "复制频道失败")
+        channel_id = self._extract_channel_id(data) or self._extract_channel_id(result)
+        return self._build_operation_result(
+            {
+                "channel": channel_id or "",
+                "name": name,
+                **result,
+            },
+            message=str(result.get("message") or "频道已复制"),
+            response=resp,
+        )
+
     # ---- 已加入的域列表 ----
 
     def get_joined_areas(self, quiet: bool = False) -> "JoinedAreasResult":
@@ -837,6 +917,184 @@ class OopzApiMixin:
         result = ensure_success_payload(resp, "获取等级信息失败")
         return require_dict_data(result, "获取等级信息失败")
 
+    def get_novice_guide(self) -> dict[str, object]:
+        """获取当前账号的新手引导状态。"""
+        resp = self._get("/client/v1/person/v1/noviceGuide")
+        result = ensure_success_payload(resp, "获取新手引导失败")
+        return require_dict_data(result, "获取新手引导失败")
+
+    def get_notice_setting(self) -> dict[str, object]:
+        """获取通知设置。"""
+        resp = self._get("/person/v1/userNoticeSetting/noticeSetting")
+        result = ensure_success_payload(resp, "获取通知设置失败")
+        return require_dict_data(result, "获取通知设置失败")
+
+    def get_user_remark_names(self, uid: str) -> list[dict[str, object]]:
+        """获取指定用户的备注名信息。"""
+        params = {"uid": self._require_text(uid, "uid")}
+        resp = self._get("/person/v1/remarkName/getUserRemarkNames", params=params)
+        result = ensure_success_payload(resp, "获取备注名失败")
+        return self._extract_dict_list(
+            result,
+            default_message="获取备注名失败",
+            response=resp,
+            keys=("userRemarkNames", "list"),
+        )
+
+    def check_block_status(self, target_uid: str) -> dict[str, object]:
+        """检查当前账号与目标用户的拉黑关系。"""
+        params = {"targetUid": self._require_text(target_uid, "target_uid")}
+        resp = self._get("/person/v1/blockCheck", params=params)
+        result = ensure_success_payload(resp, "拉黑检查失败")
+        return require_dict_data(result, "拉黑检查失败")
+
+    def get_privacy_settings(self) -> dict[str, object]:
+        """获取隐私设置。"""
+        resp = self._get("/client/v1/person/v1/privacy/v1/query")
+        result = ensure_success_payload(resp, "获取隐私设置失败")
+        return require_dict_data(result, "获取隐私设置失败")
+
+    def get_notification_settings(self) -> dict[str, object]:
+        """获取通知偏好设置。"""
+        resp = self._get("/client/v1/person/v1/notification/v1/query")
+        result = ensure_success_payload(resp, "获取通知偏好失败")
+        return require_dict_data(result, "获取通知偏好失败")
+
+    def get_real_name_auth_status(self) -> dict[str, object]:
+        """获取实名认证状态。"""
+        resp = self._get("/client/v1/person/v2/realNameAuth")
+        result = ensure_success_payload(resp, "获取实名认证状态失败")
+        return require_dict_data(result, "获取实名认证状态失败")
+
+    def get_friend_list(self) -> list[dict[str, object]]:
+        """获取好友列表。"""
+        resp = self._get("/client/v1/list/v1/friendship")
+        result = ensure_success_payload(resp, "获取好友列表失败")
+        return self._extract_dict_list(
+            result,
+            default_message="获取好友列表失败",
+            response=resp,
+            keys=("friends", "friendships", "items", "list"),
+        )
+
+    def get_blocked_list(self) -> list[dict[str, object]]:
+        """获取黑名单列表。"""
+        resp = self._get("/client/v1/list/v1/blocked")
+        result = ensure_success_payload(resp, "获取黑名单列表失败")
+        return self._extract_dict_list(
+            result,
+            default_message="获取黑名单列表失败",
+            response=resp,
+            keys=("blocked", "blocks", "items", "list"),
+        )
+
+    def get_friend_requests(self) -> list[dict[str, object]]:
+        """获取好友请求列表。"""
+        resp = self._get("/client/v1/friendship/v1/requests")
+        result = ensure_success_payload(resp, "获取好友请求失败")
+        return self._extract_dict_list(
+            result,
+            default_message="获取好友请求失败",
+            response=resp,
+            keys=("requests", "items", "list"),
+        )
+
+    def get_diamond_remain(self) -> dict[str, object]:
+        """获取钻石余额信息。"""
+        resp = self._get("/diamond/v1/remain")
+        result = ensure_success_payload(resp, "获取钻石余额失败")
+        return require_dict_data(result, "获取钻石余额失败")
+
+    def get_mixer_settings(self) -> dict[str, object]:
+        """获取混音器设置。"""
+        resp = self._get("/client/v1/settings/v1/mixer")
+        result = ensure_success_payload(resp, "获取混音器设置失败")
+        return self._extract_json_dict_data(result, default_message="获取混音器设置失败", response=resp)
+
+    def set_user_remark_name(self, remark_uid: str, remark_name: str) -> OperationResult:
+        """设置指定用户的备注名。"""
+        body = {
+            "remarkUid": self._require_text(remark_uid, "remark_uid"),
+            "remarkName": str(remark_name or ""),
+        }
+        resp = self._post("/person/v1/remarkName/setUserRemarkName", body)
+        result = ensure_success_payload(resp, "设置备注名失败")
+        return self._build_operation_result(result, message="已设置备注名", response=resp)
+
+    def send_friend_request(self, target_uid: str) -> OperationResult:
+        """向指定用户发送好友申请。"""
+        body = {"target": self._require_text(target_uid, "target_uid")}
+        resp = self._post("/friendship/v1/request", body)
+        result = ensure_success_payload(resp, "发送好友申请失败")
+        return self._build_operation_result(result, message="已发送好友申请", response=resp)
+
+    def respond_friend_request(
+        self,
+        target_uid: str,
+        *,
+        agree: bool,
+        friend_request_id: Optional[str] = None,
+    ) -> OperationResult:
+        """处理好友申请，可同意或拒绝。"""
+        body: dict[str, object] = {
+            "target": self._require_text(target_uid, "target_uid"),
+            "agree": bool(agree),
+        }
+        request_id = str(friend_request_id or "").strip()
+        if request_id:
+            body["friendRequestId"] = request_id
+        resp = self._post("/friendship/v1/response", body)
+        result = ensure_success_payload(resp, "处理好友申请失败")
+        return self._build_operation_result(
+            result,
+            message="已同意好友申请" if agree else "已拒绝好友申请",
+            response=resp,
+        )
+
+    def remove_friend(self, target_uid: str) -> OperationResult:
+        """删除指定好友。"""
+        target = self._require_text(target_uid, "target_uid")
+        full_path = f"/friendship/v1/remove?target={target}"
+        resp = self._delete(full_path)
+        result = ensure_success_payload(resp, "删除好友失败")
+        return self._build_operation_result(result, message="已删除好友", response=resp)
+
+    def edit_privacy_settings(
+        self,
+        *,
+        everyone_add: bool,
+        with_friend_add: bool,
+        area_member_add: bool,
+        not_friend_chat: bool,
+        uid: Optional[str] = None,
+    ) -> OperationResult:
+        """编辑隐私设置。"""
+        body = {
+            "areaMemberAdd": bool(area_member_add),
+            "notFriendChat": bool(not_friend_chat),
+            "everyoneAdd": bool(everyone_add),
+            "withFriendAdd": bool(with_friend_add),
+            "uid": str(uid or self._config.person_uid),
+        }
+        resp = self._patch("/person/v1/privacy/v1/edit", body)
+        result = ensure_success_payload(resp, "编辑隐私设置失败")
+        return self._build_operation_result(result, message="已更新隐私设置", response=resp)
+
+    def edit_notification_settings(
+        self,
+        settings: dict[str, object],
+        *,
+        mobile: bool = False,
+    ) -> OperationResult:
+        """编辑通知设置。"""
+        if not isinstance(settings, dict):
+            raise ValueError("settings 必须是字典")
+        body = dict(settings)
+        path = "/person/v1/notification/v1/mobileEdit" if mobile else "/person/v1/notification/v1/edit"
+        resp = self._patch(path, body)
+        result = ensure_success_payload(resp, "编辑通知设置失败")
+        return self._build_operation_result(result, message="已更新通知设置", response=resp)
+
     # ---- 用户在域内的角色 / 禁言状态 ----
 
     def get_user_area_detail(self, target: str, area: Optional[str] = None) -> dict:
@@ -904,6 +1162,28 @@ class OopzApiMixin:
         members = data.get("members", [])
         if not isinstance(members, list):
             raise OopzApiError("搜索域成员失败: 响应格式异常", status_code=resp.status_code, response=result)
+        return [member for member in members if isinstance(member, dict)]
+
+    def search_area_private_setting_members(
+        self,
+        *,
+        area: Optional[str] = None,
+        keyword: str = "",
+        page: int = 1,
+    ) -> list[dict[str, object]]:
+        """搜索可添加到私密频道访问名单的成员。"""
+        area = self._resolve_area(area)
+        params = {
+            "area": area,
+            "keyword": str(keyword or ""),
+            "page": str(max(int(page), 1)),
+        }
+        resp = self._get("/area/v3/search/areaPrivateSettingMembers", params=params)
+        result = ensure_success_payload(resp, "搜索私密频道成员失败")
+        data = require_dict_data(result, "搜索私密频道成员失败")
+        members = data.get("members", data.get("list", []))
+        if not isinstance(members, list):
+            raise OopzApiError("搜索私密频道成员失败: 响应格式异常", status_code=resp.status_code, response=result)
         return [member for member in members if isinstance(member, dict)]
 
     # ---- 各语音频道在线成员 ----

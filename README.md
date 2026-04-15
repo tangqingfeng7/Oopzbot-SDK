@@ -1,8 +1,7 @@
 # Oopz SDK
 
-Oopz 平台 Python SDK，提供频道消息、私信、文件上传、平台查询与 WebSocket 实时事件能力。
+Oopz 平台 Python SDK，提供频道消息、私信、文件上传、平台查询、用户侧查询与操作，以及 WebSocket 实时事件能力。
 
-`v0.4` 在 `v0.3` 的统一异常和结果模型基础上，继续补了三件事：
 
 - 真实联调入口 `smoke/smoke_test.py`
 - 更统一的读接口重试与缓存回退语义
@@ -127,6 +126,58 @@ with OopzSender(config) as sender:
     print(result.message_id)
 ```
 
+## 扩展接口示例
+
+### IM 扩展接口
+
+```python
+from oopz import OopzSender
+
+with OopzSender(config) as sender:
+    sender.send_message_v2("带 @ 的消息", mentionList=["目标UID"])
+
+    sessions = sender.list_sessions()
+    private_messages = sender.get_private_messages("私信频道ID", size=20)
+    sender.save_read_status("私信频道ID", message_id="最新消息ID")
+
+    top_messages = sender.get_top_messages()
+    system_unread = sender.get_system_message_unread_count()
+    system_messages = sender.get_system_message_list()
+
+    print(len(sessions), len(private_messages), len(top_messages), system_unread, len(system_messages))
+```
+
+### 用户侧查询接口
+
+```python
+from oopz import OopzSender
+
+with OopzSender(config) as sender:
+    self_detail = sender.get_self_detail()
+    friend_requests = sender.get_friend_requests()
+    privacy = sender.get_privacy_settings()
+    mixer = sender.get_mixer_settings()
+
+    print(self_detail.uid, len(friend_requests), privacy.get("everyoneAdd"), mixer.get("isFreeSpeech"))
+```
+
+### 用户侧操作接口
+
+```python
+from oopz import OopzSender
+
+with OopzSender(config) as sender:
+    sender.set_user_remark_name("目标UID", "新备注")
+    sender.send_friend_request("目标UID")
+    sender.respond_friend_request("目标UID", agree=True, friend_request_id="请求ID")
+    sender.edit_privacy_settings(
+        everyone_add=True,
+        with_friend_add=False,
+        area_member_add=True,
+        not_friend_chat=False,
+    )
+```
+
 ## WebSocket 实时事件
 
 聊天消息回调接收 `ChatMessageEvent`，生命周期回调接收 `LifecycleEvent`。
@@ -195,6 +246,23 @@ client.start()
 - `get_area_channels`
 - `get_joined_areas`
 - `get_self_detail`
+
+## 已覆盖接口
+
+当前 SDK 已覆盖这几组高频能力：
+
+- 频道消息：`send_message`、`send_message_v2`、`recall_message`、`get_channel_messages`
+- 私信与会话：`open_private_session`、`send_private_message`、`list_sessions`、`get_private_messages`、`save_read_status`
+- IM 辅助查询：`get_top_messages`、`get_areas_unread`、`get_areas_mention_unread`、`get_gim_reactions`、`get_gim_message_details`
+- 系统消息：`get_system_message_unread_count`、`get_system_message_list`
+- 用户资料与账号查询：`get_self_detail`、`get_person_detail`、`get_person_detail_full`、`get_person_infos_batch`、`get_level_info`
+- 用户侧查询：`get_novice_guide`、`get_notice_setting`、`get_user_remark_names`、`check_block_status`、`get_privacy_settings`、`get_notification_settings`、`get_real_name_auth_status`、`get_friend_list`、`get_blocked_list`、`get_friend_requests`、`get_diamond_remain`、`get_mixer_settings`
+- 用户侧操作：`set_user_remark_name`、`send_friend_request`、`respond_friend_request`、`remove_friend`、`edit_privacy_settings`、`edit_notification_settings`
+- 域与频道管理：已加入域、域详情、频道列表、频道创建/删除/复制、频道设置查询/编辑、私密频道成员搜索
+- 域成员管理：成员搜索、成员列表、身份组编辑、移出域、域封禁/解封、禁言/禁麦、语音频道成员查询
+- 文件上传：通用上传、上传后发图、上传后私信图片
+
+  仍在整理,未稳定。
 
 ## 异常处理
 

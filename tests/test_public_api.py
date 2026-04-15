@@ -126,6 +126,28 @@ def test_send_message_returns_result_model(monkeypatch) -> None:
     assert result.channel == "channel"
 
 
+def test_send_message_v2_builds_wrapped_payload(monkeypatch) -> None:
+    sender = OopzSender(_make_config())
+    captured = {}
+
+    def _fake_post(url_path: str, body: dict):
+        captured["url_path"] = url_path
+        captured["body"] = body
+        return _FakeResponse(200, payload={"status": True, "data": {"messageId": "msg-v2"}})
+
+    monkeypatch.setattr(sender, "_post", _fake_post)
+
+    result = sender.send_message_v2("hello", mentionList=["user-1"], auto_recall=False)
+
+    assert captured["url_path"] == "/im/session/v2/sendGimMessage"
+    assert captured["body"]["message"]["channel"] == "channel"
+    assert captured["body"]["message"]["mentionList"] == [
+        {"person": "user-1", "isBot": False, "botType": "", "offset": -1}
+    ]
+    assert "(met)user-1(met)" in captured["body"]["message"]["content"]
+    assert result.message_id == "msg-v2"
+
+
 def test_send_message_raises_rate_limit_error(monkeypatch) -> None:
     sender = OopzSender(_make_config())
 
@@ -180,6 +202,217 @@ def test_send_private_message_returns_result_model(monkeypatch) -> None:
     assert result.message_id == "dm-1"
     assert result.target == "target-uid"
     assert result.channel == "DM12345678901234567890"
+
+
+def test_list_sessions_returns_dict_list(monkeypatch) -> None:
+    sender = OopzSender(_make_config())
+    captured = {}
+
+    def _fake_post(url_path: str, body: dict):
+        captured["url_path"] = url_path
+        captured["body"] = body
+        return _FakeResponse(
+            200,
+            payload={"status": True, "data": [{"channel": "DM123", "lastTime": "123456"}]},
+        )
+
+    monkeypatch.setattr(sender, "_post", _fake_post)
+
+    result = sender.list_sessions(last_time="123456")
+
+    assert captured["url_path"] == "/im/session/v1/sessions"
+    assert captured["body"] == {"lastTime": "123456"}
+    assert result[0]["channel"] == "DM123"
+
+
+def test_get_private_messages_returns_models(monkeypatch) -> None:
+    sender = OopzSender(_make_config())
+    captured = {}
+
+    def _fake_get(url_path: str, params=None):
+        captured["url_path"] = url_path
+        captured["params"] = params
+        return _FakeResponse(
+            200,
+            payload={
+                "status": True,
+                "data": {
+                    "messages": [
+                        {
+                            "messageId": "dm-1",
+                            "content": "hello",
+                            "channel": "DM123",
+                            "area": "",
+                            "person": "user-1",
+                        }
+                    ]
+                },
+            },
+        )
+
+    monkeypatch.setattr(sender, "_get", _fake_get)
+
+    result = sender.get_private_messages("DM123", size=20, before_message_id="dm-0")
+
+    assert captured["url_path"] == "/im/session/v2/messageBefore"
+    assert captured["params"] == {"area": "", "channel": "DM123", "size": "20", "messageId": "dm-0"}
+    assert len(result) == 1
+    assert isinstance(result[0], ChannelMessage)
+    assert result[0].message_id == "dm-1"
+
+
+def test_save_read_status_posts_expected_body(monkeypatch) -> None:
+    sender = OopzSender(_make_config())
+    captured = {}
+
+    def _fake_post(url_path: str, body: dict):
+        captured["url_path"] = url_path
+        captured["body"] = body
+        return _FakeResponse(200, payload={"status": True, "data": True})
+
+    monkeypatch.setattr(sender, "_post", _fake_post)
+
+    result = sender.save_read_status("DM123", message_id="dm-1")
+
+    assert captured["url_path"] == "/im/session/v1/saveReadStatus"
+    assert captured["body"] == {
+        "area": "",
+        "status": [{"person": "person", "channel": "DM123", "messageId": "dm-1"}],
+    }
+    assert result.ok is True
+    assert result.message == "已保存已读状态"
+
+
+def test_get_system_message_unread_count_returns_int(monkeypatch) -> None:
+    sender = OopzSender(_make_config())
+    captured = {}
+
+    def _fake_get(url_path: str, params=None):
+        captured["url_path"] = url_path
+        captured["params"] = params
+        return _FakeResponse(200, payload={"status": True, "data": {"unreadCount": 7}})
+
+    monkeypatch.setattr(sender, "_get", _fake_get)
+
+    result = sender.get_system_message_unread_count()
+
+    assert captured["url_path"] == "/im/systemMessage/v1/unreadCount"
+    assert captured["params"] is None
+    assert result == 7
+
+
+def test_get_system_message_list_returns_dict_list(monkeypatch) -> None:
+    sender = OopzSender(_make_config())
+    captured = {}
+
+    def _fake_get(url_path: str, params=None):
+        captured["url_path"] = url_path
+        captured["params"] = params
+        return _FakeResponse(
+            200,
+            payload={"status": True, "data": {"list": [{"id": "sys-1", "title": "系统通知"}]}},
+        )
+
+    monkeypatch.setattr(sender, "_get", _fake_get)
+
+    result = sender.get_system_message_list(offset_time="123456")
+
+    assert captured["url_path"] == "/im/systemMessage/v1/messageList"
+    assert captured["params"] == {"offsetTime": "123456"}
+    assert result == [{"id": "sys-1", "title": "系统通知"}]
+
+
+def test_get_top_messages_returns_dict_list(monkeypatch) -> None:
+    sender = OopzSender(_make_config())
+    captured = {}
+
+    def _fake_get(url_path: str, params=None):
+        captured["url_path"] = url_path
+        captured["params"] = params
+        return _FakeResponse(
+            200,
+            payload={"status": True, "data": {"topMessages": [{"messageId": "top-1"}]}},
+        )
+
+    monkeypatch.setattr(sender, "_get", _fake_get)
+
+    result = sender.get_top_messages()
+
+    assert captured["url_path"] == "/im/session/v2/topMessages"
+    assert captured["params"] == {"area": "area", "channel": "channel"}
+    assert result == [{"messageId": "top-1"}]
+
+
+def test_get_areas_unread_returns_dict(monkeypatch) -> None:
+    sender = OopzSender(_make_config())
+    captured = {}
+
+    def _fake_post(url_path: str, body: dict):
+        captured["url_path"] = url_path
+        captured["body"] = body
+        return _FakeResponse(200, payload={"status": True, "data": {"area-1": 3}})
+
+    monkeypatch.setattr(sender, "_post", _fake_post)
+
+    result = sender.get_areas_unread(["area-1", ""])
+
+    assert captured["url_path"] == "/im/session/v1/areasUnread"
+    assert captured["body"] == {"areas": ["area-1"]}
+    assert result == {"area-1": 3}
+
+
+def test_get_areas_mention_unread_returns_dict(monkeypatch) -> None:
+    sender = OopzSender(_make_config())
+    captured = {}
+
+    def _fake_post(url_path: str, body: dict):
+        captured["url_path"] = url_path
+        captured["body"] = body
+        return _FakeResponse(200, payload={"status": True, "data": {"area-1": 1}})
+
+    monkeypatch.setattr(sender, "_post", _fake_post)
+
+    result = sender.get_areas_mention_unread(["area-1"])
+
+    assert captured["url_path"] == "/im/session/v1/areasMentionUnread"
+    assert captured["body"] == {"areas": ["area-1"]}
+    assert result == {"area-1": 1}
+
+
+def test_get_gim_reactions_returns_payload(monkeypatch) -> None:
+    sender = OopzSender(_make_config())
+    captured = {}
+
+    def _fake_post(url_path: str, body: list[dict]):
+        captured["url_path"] = url_path
+        captured["body"] = body
+        return _FakeResponse(200, payload={"status": True, "data": {"reactions": []}})
+
+    monkeypatch.setattr(sender, "_post", _fake_post)
+
+    result = sender.get_gim_reactions([{"area": "area", "channel": "channel", "messageId": "msg-1"}])
+
+    assert captured["url_path"] == "/im/session/v1/gimReactions"
+    assert captured["body"] == [{"area": "area", "channel": "channel", "messageId": "msg-1"}]
+    assert result["data"] == {"reactions": []}
+
+
+def test_get_gim_message_details_returns_payload(monkeypatch) -> None:
+    sender = OopzSender(_make_config())
+    captured = {}
+
+    def _fake_post(url_path: str, body: dict):
+        captured["url_path"] = url_path
+        captured["body"] = body
+        return _FakeResponse(200, payload={"status": True, "data": {"messageId": "msg-1"}})
+
+    monkeypatch.setattr(sender, "_post", _fake_post)
+
+    result = sender.get_gim_message_details({"area": "area", "channel": "channel", "messageId": "msg-1"})
+
+    assert captured["url_path"] == "/im/session/v1/gimMessageDetails"
+    assert captured["body"] == {"area": "area", "channel": "channel", "messageId": "msg-1"}
+    assert result["data"] == {"messageId": "msg-1"}
 
 
 def test_upload_file_returns_upload_result(monkeypatch, tmp_path) -> None:
@@ -262,6 +495,50 @@ def test_get_area_channels_returns_cached_result_on_rate_limit(monkeypatch) -> N
     assert result.groups[0]["id"] == "group-1"
 
 
+def test_copy_channel_returns_operation_result(monkeypatch) -> None:
+    sender = OopzSender(_make_config())
+    captured = {}
+
+    def _fake_post(url_path: str, body: dict):
+        captured["url_path"] = url_path
+        captured["body"] = body
+        return _FakeResponse(
+            200,
+            payload={"status": True, "data": {"channel": "channel-copy-1"}},
+        )
+
+    monkeypatch.setattr(sender, "_post", _fake_post)
+    monkeypatch.setattr(sender, "_extract_channel_id", lambda payload: payload.get("channel") if isinstance(payload, dict) else None)
+
+    result = sender.copy_channel("channel-1", name="复制频道")
+
+    assert captured["url_path"] == "/area/v1/channel/v1/copy"
+    assert captured["body"] == {"area": "area", "channel": "channel-1", "name": "复制频道"}
+    assert result.ok is True
+    assert result.payload["channel"] == "channel-copy-1"
+
+
+def test_search_area_private_setting_members_returns_list(monkeypatch) -> None:
+    sender = OopzSender(_make_config())
+    captured = {}
+
+    def _fake_get(url_path: str, params=None):
+        captured["url_path"] = url_path
+        captured["params"] = params
+        return _FakeResponse(
+            200,
+            payload={"status": True, "data": {"members": [{"uid": "u1", "name": "Alice"}]}},
+        )
+
+    monkeypatch.setattr(sender, "_get", _fake_get)
+
+    result = sender.search_area_private_setting_members(keyword="Ali", page=2)
+
+    assert captured["url_path"] == "/area/v3/search/areaPrivateSettingMembers"
+    assert captured["params"] == {"area": "area", "keyword": "Ali", "page": "2"}
+    assert result == [{"uid": "u1", "name": "Alice"}]
+
+
 def test_get_self_detail_returns_cached_result_on_connection_error(monkeypatch) -> None:
     sender = OopzSender(_make_config())
     sender._set_cached_value(
@@ -299,6 +576,338 @@ def test_get_person_detail_returns_model(monkeypatch) -> None:
     assert isinstance(result, PersonDetail)
     assert result.uid == "u1"
     assert result.name == "Alice"
+
+
+def test_get_novice_guide_returns_dict(monkeypatch) -> None:
+    sender = OopzSender(_make_config())
+    captured = {}
+
+    def _fake_get(url_path: str, params=None):
+        captured["url_path"] = url_path
+        captured["params"] = params
+        return _FakeResponse(200, payload={"status": True, "data": {"finished": False}})
+
+    monkeypatch.setattr(sender, "_get", _fake_get)
+
+    result = sender.get_novice_guide()
+
+    assert captured["url_path"] == "/client/v1/person/v1/noviceGuide"
+    assert captured["params"] is None
+    assert result == {"finished": False}
+
+
+def test_get_notice_setting_returns_dict(monkeypatch) -> None:
+    sender = OopzSender(_make_config())
+    captured = {}
+
+    def _fake_get(url_path: str, params=None):
+        captured["url_path"] = url_path
+        return _FakeResponse(200, payload={"status": True, "data": {"newMessage": True}})
+
+    monkeypatch.setattr(sender, "_get", _fake_get)
+
+    result = sender.get_notice_setting()
+
+    assert captured["url_path"] == "/person/v1/userNoticeSetting/noticeSetting"
+    assert result == {"newMessage": True}
+
+
+def test_get_user_remark_names_returns_list(monkeypatch) -> None:
+    sender = OopzSender(_make_config())
+    captured = {}
+
+    def _fake_get(url_path: str, params=None):
+        captured["url_path"] = url_path
+        captured["params"] = params
+        return _FakeResponse(
+            200,
+            payload={"status": True, "data": {"userRemarkNames": [{"uid": "u1", "remarkName": "备注"}]}},
+        )
+
+    monkeypatch.setattr(sender, "_get", _fake_get)
+
+    result = sender.get_user_remark_names("u1")
+
+    assert captured["url_path"] == "/person/v1/remarkName/getUserRemarkNames"
+    assert captured["params"] == {"uid": "u1"}
+    assert result == [{"uid": "u1", "remarkName": "备注"}]
+
+
+def test_check_block_status_returns_dict(monkeypatch) -> None:
+    sender = OopzSender(_make_config())
+    captured = {}
+
+    def _fake_get(url_path: str, params=None):
+        captured["url_path"] = url_path
+        captured["params"] = params
+        return _FakeResponse(200, payload={"status": True, "data": {"blocked": False}})
+
+    monkeypatch.setattr(sender, "_get", _fake_get)
+
+    result = sender.check_block_status("u2")
+
+    assert captured["url_path"] == "/person/v1/blockCheck"
+    assert captured["params"] == {"targetUid": "u2"}
+    assert result == {"blocked": False}
+
+
+def test_get_privacy_settings_returns_dict(monkeypatch) -> None:
+    sender = OopzSender(_make_config())
+    captured = {}
+
+    def _fake_get(url_path: str, params=None):
+        captured["url_path"] = url_path
+        return _FakeResponse(200, payload={"status": True, "data": {"everyoneAdd": True}})
+
+    monkeypatch.setattr(sender, "_get", _fake_get)
+
+    result = sender.get_privacy_settings()
+
+    assert captured["url_path"] == "/client/v1/person/v1/privacy/v1/query"
+    assert result == {"everyoneAdd": True}
+
+
+def test_get_notification_settings_returns_dict(monkeypatch) -> None:
+    sender = OopzSender(_make_config())
+    captured = {}
+
+    def _fake_get(url_path: str, params=None):
+        captured["url_path"] = url_path
+        return _FakeResponse(200, payload={"status": True, "data": {"pushEnabled": True}})
+
+    monkeypatch.setattr(sender, "_get", _fake_get)
+
+    result = sender.get_notification_settings()
+
+    assert captured["url_path"] == "/client/v1/person/v1/notification/v1/query"
+    assert result == {"pushEnabled": True}
+
+
+def test_get_real_name_auth_status_returns_dict(monkeypatch) -> None:
+    sender = OopzSender(_make_config())
+    captured = {}
+
+    def _fake_get(url_path: str, params=None):
+        captured["url_path"] = url_path
+        return _FakeResponse(200, payload={"status": True, "data": {"authState": 1}})
+
+    monkeypatch.setattr(sender, "_get", _fake_get)
+
+    result = sender.get_real_name_auth_status()
+
+    assert captured["url_path"] == "/client/v1/person/v2/realNameAuth"
+    assert result == {"authState": 1}
+
+
+def test_get_friend_list_returns_list(monkeypatch) -> None:
+    sender = OopzSender(_make_config())
+    captured = {}
+
+    def _fake_get(url_path: str, params=None):
+        captured["url_path"] = url_path
+        return _FakeResponse(200, payload={"status": True, "data": {"friends": [{"uid": "u1", "name": "Alice"}]}})
+
+    monkeypatch.setattr(sender, "_get", _fake_get)
+
+    result = sender.get_friend_list()
+
+    assert captured["url_path"] == "/client/v1/list/v1/friendship"
+    assert result == [{"uid": "u1", "name": "Alice"}]
+
+
+def test_get_blocked_list_returns_list(monkeypatch) -> None:
+    sender = OopzSender(_make_config())
+    captured = {}
+
+    def _fake_get(url_path: str, params=None):
+        captured["url_path"] = url_path
+        return _FakeResponse(200, payload={"status": True, "data": {"blocks": [{"uid": "u2", "name": "Bob"}]}})
+
+    monkeypatch.setattr(sender, "_get", _fake_get)
+
+    result = sender.get_blocked_list()
+
+    assert captured["url_path"] == "/client/v1/list/v1/blocked"
+    assert result == [{"uid": "u2", "name": "Bob"}]
+
+
+def test_get_friend_requests_returns_list(monkeypatch) -> None:
+    sender = OopzSender(_make_config())
+    captured = {}
+
+    def _fake_get(url_path: str, params=None):
+        captured["url_path"] = url_path
+        return _FakeResponse(200, payload={"status": True, "data": {"requests": [{"uid": "u3", "direction": "IN"}]}})
+
+    monkeypatch.setattr(sender, "_get", _fake_get)
+
+    result = sender.get_friend_requests()
+
+    assert captured["url_path"] == "/client/v1/friendship/v1/requests"
+    assert result == [{"uid": "u3", "direction": "IN"}]
+
+
+def test_get_diamond_remain_returns_dict(monkeypatch) -> None:
+    sender = OopzSender(_make_config())
+    captured = {}
+
+    def _fake_get(url_path: str, params=None):
+        captured["url_path"] = url_path
+        return _FakeResponse(200, payload={"status": True, "data": {"remain": 12}})
+
+    monkeypatch.setattr(sender, "_get", _fake_get)
+
+    result = sender.get_diamond_remain()
+
+    assert captured["url_path"] == "/diamond/v1/remain"
+    assert result == {"remain": 12}
+
+
+def test_get_mixer_settings_parses_json_string(monkeypatch) -> None:
+    sender = OopzSender(_make_config())
+    captured = {}
+
+    def _fake_get(url_path: str, params=None):
+        captured["url_path"] = url_path
+        return _FakeResponse(
+            200,
+            payload={
+                "status": True,
+                "data": '{"isFreeSpeech": true, "echoCancellation": true, "noiseSuppression": true}',
+            },
+        )
+
+    monkeypatch.setattr(sender, "_get", _fake_get)
+
+    result = sender.get_mixer_settings()
+
+    assert captured["url_path"] == "/client/v1/settings/v1/mixer"
+    assert result == {"isFreeSpeech": True, "echoCancellation": True, "noiseSuppression": True}
+
+
+def test_set_user_remark_name_posts_expected_body(monkeypatch) -> None:
+    sender = OopzSender(_make_config())
+    captured = {}
+
+    def _fake_post(url_path: str, body: dict):
+        captured["url_path"] = url_path
+        captured["body"] = body
+        return _FakeResponse(200, payload={"status": True, "data": True})
+
+    monkeypatch.setattr(sender, "_post", _fake_post)
+
+    result = sender.set_user_remark_name("u1", "新备注")
+
+    assert captured["url_path"] == "/person/v1/remarkName/setUserRemarkName"
+    assert captured["body"] == {"remarkUid": "u1", "remarkName": "新备注"}
+    assert result.ok is True
+    assert result.message == "已设置备注名"
+
+
+def test_send_friend_request_posts_expected_body(monkeypatch) -> None:
+    sender = OopzSender(_make_config())
+    captured = {}
+
+    def _fake_post(url_path: str, body: dict):
+        captured["url_path"] = url_path
+        captured["body"] = body
+        return _FakeResponse(200, payload={"status": True, "data": True})
+
+    monkeypatch.setattr(sender, "_post", _fake_post)
+
+    result = sender.send_friend_request("u2")
+
+    assert captured["url_path"] == "/friendship/v1/request"
+    assert captured["body"] == {"target": "u2"}
+    assert result.ok is True
+    assert result.message == "已发送好友申请"
+
+
+def test_respond_friend_request_posts_expected_body(monkeypatch) -> None:
+    sender = OopzSender(_make_config())
+    captured = {}
+
+    def _fake_post(url_path: str, body: dict):
+        captured["url_path"] = url_path
+        captured["body"] = body
+        return _FakeResponse(200, payload={"status": True, "data": True})
+
+    monkeypatch.setattr(sender, "_post", _fake_post)
+
+    result = sender.respond_friend_request("u3", agree=True, friend_request_id="req-1")
+
+    assert captured["url_path"] == "/friendship/v1/response"
+    assert captured["body"] == {"target": "u3", "agree": True, "friendRequestId": "req-1"}
+    assert result.ok is True
+    assert result.message == "已同意好友申请"
+
+
+def test_remove_friend_calls_delete_with_query(monkeypatch) -> None:
+    sender = OopzSender(_make_config())
+    captured = {}
+
+    def _fake_delete(url_path: str, body=None):
+        captured["url_path"] = url_path
+        captured["body"] = body
+        return _FakeResponse(200, payload={"status": True, "data": True})
+
+    monkeypatch.setattr(sender, "_delete", _fake_delete)
+
+    result = sender.remove_friend("u4")
+
+    assert captured["url_path"] == "/friendship/v1/remove?target=u4"
+    assert captured["body"] is None
+    assert result.ok is True
+    assert result.message == "已删除好友"
+
+
+def test_edit_privacy_settings_patches_expected_body(monkeypatch) -> None:
+    sender = OopzSender(_make_config())
+    captured = {}
+
+    def _fake_patch(url_path: str, body: dict):
+        captured["url_path"] = url_path
+        captured["body"] = body
+        return _FakeResponse(200, payload={"status": True, "data": True})
+
+    monkeypatch.setattr(sender, "_patch", _fake_patch)
+
+    result = sender.edit_privacy_settings(
+        everyone_add=True,
+        with_friend_add=False,
+        area_member_add=True,
+        not_friend_chat=False,
+    )
+
+    assert captured["url_path"] == "/person/v1/privacy/v1/edit"
+    assert captured["body"] == {
+        "areaMemberAdd": True,
+        "notFriendChat": False,
+        "everyoneAdd": True,
+        "withFriendAdd": False,
+        "uid": "person",
+    }
+    assert result.ok is True
+    assert result.message == "已更新隐私设置"
+
+
+def test_edit_notification_settings_patches_expected_body(monkeypatch) -> None:
+    sender = OopzSender(_make_config())
+    captured = {}
+
+    def _fake_patch(url_path: str, body: dict):
+        captured["url_path"] = url_path
+        captured["body"] = body
+        return _FakeResponse(200, payload={"status": True, "data": True})
+
+    monkeypatch.setattr(sender, "_patch", _fake_patch)
+
+    result = sender.edit_notification_settings({"pushEnabled": True, "sound": False}, mobile=True)
+
+    assert captured["url_path"] == "/person/v1/notification/v1/mobileEdit"
+    assert captured["body"] == {"pushEnabled": True, "sound": False}
+    assert result.ok is True
+    assert result.message == "已更新通知设置"
 
 
 def test_get_voice_channel_members_returns_model(monkeypatch) -> None:

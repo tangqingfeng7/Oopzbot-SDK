@@ -14,8 +14,8 @@ import requests
 from .api import OopzApiMixin
 from .config import OopzConfig
 from .exceptions import OopzApiError
-from .models import MessageSendResult, PrivateSessionResult
-from .response import ensure_success_payload, raise_connection_error
+from .models import ChannelMessage, MessageSendResult, OperationResult, PrivateSessionResult
+from .response import ensure_success_payload, raise_connection_error, require_dict_data, require_list_data
 from .signer import Signer
 from .upload import UploadMixin
 
@@ -134,6 +134,37 @@ class OopzSender(UploadMixin, OopzApiMixin):
         value = payload.get("messageId") or payload.get("id")
         return str(value or "")
 
+    @staticmethod
+    def _normalize_mention_list(value: object) -> list[dict[str, object]]:
+        normalized: list[dict[str, object]] = []
+        if not isinstance(value, list):
+            return normalized
+        for item in value:
+            if isinstance(item, dict):
+                person = str(item.get("person") or item.get("uid") or "").strip()
+                if not person:
+                    continue
+                normalized.append(
+                    {
+                        "person": person,
+                        "isBot": bool(item.get("isBot", False)),
+                        "botType": str(item.get("botType") or ""),
+                        "offset": int(item.get("offset", -1)),
+                    }
+                )
+                continue
+            person = str(item or "").strip()
+            if person:
+                normalized.append({"person": person, "isBot": False, "botType": "", "offset": -1})
+        return normalized
+
+    @staticmethod
+    def _build_v2_message_content(text: str, mention_list: list[dict[str, object]]) -> str:
+        if not mention_list:
+            return text
+        mention_prefix = "".join(f" (met){item['person']}(met)" for item in mention_list)
+        return f"{mention_prefix} {text}".rstrip()
+
     def close(self) -> None:
         """关闭底层 HTTP Session。"""
         self.session.close()
@@ -212,6 +243,55 @@ class OopzSender(UploadMixin, OopzApiMixin):
     def send_to_default(self, text: str, **kwargs) -> MessageSendResult:
         """发送到默认频道。"""
         return self.send_message(text, **kwargs)
+
+    def send_message_v2(
+        self,
+        text: str,
+        area: Optional[str] = None,
+        channel: Optional[str] = None,
+        auto_recall: Optional[bool] = None,
+        **kwargs,
+    ) -> MessageSendResult:
+        """使用 Web 端 v2 包裹格式发送频道消息。"""
+        area = self._resolve_area(area)
+        channel = self._resolve_channel(channel)
+        default_style = ["IMPORTANT"] if self._config.use_announcement_style else []
+        mention_list = self._normalize_mention_list(kwargs.get("mentionList", kwargs.get("mention_list", [])))
+        content = str(kwargs.get("content") or self._build_v2_message_content(text, mention_list))
+
+        message = {
+            "area": area,
+            "channel": channel,
+            "target": kwargs.get("target", ""),
+            "clientMessageId": self.signer.client_message_id(),
+            "timestamp": self.signer.timestamp_us(),
+            "isMentionAll": kwargs.get("isMentionAll", False),
+            "mentionList": mention_list,
+            "styleTags": kwargs.get("styleTags", default_style),
+            "referenceMessageId": kwargs.get("referenceMessageId", None),
+            "animated": kwargs.get("animated", False),
+            "displayName": kwargs.get("displayName", ""),
+            "duration": kwargs.get("duration", 0),
+            "content": content,
+            "attachments": kwargs.get("attachments", []),
+        }
+        body = {"message": message}
+        url_path = "/im/session/v2/sendGimMessage"
+
+        resp = self._post(url_path, body)
+        result = ensure_success_payload(resp, "发送消息失败")
+        if auto_recall is not False:
+            self._schedule_auto_recall(result, area, channel)
+        return MessageSendResult(
+            message_id=self._extract_message_id(result),
+            area=area,
+            channel=channel,
+            target=str(message.get("target") or ""),
+            client_message_id=str(message["clientMessageId"]),
+            timestamp=str(message["timestamp"]),
+            payload=result,
+            response=resp,
+        )
 
     # ---- 私信 ----
 
@@ -399,6 +479,148 @@ class OopzSender(UploadMixin, OopzApiMixin):
             payload=result,
             response=resp,
         )
+
+    def list_sessions(self, last_time: str = "") -> list[dict[str, object]]:
+        """获取当前账号的会话列表。"""
+        body: dict[str, object] = {}
+        last_time = str(last_time or "").strip()
+        if last_time:
+            body["lastTime"] = last_time
+
+        resp = self._post("/im/session/v1/sessions", body)
+        result = ensure_success_payload(resp, "获取会话列表失败")
+        sessions = require_list_data(result, "获取会话列表失败")
+        return [item for item in sessions if isinstance(item, dict)]
+
+    def get_private_messages(
+        self,
+        channel: str,
+        *,
+        size: int = 50,
+        before_message_id: str = "",
+    ) -> list[ChannelMessage]:
+        """获取指定私信会话的历史消息。"""
+        channel = str(channel or "").strip()
+        if not channel:
+            raise ValueError("channel 不能为空")
+
+        params = {"area": "", "channel": channel, "size": str(int(size))}
+        before_message_id = str(before_message_id or "").strip()
+        if before_message_id:
+            params["messageId"] = before_message_id
+
+        resp = self._get("/im/session/v2/messageBefore", params=params)
+        result = ensure_success_payload(resp, "获取私信历史消息失败")
+        data = require_dict_data(result, "获取私信历史消息失败")
+        return self._build_channel_messages_result(data, response=resp)
+
+    def save_read_status(
+        self,
+        channel: str,
+        *,
+        message_id: str = "",
+        area: str = "",
+        person: Optional[str] = None,
+    ) -> OperationResult:
+        """保存会话已读状态，支持私信与频道会话。"""
+        channel = str(channel or "").strip()
+        if not channel:
+            raise ValueError("channel 不能为空")
+
+        person_uid = str(person or self._config.person_uid).strip()
+        if not person_uid:
+            raise ValueError("person 不能为空")
+
+        status_item: dict[str, object] = {
+            "person": person_uid,
+            "channel": channel,
+        }
+        message_id = str(message_id or "").strip()
+        if message_id:
+            status_item["messageId"] = message_id
+
+        body = {
+            "area": str(area or ""),
+            "status": [status_item],
+        }
+        resp = self._post("/im/session/v1/saveReadStatus", body)
+        result = ensure_success_payload(resp, "保存已读状态失败")
+        return self._build_operation_result(result, message="已保存已读状态", response=resp)
+
+    def get_system_message_unread_count(self) -> int:
+        """获取系统消息未读数。"""
+        resp = self._get("/im/systemMessage/v1/unreadCount")
+        result = ensure_success_payload(resp, "获取系统消息未读数失败")
+        data = require_dict_data(result, "获取系统消息未读数失败")
+        for key in ("count", "unreadCount", "total"):
+            value = data.get(key)
+            if value is None:
+                continue
+            try:
+                return int(value)
+            except (TypeError, ValueError):
+                continue
+        raise OopzApiError("获取系统消息未读数失败: 响应格式异常", status_code=resp.status_code, response=result)
+
+    def get_system_message_list(self, offset_time: str = "") -> list[dict[str, object]]:
+        """获取系统消息列表。"""
+        params: dict[str, str] = {}
+        offset_time = str(offset_time or "").strip()
+        if offset_time:
+            params["offsetTime"] = offset_time
+
+        resp = self._get("/im/systemMessage/v1/messageList", params=params or None)
+        result = ensure_success_payload(resp, "获取系统消息列表失败")
+        data = require_dict_data(result, "获取系统消息列表失败")
+        messages = data.get("messages", data.get("list", []))
+        if not isinstance(messages, list):
+            raise OopzApiError("获取系统消息列表失败: 响应格式异常", status_code=resp.status_code, response=result)
+        return [item for item in messages if isinstance(item, dict)]
+
+    def get_top_messages(
+        self,
+        *,
+        area: Optional[str] = None,
+        channel: Optional[str] = None,
+    ) -> list[dict[str, object]]:
+        """获取频道置顶消息。"""
+        area = self._resolve_area(area)
+        channel = self._resolve_channel(channel)
+        params = {"area": area, "channel": channel}
+        resp = self._get("/im/session/v2/topMessages", params=params)
+        result = ensure_success_payload(resp, "获取置顶消息失败")
+        data = require_dict_data(result, "获取置顶消息失败")
+        messages = data.get("messages", data.get("list", data.get("topMessages", [])))
+        if not isinstance(messages, list):
+            raise OopzApiError("获取置顶消息失败: 响应格式异常", status_code=resp.status_code, response=result)
+        return [item for item in messages if isinstance(item, dict)]
+
+    def get_areas_unread(self, areas: list[str]) -> dict[str, object]:
+        """获取指定域列表的未读数。"""
+        normalized = [str(area).strip() for area in areas if str(area).strip()]
+        body = {"areas": normalized}
+        resp = self._post("/im/session/v1/areasUnread", body)
+        result = ensure_success_payload(resp, "获取区域未读数失败")
+        return require_dict_data(result, "获取区域未读数失败")
+
+    def get_areas_mention_unread(self, areas: list[str]) -> dict[str, object]:
+        """获取指定域列表的 @ 未读数。"""
+        normalized = [str(area).strip() for area in areas if str(area).strip()]
+        body = {"areas": normalized}
+        resp = self._post("/im/session/v1/areasMentionUnread", body)
+        result = ensure_success_payload(resp, "获取区域 @ 未读数失败")
+        return require_dict_data(result, "获取区域 @ 未读数失败")
+
+    def get_gim_reactions(self, items: list[dict[str, object]]) -> dict[str, object]:
+        """获取频道消息表情反应信息。"""
+        normalized = [item for item in items if isinstance(item, dict)]
+        resp = self._post("/im/session/v1/gimReactions", normalized)
+        return ensure_success_payload(resp, "获取消息表情反应失败")
+
+    def get_gim_message_details(self, payload: dict[str, object]) -> dict[str, object]:
+        """获取频道消息详情。"""
+        resp = self._post("/im/session/v1/gimMessageDetails", payload)
+        return ensure_success_payload(resp, "获取消息详情失败")
 
     # ---- 自动撤回 ----
 
