@@ -300,7 +300,7 @@ python -m twine check dist/*
 可选：在干净虚拟环境验证 wheel 安装和导入：
 
 ```bash
-pip install dist/oopz_sdk-0.4.2-py3-none-any.whl
+pip install dist/oopz_sdk-0.4.3-py3-none-any.whl
 python -c "import oopz; print(oopz.__version__)"
 ```
 
