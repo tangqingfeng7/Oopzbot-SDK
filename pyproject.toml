@@ -8,6 +8,7 @@ version = "0.4.0"
 description = "Oopz 平台 Python SDK，提供 HTTP API、文件上传与 WebSocket 事件能力。"
 readme = "README.md"
 requires-python = ">=3.10"
+license = "MIT"
 authors = [
   { name = "Oopzbot Contributors" },
 ]
@@ -28,11 +29,16 @@ dependencies = [
   "websocket-client>=1.8,<2",
 ]
 
+[project.urls]
+Homepage = "https://github.com/tangqingfeng7/Oopzbot-SDK"
+Repository = "https://github.com/tangqingfeng7/Oopzbot-SDK"
+Issues = "https://github.com/tangqingfeng7/Oopzbot-SDK/issues"
+
 [project.optional-dependencies]
 dev = [
   "build>=1.2,<2",
   "pytest>=8,<9",
-  "twine>=5,<6",
+  "twine>=6,<7",
 ]
 
 [tool.setuptools]

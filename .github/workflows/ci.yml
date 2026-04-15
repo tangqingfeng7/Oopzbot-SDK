@@ -2,6 +2,8 @@ name: CI
 
 on:
   push:
+    tags:
+      - "v*"
   pull_request:
 
 jobs:
@@ -28,3 +30,53 @@ jobs:
 
       - name: 构建 wheel
         run: python -m pip wheel . --no-deps -w dist-check
+
+  package:
+    name: 打包与校验
+    runs-on: ubuntu-latest
+    needs: test
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安装 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: 安装打包依赖
+        run: python -m pip install "build>=1.2,<2" "twine>=6,<7"
+
+      - name: 构建 sdist 和 wheel
+        run: python -m build
+
+      - name: 校验发布产物
+        run: python -m twine check dist/*
+
+      - name: 上传构建产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-dist
+          path: dist/*
+
+  publish:
+    name: 发布到 PyPI
+    runs-on: ubuntu-latest
+    needs: package
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+
+    steps:
+      - name: 下载构建产物
+        uses: actions/download-artifact@v4
+        with:
+          name: python-dist
+          path: dist
+
+      - name: 安装 Twine
+        run: python -m pip install "twine>=6,<7"
+
+      - name: 上传到 PyPI
+        env:
+          TWINE_USERNAME: __token__
+          TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
+        run: python -m twine upload dist/*
