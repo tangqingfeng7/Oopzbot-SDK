@@ -104,4 +104,4 @@ __all__ = [
     "get_image_info",
 ]
 
-__version__ = "0.4.0"
+__version__ = "0.4.1"

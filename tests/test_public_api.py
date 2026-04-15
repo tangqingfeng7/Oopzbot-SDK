@@ -72,7 +72,7 @@ def _make_config(**overrides) -> OopzConfig:
 
 
 def test_version_is_exposed() -> None:
-    assert __version__ == "0.4.0"
+    assert __version__ == "0.4.1"
 
 
 def test_config_requires_private_key() -> None:
