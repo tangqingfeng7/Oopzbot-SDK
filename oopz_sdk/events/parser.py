@@ -59,7 +59,7 @@ class EventParser:
                 event_type=event_type,
                 body=body,
                 raw=data,
-                message=msg_data,
+                message=msg_data['content'],
             )
 
         if event_type == EVENT_HEARTBEAT:
