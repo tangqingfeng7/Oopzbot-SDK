@@ -51,7 +51,7 @@ class OopzConfig:
 
     default_area: str = ""
     default_channel: str = ""
-    use_announcement_style: bool = True
+    use_announcement_style: bool = False
 
     agora_app_id: str = "358eebceadb94c2a9fd91ecd7b341602"
     agora_init_timeout: int = 1800
@@ -65,6 +65,8 @@ class OopzConfig:
     heartbeat: HeartbeatConfig = field(default_factory=HeartbeatConfig)
     proxy: ProxyConfig = field(default_factory=ProxyConfig)
     auto_recall: AutoRecallConfig = field(default_factory=AutoRecallConfig)
+
+    ignore_self_messages: bool = True   # 如果设置为False, 会导致bot接收到自己处理的消息, 可能导致死循环
 
     @property
     def rate_limit_interval(self) -> float:

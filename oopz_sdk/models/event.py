@@ -1,8 +1,10 @@
 from __future__ import annotations
-
+from typing import TYPE_CHECKING
 from dataclasses import dataclass, field
 from typing import Any
 
+if TYPE_CHECKING:
+    from .message import Message
 from .base import BaseModel
 
 
@@ -16,4 +18,4 @@ class Event(BaseModel):
 
 @dataclass(slots=True)
 class MessageEvent(Event):
-    message: dict[str, Any] = field(default_factory=dict)
+    message: Message | None = None

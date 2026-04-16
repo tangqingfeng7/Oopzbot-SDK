@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from oopz_sdk.config.settings import OopzConfig
+from oopz_sdk.models import Message
 
 
 @dataclass(slots=True)
@@ -19,32 +20,19 @@ class EventContext:
     bot: Any
     config: OopzConfig
     event: Any = None
-    message: Any = None
-    trace_id: str = ""
+    message: Message = None
 
-    @staticmethod
-    def _get_message_field(message: Any, name: str, default=None):
-        if message is None:
-            return default
-        if isinstance(message, dict):
-            return message.get(name, default)
-        return getattr(message, name, default)
 
     async def reply(self, text: str, **kwargs):
         """
-        回复当前上下文中的消息。
-        会尽量自动继承 area / channel / referenceMessageId。
+        回复当前上下文中的消息
         """
         if self.message is None:
-            raise RuntimeError("当前上下文中没有 message，无法 reply()")
+            raise RuntimeError("该上下文没有可以回复的消息, 无法 reply()")
 
-        area = self._get_message_field(self.message, "area") or self.config.default_area
-        channel = self._get_message_field(self.message, "channel") or self.config.default_channel
-        reference_message_id = (
-            self._get_message_field(self.message, "message_id")
-            or self._get_message_field(self.message, "messageId")
-            or self._get_message_field(self.message, "id")
-        )
+        area = self.message.area or self.config.default_area
+        channel = self.message.channel or self.config.default_channel
+        reference_message_id = self.message.message_id
 
         return self.bot.messages.send_message(
             text=text,
