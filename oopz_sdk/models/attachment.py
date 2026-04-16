@@ -31,10 +31,44 @@ class Attachment(BaseModel):
     def to_dict(self) -> dict[str, Any]:
         return self.to_payload()
 
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "Attachment":
+        if not isinstance(data, dict):
+            return cls()
+
+        attachment_type = str(data.get("attachmentType") or "").upper()
+
+        common_kwargs = dict(
+            file_key=str(data.get("fileKey") or ""),
+            url=str(data.get("url") or ""),
+            attachment_type=attachment_type,
+            display_name=str(data.get("displayName") or ""),
+            file_size=int(data.get("fileSize") or 0),
+            animated=bool(data.get("animated", False)),
+            hash=str(data.get("hash") or ""),
+        )
+
+        if attachment_type == "IMAGE":
+            return ImageAttachment(
+                **common_kwargs,
+                width=int(data.get("width") or 0),
+                height=int(data.get("height") or 0),
+                preview_file_key=str(data.get("previewFileKey") or ""),
+            )
+
+        if attachment_type == "AUDIO":
+            return AudioAttachment(
+                **common_kwargs,
+                duration=int(data.get("duration") or 0),
+            )
+
+        return cls(**common_kwargs)
+
 @dataclass(slots=True)
 class ImageAttachment(Attachment):
     width: int = 0
     height: int = 0
+    preview_file_key: str = ""
 
     def to_payload(self) -> dict[str, Any]:
         payload = super().to_payload()
@@ -42,6 +76,8 @@ class ImageAttachment(Attachment):
             payload["width"] = self.width
         if self.height:
             payload["height"] = self.height
+        if self.preview_file_key:
+            payload["previewFileKey"] = self.preview_file_key
         return payload
 
 

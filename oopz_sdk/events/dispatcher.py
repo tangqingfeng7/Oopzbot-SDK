@@ -55,7 +55,7 @@ class EventDispatcher:
         """
         if event_name == "message":
             message = getattr(event, "message", None)
-            return handler(context, message)
+            return handler(message, context)
 
         if event_name in {"ready", "reconnect"}:
             return handler(context)

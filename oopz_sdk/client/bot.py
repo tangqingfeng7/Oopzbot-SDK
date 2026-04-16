@@ -12,6 +12,7 @@ from oopz_sdk.events.registry import EventRegistry
 
 from .rest import OopzRESTClient
 from .ws import OopzWSClient
+from ..models import MessageEvent, Message
 
 logger = logging.getLogger("oopz_sdk.client.bot")
 
@@ -40,6 +41,7 @@ class OopzBot:
         self.channels = self.rest.channels
         self.members = self.rest.members
         self.moderation = self.rest.moderation
+
 
         # WS 客户端只负责底层连接和回调
         self.ws = OopzWSClient(
@@ -100,28 +102,16 @@ class OopzBot:
     # -------------------------
     # 高层便捷方法
     # -------------------------
-    def send(self, text: str, **kwargs):
-        return self.messages.send_message(text=text, **kwargs)
+    def send(self, text: str, area: str, channel: str, **kwargs):
+        return self.messages.send_message(text=text, area=area, channel=channel, **kwargs)
 
-    def send_to_default(self, text: str, **kwargs):
-        return self.messages.send_to_default(text=text, **kwargs)
+    def recall(self, message_id: str, area: str, channel: str, **kwargs):
+        return self.messages.recall_message(message_id, area=area, channel=channel,**kwargs)
 
-    def recall(self, message_id: str, **kwargs):
-        return self.messages.recall_message(message_id, **kwargs)
-
-    def reply_to(self, message: Any, text: str, **kwargs):
+    def reply(self, text: str,area: str, channel: str, reference_message_id: str, **kwargs):
         """
-        对某条消息进行回复。
-        兼容 message 为 dict 或 model 的情况。
+        对某条消息进行回复
         """
-        area = self._get_message_field(message, "area") or self.config.default_area
-        channel = self._get_message_field(message, "channel") or self.config.default_channel
-        reference_message_id = (
-            self._get_message_field(message, "message_id")
-            or self._get_message_field(message, "messageId")
-            or self._get_message_field(message, "id")
-        )
-
         return self.messages.send_message(
             text=text,
             area=area,
@@ -147,7 +137,6 @@ class OopzBot:
             config=self.config,
             event=event,
             message=message,
-            trace_id=trace_id,
         )
 
     # -------------------------
@@ -165,6 +154,9 @@ class OopzBot:
 
         message = getattr(event, "message", None)
         ctx = self._make_context(event=event, message=message)
+
+        if isinstance(event, MessageEvent) and self._should_ignore_self_message(event.message):
+            return
 
         # 先派发 raw_event，便于做底层调试 / 适配
         self.dispatcher.dispatch_sync("raw_event", event, ctx)
@@ -188,3 +180,11 @@ class OopzBot:
     def _handle_reconnect(self) -> None:
         ctx = self._make_context()
         self.dispatcher.dispatch_sync("reconnect", None, ctx)
+
+    def _should_ignore_self_message(self, message: Message) -> bool:
+        """
+        判断是否应该忽略自己发送的消息。如果设置不忽略消息, 会导致在 on_message 中收到自己发送的消息引发死循环。
+        """
+        if not self.config.ignore_self_messages:
+            return False
+        return message.person == self.config.person_uid

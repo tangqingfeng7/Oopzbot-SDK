@@ -331,7 +331,7 @@ class Message(BaseService):
                 messages.append(m)
             logger.info("获取频道消息: %d 条", len(messages))
             if as_model:
-                return [self._to_message_model(m) for m in messages if isinstance(m, dict)]
+                return [models.Message.from_dict(m) for m in messages if isinstance(m, dict)]
             return messages
         except Exception as e:
             logger.error("获取频道消息异常: %s", e)
@@ -349,40 +349,3 @@ class Message(BaseService):
             if msg.get("messageId") == message_id:
                 return msg.get("timestamp")
         return None
-
-    # todo
-    @staticmethod
-    def _to_attachment_model(payload: dict) -> models.Attachment:
-        return models.Attachment(
-            file_key=str(payload.get("fileKey") or payload.get("file_key") or ""),
-            url=str(payload.get("url") or ""),
-            attachment_type=str(payload.get("attachmentType") or payload.get("attachment_type") or ""),
-            display_name=str(payload.get("displayName") or payload.get("display_name") or ""),
-            file_size=int(payload.get("fileSize") or payload.get("file_size") or 0),
-            width=int(payload.get("width") or 0),
-            height=int(payload.get("height") or 0),
-            duration=int(payload.get("duration") or 0),
-            animated=bool(payload.get("animated") is True),
-            hash=str(payload.get("hash") or ""),
-        )
-
-    @classmethod
-    def _to_message_model(cls, payload: dict) -> models.Message:
-        attachments = payload.get("attachments") or []
-        return models.Message(
-            message_id=str(payload.get("messageId") or payload.get("message_id") or payload.get("id") or ""),
-            area=str(payload.get("area") or ""),
-            channel=str(payload.get("channel") or ""),
-            person=str(payload.get("person") or payload.get("uid") or ""),
-            target=str(payload.get("target") or ""),
-            text=str(payload.get("text") or payload.get("content") or ""),
-            client_message_id=str(payload.get("clientMessageId") or payload.get("client_message_id") or ""),
-            reference_message_id=str(payload.get("referenceMessageId") or payload.get("reference_message_id") or ""),
-            timestamp=str(payload.get("timestamp") or ""),
-            mention_list=list(payload.get("mentionList") or payload.get("mention_list") or []),
-            style_tags=list(payload.get("styleTags") or payload.get("style_tags") or []),
-            attachments=[
-                cls._to_attachment_model(a) for a in attachments if isinstance(a, dict)
-            ],
-            payload=dict(payload),
-        )
