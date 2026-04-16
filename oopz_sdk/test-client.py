@@ -24,7 +24,7 @@ def run_real_bot():
         print("[READY] connected")
 
     @bot.on_message
-    async def handle_message(ctx: EventContext, message):
+    async def handle_message(message, ctx: EventContext):
         print("[MESSAGE]", message)
         await ctx.reply("盐盐盐收到了")
 

@@ -4,7 +4,6 @@ from dataclasses import dataclass
 from typing import Any
 
 from oopz_sdk.config.settings import OopzConfig
-from oopz_sdk.models import Message
 
 
 @dataclass(slots=True)
@@ -19,8 +18,15 @@ class EventContext:
     bot: Any
     config: OopzConfig
     event: Any = None
-    message: Message = None
+    message: Any = None
 
+    @staticmethod
+    def _get_message_field(message: Any, name: str, default=None):
+        if message is None:
+            return default
+        if isinstance(message, dict):
+            return message.get(name, default)
+        return getattr(message, name, default)
 
     async def reply(self, text: str, **kwargs):
         """
@@ -29,11 +35,19 @@ class EventContext:
         if self.message is None:
             raise RuntimeError("该上下文没有可以回复的消息, 无法 reply()")
 
+        area = self._get_message_field(self.message, "area") or self.config.default_area
+        channel = self._get_message_field(self.message, "channel") or self.config.default_channel
+        reference_message_id = (
+            self._get_message_field(self.message, "message_id")
+            or self._get_message_field(self.message, "messageId")
+            or self._get_message_field(self.message, "id")
+        )
+
         return self.bot.messages.send_message(
             text=text,
-            area=self.message.area,
-            channel=self.message.channel,
-            referenceMessageId=self.message.message_id,
+            area=area,
+            channel=channel,
+            referenceMessageId=reference_message_id,
             **kwargs,
         )
 
@@ -41,12 +55,7 @@ class EventContext:
         """
         在上下文中发送消息
         """
-        return self.bot.messages.send_message(
-            text=text,
-            area= self.message.area,
-            channel=self.message.channel,
-            **kwargs
-        )
+        return self.bot.messages.send_message(text=text, **kwargs)
 
     async def recall(self, **kwargs):
         """
@@ -55,9 +64,20 @@ class EventContext:
         if self.message is None:
             raise RuntimeError("当前上下文中没有 message，无法 recall()")
 
+        message_id = (
+            self._get_message_field(self.message, "message_id")
+            or self._get_message_field(self.message, "messageId")
+            or self._get_message_field(self.message, "id")
+        )
+        if not message_id:
+            raise RuntimeError("当前 message 中没有可用的 message_id")
+
+        area = self._get_message_field(self.message, "area") or self.config.default_area
+        channel = self._get_message_field(self.message, "channel") or self.config.default_channel
+
         return self.bot.messages.recall_message(
-            message_id=self.message.message_id,
-            area=self.message.area,
-            channel=self.message.channel,
+            message_id=message_id,
+            area=area,
+            channel=channel,
             **kwargs,
         )

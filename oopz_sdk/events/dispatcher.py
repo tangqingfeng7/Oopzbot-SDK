@@ -7,7 +7,6 @@ from typing import Any
 
 from .context import EventContext
 from .registry import EventRegistry
-from ..models import Message
 
 logger = logging.getLogger("oopz_sdk.events.dispatcher")
 
@@ -55,8 +54,8 @@ class EventDispatcher:
         定义事件的调用方式。
         """
         if event_name == "message":
-            message: Message = getattr(event, "message", None)
-            return handler(context, message.content)
+            message = getattr(event, "message", None)
+            return handler(message, context)
 
         if event_name in {"ready", "reconnect"}:
             return handler(context)

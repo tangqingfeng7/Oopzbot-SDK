@@ -57,28 +57,49 @@ class Message(BaseModel):
             if isinstance(item, dict)
         ]
 
-        mention_list = data.get("mentionList", [])
+        mention_list = data.get("mentionList")
+        if mention_list is None:
+            mention_list = data.get("mention_list", [])
         if not isinstance(mention_list, list):
             mention_list = []
 
-        style_tags = data.get("styleTags", [])
+        style_tags = data.get("styleTags")
+        if style_tags is None:
+            style_tags = data.get("style_tags", [])
         if not isinstance(style_tags, list):
             style_tags = []
 
         content = str(data.get("content") or "")
         text = str(data.get("text") or content)
+        message_id = str(
+            data.get("messageId")
+            or data.get("message_id")
+            or data.get("id")
+            or ""
+        )
+        client_message_id = str(
+            data.get("clientMessageId")
+            or data.get("client_message_id")
+            or ""
+        )
+        reference_message_id = str(
+            data.get("referenceMessageId")
+            or data.get("reference_message_id")
+            or ""
+        )
+        person = str(data.get("person") or data.get("uid") or "")
 
         return cls(
             target=str(data.get("target") or ""),
             area=str(data.get("area") or ""),
             channel=str(data.get("channel") or ""),
 
-            message_type=str(data.get("type") or ""),
-            client_message_id=str(data.get("clientMessageId") or ""),
-            message_id=str(data.get("messageId") or ""),
+            message_type=str(data.get("type") or data.get("message_type") or ""),
+            client_message_id=client_message_id,
+            message_id=message_id,
             timestamp=str(data.get("timestamp") or ""),
 
-            person=str(data.get("person") or ""),
+            person=person,
 
             content=content,
             text=text,
@@ -95,7 +116,7 @@ class Message(BaseModel):
             style_tags=style_tags,
 
             reference_message=data.get("referenceMessage"),
-            reference_message_id=str(data.get("referenceMessageId") or ""),
+            reference_message_id=reference_message_id,
 
             attachments=attachments,
 

@@ -1,5 +1,11 @@
+import asyncio
+
 from oopz_sdk import models
 from oopz_sdk.config import OopzConfig
+from oopz_sdk.events.context import EventContext
+from oopz_sdk.events.dispatcher import EventDispatcher
+from oopz_sdk.events.registry import EventRegistry
+from oopz_sdk.models.event import MessageEvent
 from oopz_sdk.services.area import AreaService
 from oopz_sdk.services.channel import Channel
 from oopz_sdk.services.media import Media
@@ -190,3 +196,93 @@ def test_oopz_sdk_person_detail_as_model(monkeypatch):
     assert isinstance(result, models.PersonDetail)
     assert result.uid == "u1"
     assert result.name == "Alice"
+
+
+def test_oopz_sdk_event_context_send_allows_explicit_channel_without_message():
+    class _Messages:
+        def __init__(self):
+            self.calls = []
+
+        def send_message(self, **kwargs):
+            self.calls.append(kwargs)
+            return kwargs
+
+    class _Bot:
+        def __init__(self):
+            self.messages = _Messages()
+
+    bot = _Bot()
+    ctx = EventContext(bot=bot, config=_make_config())
+
+    result = asyncio.run(ctx.send("hello", area="area-1", channel="channel-1"))
+
+    assert result == {"text": "hello", "area": "area-1", "channel": "channel-1"}
+    assert bot.messages.calls == [{"text": "hello", "area": "area-1", "channel": "channel-1"}]
+
+
+def test_oopz_sdk_dispatcher_message_handler_receives_message_then_context():
+    registry = EventRegistry()
+    captured = {}
+
+    @registry.on("message")
+    def _handler(message, ctx):
+        captured["message"] = message
+        captured["ctx"] = ctx
+
+    dispatcher = EventDispatcher(registry)
+    ctx = EventContext(bot=None, config=_make_config())
+    event = MessageEvent(
+        name="message",
+        event_type=9,
+        message=models.Message(message_id="msg-1", content="hello", text="hello"),
+    )
+
+    asyncio.run(dispatcher.dispatch("message", event, ctx))
+
+    assert isinstance(captured["message"], models.Message)
+    assert captured["message"].message_id == "msg-1"
+    assert captured["ctx"] is ctx
+
+
+def test_oopz_sdk_message_from_dict_accepts_legacy_id_field():
+    message = models.Message.from_dict(
+        {
+            "id": "msg-legacy",
+            "area": "area-1",
+            "channel": "channel-1",
+            "content": "hello",
+        }
+    )
+
+    assert message.message_id == "msg-legacy"
+    assert message.content == "hello"
+
+
+def test_oopz_sdk_event_context_reply_uses_message_id_from_legacy_id():
+    class _Messages:
+        def __init__(self):
+            self.calls = []
+
+        def send_message(self, **kwargs):
+            self.calls.append(kwargs)
+            return kwargs
+
+    class _Bot:
+        def __init__(self):
+            self.messages = _Messages()
+
+    bot = _Bot()
+    message = models.Message.from_dict(
+        {
+            "id": "msg-legacy",
+            "area": "area-1",
+            "channel": "channel-1",
+            "content": "hello",
+        }
+    )
+    ctx = EventContext(bot=bot, config=_make_config(), message=message)
+
+    result = asyncio.run(ctx.reply("pong"))
+
+    assert result["referenceMessageId"] == "msg-legacy"
+    assert bot.messages.calls[0]["referenceMessageId"] == "msg-legacy"
