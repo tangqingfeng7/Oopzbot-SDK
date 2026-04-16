@@ -50,6 +50,7 @@ include = ["oopz*"]
 
 [tool.setuptools.package-data]
 oopz = ["py.typed"]
+oopz_sdk = ["py.typed"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -5,6 +5,9 @@ import logging
 import re
 from typing import Optional
 
+from oopz_sdk import models
+from oopz_sdk.auth.headers import build_oopz_headers
+
 from .message import Message
 
 logger = logging.getLogger("oopz_sdk.services.private")
@@ -115,11 +118,11 @@ class PrivateMessage(Message):
 
         return False, "HTTP 200 但响应未明确确认私信已发送"
 
-    def open_private_session(self, target: str) -> dict:
+    def open_private_session(self, target: str) -> models.PrivateSessionResult:
         """打开或创建与指定用户的私信会话。"""
         target = str(target or "").strip()
         if not target:
-            return {"error": "缺少 target"}
+            return models.PrivateSessionResult(channel="", target=target, payload={"error": "缺少 target"})
 
         url_path = "/client/v1/chat/v1/to"
         query = f"?target={target}"
@@ -129,33 +132,48 @@ class PrivateMessage(Message):
         try:
             self._throttle()
             body_str = json.dumps(body, separators=(",", ":"), ensure_ascii=False)
-            headers = {**self.session.headers, **self.signer.oopz_headers(full_path, body_str)}
+            headers = {**self.session.headers, **build_oopz_headers(self._config, self.signer, full_path, body_str)}
             url = self._config.base_url + full_path
             resp = self.session.patch(url, headers=headers, data=body_str.encode("utf-8"))
         except Exception as e:
             logger.error("打开私信会话异常: %s", e)
-            return {"error": str(e)}
+            return models.PrivateSessionResult(channel="", target=target, payload={"error": str(e)})
 
         raw = resp.text or ""
         logger.info("打开私信会话 PATCH %s -> HTTP %d, body: %s", full_path, resp.status_code, raw[:300])
 
         if resp.status_code != 200:
-            return {"error": f"HTTP {resp.status_code}" + (f" | {raw[:200]}" if raw else "")}
+            return models.PrivateSessionResult(
+                channel="",
+                target=target,
+                payload={"error": f"HTTP {resp.status_code}" + (f" | {raw[:200]}" if raw else "")},
+                response=resp,
+            )
 
         try:
             result = resp.json()
         except Exception:
-            return {"error": f"响应非 JSON: {raw[:200]}"}
+            return models.PrivateSessionResult(
+                channel="",
+                target=target,
+                payload={"error": f"响应非 JSON: {raw[:200]}"},
+                response=resp,
+            )
 
         channel = self._extract_private_channel(result)
         if not channel:
             logger.error("打开私信会话成功但未提取到 channel，响应: %s", self._short_payload(result))
-            return {
-                "error": "未能从响应中提取私信 channel",
-                "raw": result,
-                "debug_reason": "open_session_missing_channel",
-            }
-        return {"status": True, "channel": channel, "raw": result}
+            return models.PrivateSessionResult(
+                channel="",
+                target=target,
+                payload={
+                    "error": "未能从响应中提取私信 channel",
+                    "raw": result,
+                    "debug_reason": "open_session_missing_channel",
+                },
+                response=resp,
+            )
+        return models.PrivateSessionResult(channel=channel, target=target, payload=result, response=resp)
 
     def send_private_message(
         self,
@@ -165,29 +183,50 @@ class PrivateMessage(Message):
         attachments: Optional[list] = None,
         style_tags: Optional[list] = None,
         channel: Optional[str] = None,
-    ) -> dict:
+    ) -> models.MessageSendResult:
         """发送私信消息。"""
         target = str(target or "").strip()
         if not target:
-            return {"error": "缺少 target"}
+            return models.MessageSendResult(
+                message_id="",
+                area="",
+                channel=str(channel or ""),
+                target=target,
+                payload={"error": "缺少 target"},
+            )
 
         if not channel:
             opened = self.open_private_session(target)
-            if "error" in opened:
-                return opened
-            channel = opened.get("channel")
+            if not opened.channel:
+                return models.MessageSendResult(
+                    message_id="",
+                    area="",
+                    channel="",
+                    target=target,
+                    payload=opened.payload,
+                    response=opened.response,
+                )
+            channel = opened.channel
 
         if not channel:
             logger.error("发送私信失败：私信 channel 不可用 (target=%s)", target[:12])
-            return {"error": "私信 channel 不可用", "debug_reason": "missing_channel"}
+            return models.MessageSendResult(
+                message_id="",
+                area="",
+                channel="",
+                target=target,
+                payload={"error": "私信 channel 不可用", "debug_reason": "missing_channel"},
+            )
 
+        client_message_id = self.signer.client_message_id()
+        timestamp = self.signer.timestamp_us()
         body = {
             "message": {
                 "area": "",
                 "channel": channel,
                 "target": target,
-                "clientMessageId": self.signer.client_message_id(),
-                "timestamp": self.signer.timestamp_us(),
+                "clientMessageId": client_message_id,
+                "timestamp": timestamp,
                 "isMentionAll": False,
                 "mentionList": [],
                 "styleTags": style_tags if style_tags is not None else [],
@@ -204,23 +243,39 @@ class PrivateMessage(Message):
         try:
             self._throttle()
             body_str = json.dumps(body, separators=(",", ":"), ensure_ascii=False)
-            headers = {**self.session.headers, **self.signer.oopz_headers(url_path, body_str)}
+            headers = {**self.session.headers, **build_oopz_headers(self._config, self.signer, url_path, body_str)}
             url = self._config.base_url + url_path
             resp = self.session.post(url, headers=headers, data=body_str.encode("utf-8"))
         except Exception as e:
             logger.error("发送私信异常: %s", e)
-            return {"error": str(e)}
+            return models.MessageSendResult(
+                message_id="",
+                area="",
+                channel=channel,
+                target=target,
+                client_message_id=client_message_id,
+                timestamp=timestamp,
+                payload={"error": str(e)},
+            )
 
         raw = resp.text or ""
         logger.info("发送私信 POST %s -> HTTP %d, body: %s", url_path, resp.status_code, raw[:300])
 
         if resp.status_code != 200:
             logger.error("发送私信失败：HTTP %s，响应: %s", resp.status_code, raw[:240])
-            return {
-                "error": f"HTTP {resp.status_code}" + (f" | {raw[:200]}" if raw else ""),
-                "channel": channel,
-                "debug_reason": "send_dm_http_error",
-            }
+            return models.MessageSendResult(
+                message_id="",
+                area="",
+                channel=channel,
+                target=target,
+                client_message_id=client_message_id,
+                timestamp=timestamp,
+                payload={
+                    "error": f"HTTP {resp.status_code}" + (f" | {raw[:200]}" if raw else ""),
+                    "debug_reason": "send_dm_http_error",
+                },
+                response=resp,
+            )
 
         try:
             result = resp.json()
@@ -230,12 +285,28 @@ class PrivateMessage(Message):
         ok, reason = self._validate_private_send_result(result)
         if not ok:
             logger.error("发送私信未获确认: %s, 响应: %s", reason, self._short_payload(result))
-            return {
-                "error": f"HTTP 200 但未确认发送成功: {reason}",
-                "channel": channel,
-                "result": result,
-                "debug_reason": "send_dm_unconfirmed",
-            }
+            return models.MessageSendResult(
+                message_id="",
+                area="",
+                channel=channel,
+                target=target,
+                client_message_id=client_message_id,
+                timestamp=timestamp,
+                payload={
+                    "error": f"HTTP 200 但未确认发送成功: {reason}",
+                    "result": result,
+                    "debug_reason": "send_dm_unconfirmed",
+                },
+                response=resp,
+            )
 
         logger.info("发送私信成功: channel=%s", str(channel)[:24])
-        return {"status": True, "channel": channel, "result": result}
+        return self._build_send_result(
+            result,
+            response=resp,
+            area="",
+            channel=channel,
+            target=target,
+            client_message_id=client_message_id,
+            timestamp=timestamp,
+        )

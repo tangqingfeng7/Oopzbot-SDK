@@ -5,7 +5,10 @@ import logging
 import time
 from typing import Optional
 
-from oopz_sdk.models import ApiResponse, Area, Member
+from oopz_sdk import models
+from oopz_sdk.auth.signer import Signer
+from oopz_sdk.config.settings import OopzConfig
+from oopz_sdk.transport.http import HttpTransport
 
 from . import BaseService
 
@@ -14,6 +17,16 @@ logger = logging.getLogger("oopz_sdk.services.area")
 
 class AreaService(BaseService):
     """Area-related platform capabilities."""
+
+    def __init__(
+        self,
+        config: OopzConfig,
+        transport: HttpTransport | None = None,
+        signer: Signer | None = None,
+    ):
+        resolved_signer = signer or Signer(config)
+        resolved_transport = transport or HttpTransport(config, resolved_signer)
+        super().__init__(config, resolved_transport, resolved_signer)
 
     def _get_area_members_cache_store(self) -> dict:
         store = getattr(self, "_area_members_cache", None)
@@ -49,18 +62,24 @@ class AreaService(BaseService):
         store[cache_key] = {"ts": time.time(), "data": copy.deepcopy(data)}
 
     @staticmethod
-    def _to_member_model(payload: dict) -> Member:
-        return Member(
+    def _to_member_model(payload: dict) -> models.Member:
+        return models.Member(
             uid=str(payload.get("uid") or payload.get("id") or ""),
+            name=str(payload.get("name") or payload.get("nickname") or ""),
             nickname=str(payload.get("name") or payload.get("nickname") or ""),
+            avatar=str(payload.get("avatar") or payload.get("avatarUrl") or ""),
             online=bool(payload.get("online") in (1, True)),
+            payload=dict(payload),
         )
 
     @staticmethod
-    def _to_area_model(payload: dict) -> Area:
-        return Area(
+    def _to_area_model(payload: dict) -> models.Area:
+        return models.Area(
             id=str(payload.get("id") or payload.get("code") or ""),
             name=str(payload.get("name") or ""),
+            code=str(payload.get("code") or ""),
+            description=str(payload.get("description") or ""),
+            payload=dict(payload),
         )
 
     def get_area_members(
@@ -71,7 +90,7 @@ class AreaService(BaseService):
         quiet: bool = False,
         *,
         as_model: bool = False,
-    ) -> dict | ApiResponse:
+    ) -> dict | models.AreaMembersPage:
         """获取域内成员列表及在线状态。"""
         area = area or self._config.default_area
         url_path = "/area/v3/members"
@@ -116,7 +135,7 @@ class AreaService(BaseService):
                     )
                 err = {"error": "HTTP 429"}
                 if as_model:
-                    return ApiResponse(status=False, message=err["error"], data={})
+                    return models.AreaMembersPage(payload=err)
                 return err
 
                 logger.warning(
@@ -136,7 +155,7 @@ class AreaService(BaseService):
                     return stale
                 err = {"error": f"HTTP {resp.status_code}"}
                 if as_model:
-                    return ApiResponse(status=False, message=err["error"], data={})
+                    return models.AreaMembersPage(payload=err, response=resp)
                 return err
 
             if not resp.content:
@@ -147,7 +166,7 @@ class AreaService(BaseService):
                     return stale
                 err = {"error": "empty response"}
                 if as_model:
-                    return ApiResponse(status=False, message=err["error"], data={})
+                    return models.AreaMembersPage(payload=err, response=resp)
                 return err
 
             try:
@@ -174,7 +193,7 @@ class AreaService(BaseService):
                     return stale
                 err = {"error": "invalid JSON"}
                 if as_model:
-                    return ApiResponse(status=False, message=err["error"], data={})
+                    return models.AreaMembersPage(payload=err, response=resp)
                 return err
             if not result.get("status"):
                 msg = result.get("message") or result.get("error") or "未知错误"
@@ -185,7 +204,7 @@ class AreaService(BaseService):
                     return stale
                 err = {"error": msg}
                 if as_model:
-                    return ApiResponse(status=False, message=msg, data={})
+                    return models.AreaMembersPage(payload=err, response=resp)
                 return err
 
             data = result.get("data", {})
@@ -215,8 +234,18 @@ class AreaService(BaseService):
                 members = [
                     self._to_member_model(m) for m in members_payload if isinstance(m, dict)
                 ]
-                model_data = {**data, "members": members}
-                return ApiResponse(status=True, message="", data=model_data, code=0)
+                return models.AreaMembersPage(
+                    members=members,
+                    online_count=int(data.get("onlineCount") or 0),
+                    total_count=int(data.get("totalCount") or 0),
+                    user_count=int(data.get("userCount") or 0),
+                    fetched_count=int(data.get("fetchedCount") or 0),
+                    stale=bool(data.get("stale")),
+                    rate_limited=bool(data.get("rateLimited")),
+                    from_cache=bool(data.get("from_cache")),
+                    payload=dict(data),
+                    response=resp,
+                )
             return data
         except Exception as e:
             logger.error("获取域成员异常: %s", e)
@@ -226,10 +255,15 @@ class AreaService(BaseService):
                 return stale
             err = {"error": str(e)}
             if as_model:
-                return ApiResponse(status=False, message=err["error"], data={})
+                return models.AreaMembersPage(payload=err)
             return err
 
-    def get_joined_areas(self, quiet: bool = False, *, as_model: bool = False) -> list[dict] | list[Area]:
+    def get_joined_areas(
+        self,
+        quiet: bool = False,
+        *,
+        as_model: bool = False,
+    ) -> list[dict] | models.JoinedAreasResult:
         """获取当前用户已加入（订阅）的域列表。"""
         url_path = "/userSubscribeArea/v1/list"
         try:
@@ -247,15 +281,21 @@ class AreaService(BaseService):
                 for a in areas:
                     logger.info("  域: %s (ID=%s, code=%s)", a.get("name"), a.get("id"), a.get("code"))
             if as_model:
-                return [self._to_area_model(a) for a in areas if isinstance(a, dict)]
+                return models.JoinedAreasResult(
+                    areas=[self._to_area_model(a) for a in areas if isinstance(a, dict)],
+                    payload={"areas": areas},
+                    response=resp,
+                )
             return areas
         except Exception as e:
             logger.error("获取已加入域列表异常: %s", e)
+            if as_model:
+                return models.JoinedAreasResult(payload={"error": str(e)})
             return []
 
-    def get_area_info(self, area: Optional[str] = None) -> dict:
+    def get_area_info(self, area: Optional[str] = None, *, as_model: bool = False) -> dict | models.Area:
         """获取域详细信息（含角色列表、主页频道等）。"""
-        area = area or self._config.default_area
+        area = self._resolve_area(area)
         url_path = "/area/v3/info"
         params = {"area": area}
         try:
@@ -266,7 +306,10 @@ class AreaService(BaseService):
             result = resp.json()
             if not result.get("status"):
                 return {"error": result.get("message") or result.get("error") or "未知错误"}
-            return result.get("data", {})
+            data = result.get("data", {})
+            if as_model and isinstance(data, dict):
+                return self._to_area_model(data)
+            return data
         except Exception as e:
             logger.error("获取域详情异常: %s", e)
             return {"error": str(e)}

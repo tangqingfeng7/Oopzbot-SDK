@@ -7,10 +7,13 @@ import os
 from PIL import Image
 import requests
 
+from oopz_sdk import models
+from oopz_sdk.auth.signer import Signer
+from oopz_sdk.config.settings import OopzConfig
 from oopz_sdk.exceptions import OopzApiError, OopzRateLimitError
+from oopz_sdk.transport.http import HttpTransport
 from . import BaseService
 
-from .privatemessage import PrivateMessage
 from ..models import ImageAttachment
 from ..models.attachment import AudioAttachment
 
@@ -55,8 +58,18 @@ UPLOAD_PUT_TIMEOUT = (10, 60)
 class Media(BaseService):
     """Media upload capabilities."""
 
-    def upload_file(self, file_path: str, file_type: str = "IMAGE", ext: str = ".webp") -> dict:
-        """上传本地文件，返回 { fileKey, url }。"""
+    def __init__(
+        self,
+        config: OopzConfig,
+        transport: HttpTransport | None = None,
+        signer: Signer | None = None,
+    ):
+        resolved_signer = signer or Signer(config)
+        resolved_transport = transport or HttpTransport(config, resolved_signer)
+        super().__init__(config, resolved_transport, resolved_signer)
+
+    def upload_file(self, file_path: str, file_type: str = "IMAGE", ext: str = ".webp") -> models.UploadResult:
+        """上传本地文件并返回附件模型。"""
         url_path = "/rtc/v1/cos/v1/signedUploadUrl"
         body = {"type": file_type, "ext": ext}
 
@@ -79,9 +92,16 @@ class Media(BaseService):
         if put_resp.status_code not in (200, 201):
             raise OopzApiError(f"文件上传失败: {put_resp.text}", status_code=put_resp.status_code)
 
-        return {"fileKey": file_key, "url": cdn_url}
+        attachment = models.Attachment(
+            file_key=str(file_key),
+            url=str(cdn_url),
+            attachment_type=str(file_type),
+            display_name=os.path.basename(file_path),
+            file_size=os.path.getsize(file_path) if os.path.exists(file_path) else 0,
+        )
+        return models.UploadResult(attachment=attachment, payload=resp.json(), response=resp)
 
-    def upload_file_from_url(self, image_url: str) -> dict:
+    def upload_file_from_url(self, image_url: str) -> models.UploadResult:
         """从网络 URL 下载图片并上传到 Oopz（不落地磁盘）。"""
         try:
             resp = self.session.get(image_url, stream=True, timeout=15)
@@ -122,15 +142,26 @@ class Media(BaseService):
                 "displayName": "",
                 "attachmentType": "IMAGE",
             }
-            return {"code": "success", "message": "上传成功", "data": attachment}
+            return models.UploadResult(
+                attachment=ImageAttachment(
+                    file_key=str(file_key),
+                    url=str(cdn_url),
+                    attachment_type="IMAGE",
+                    file_size=file_size,
+                    width=width,
+                    height=height,
+                    hash=md5,
+                ),
+                payload={"code": "success", "message": "上传成功", "data": attachment},
+            )
 
         except Exception as e:
             logger.error("从 URL 上传失败: %s", e)
-            return {"code": "error", "message": str(e), "data": None}
+            raise OopzApiError(f"从 URL 上传失败: {e}") from e
 
     def upload_audio_from_url(
         self, audio_url: str, filename: str = "music.mp3", duration_ms: int = 0
-    ) -> dict:
+    ) -> models.UploadResult:
         """从网络 URL 下载音频并上传到 Oopz（AUDIO 类型）。"""
         try:
             resp = self.session.get(audio_url, timeout=30, headers={
@@ -183,13 +214,16 @@ class Media(BaseService):
                 duration=duration_ms,
             )
             logger.info("音频上传成功: %s (%d bytes, %ds)", display_name, file_size, duration_sec)
-            return {"code": "success", "data": attachment.to_dict()}
+            return models.UploadResult(
+                attachment=attachment,
+                payload={"code": "success", "data": attachment.to_payload()},
+            )
 
         except Exception as e:
             logger.error("音频上传失败: %s", e)
-            return {"code": "error", "message": str(e), "data": None}
+            raise OopzApiError(f"音频上传失败: {e}") from e
 
-    def send_image(self, file_path: str, text: str = "", **kwargs) -> requests.Response:
+    def send_image(self, file_path: str, text: str = "", **kwargs) -> models.MessageSendResult:
         """上传本地图片并作为消息发送。"""
         width, height, file_size = get_image_info(file_path)
 
@@ -211,8 +245,7 @@ class Media(BaseService):
                 timeout=UPLOAD_PUT_TIMEOUT,
             ).raise_for_status()
 
-        attachments = [
-            ImageAttachment(
+        attachment = ImageAttachment(
             file_key=file_key,
             url=cdn_url,
             width=width,
@@ -222,7 +255,8 @@ class Media(BaseService):
             animated=False,
             display_name="",
             attachment_type="IMAGE",
-        ).to_dict()]
+        )
+        attachments = [attachment.to_payload()]
 
         msg_text = f"![IMAGEw{width}h{height}]({file_key})"
         if text:
@@ -230,7 +264,7 @@ class Media(BaseService):
 
         return self.send_message(text=msg_text, attachments=attachments, **kwargs)
 
-    def send_private_image(self, target: str, file_path: str, text: str = "") -> dict:
+    def send_private_image(self, target: str, file_path: str, text: str = "") -> models.MessageSendResult:
         """上传本地图片并通过私信发送。"""
         width, height, file_size = get_image_info(file_path)
 
@@ -253,7 +287,7 @@ class Media(BaseService):
                 ).raise_for_status()
         except Exception as e:
             logger.error("上传私信图片失败: %s", e)
-            return {"error": str(e)}
+            raise OopzApiError(f"上传私信图片失败: {e}") from e
 
         attachment = ImageAttachment(
             file_key=file_key,
@@ -265,14 +299,10 @@ class Media(BaseService):
             animated=False,
             display_name="",
             attachment_type="IMAGE",
-        ).to_dict()
+        ).to_payload()
         msg_text = f"![IMAGEw{width}h{height}]({file_key})"
         if text:
             msg_text += f"\n{text}"
-        result = self.send_private_message(target, msg_text, attachments=[attachment])
-        if "error" in result:
-            logger.error("私信图片发送失败: %s", result.get("error"))
-            return result
-        return {"status": True, "channel": result.get("channel"), "attachment": attachment}
+        return self.send_private_message(target, msg_text, attachments=[attachment])
 
 UploadMixin = Media

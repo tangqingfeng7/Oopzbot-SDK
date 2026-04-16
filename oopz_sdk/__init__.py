@@ -32,7 +32,32 @@ from .exceptions import (
     OopzRateLimitError,
     OopzTransportError,
 )
-from .services.message import Message
+from .models import (
+    Area,
+    AreaBlock,
+    AreaBlocksResult,
+    AreaMembersPage,
+    Attachment,
+    AudioAttachment,
+    Channel,
+    ChannelGroup,
+    ChannelGroupsResult,
+    ChannelSetting,
+    DailySpeechResult,
+    ImageAttachment,
+    JoinedAreasResult,
+    Member,
+    Message as MessageModel,
+    MessageListResult,
+    MessageSendResult,
+    OperationResult,
+    PersonDetail,
+    PrivateSessionResult,
+    SelfDetail,
+    UploadResult,
+    VoiceChannelMembersResult,
+)
+from .services.message import Message as MessageService
 from .version import __version__
 
 try:
@@ -46,7 +71,8 @@ except ModuleNotFoundError:  # pragma: no cover - optional runtime dependency
     OopzBot = _MissingWebSocketDependency
     OopzWSClient = _MissingWebSocketDependency
 
-OopzSender = Message
+Message = MessageService
+OopzSender = MessageService
 OopzClient = OopzWSClient
 
 __all__ = [
@@ -57,7 +83,13 @@ __all__ = [
     "EVENT_HEARTBEAT",
     "EVENT_SERVER_ID",
     "HeartbeatConfig",
+    "ImageAttachment",
+    "JoinedAreasResult",
+    "Member",
     "Message",
+    "MessageModel",
+    "MessageListResult",
+    "MessageSendResult",
     "OopzApiError",
     "OopzAuthError",
     "OopzBot",
@@ -71,10 +103,27 @@ __all__ = [
     "OopzSender",
     "OopzTransportError",
     "OopzWSClient",
+    "OperationResult",
+    "PersonDetail",
+    "PrivateSessionResult",
     "ProxyConfig",
     "RetryConfig",
+    "SelfDetail",
     "Signer",
+    "UploadResult",
     "UploadMixin",
+    "VoiceChannelMembersResult",
     "__version__",
+    "Area",
+    "AreaBlock",
+    "AreaBlocksResult",
+    "AreaMembersPage",
+    "Attachment",
+    "AudioAttachment",
+    "Channel",
+    "ChannelGroup",
+    "ChannelGroupsResult",
+    "ChannelSetting",
+    "DailySpeechResult",
     "get_image_info",
 ]

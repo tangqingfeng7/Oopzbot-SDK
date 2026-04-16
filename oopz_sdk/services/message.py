@@ -2,13 +2,11 @@ from __future__ import annotations
 
 import json
 import logging
-import re
 import threading
 import time
 from typing import Optional
 
-import requests
-
+from oopz_sdk.auth.headers import build_oopz_headers
 from oopz_sdk.auth.signer import Signer
 from oopz_sdk.config.settings import OopzConfig
 from oopz_sdk.exceptions import OopzApiError, OopzRateLimitError
@@ -30,16 +28,8 @@ class Message(BaseService):
         resolved_transport = transport or HttpTransport(config, resolved_signer)
         super().__init__(config, resolved_transport, resolved_signer)
 
-    @staticmethod
-    def _safe_json(response: requests.Response) -> dict | None:
-        try:
-            payload = response.json()
-        except ValueError:
-            return None
-        return payload if isinstance(payload, dict) else None
-
     @classmethod
-    def _raise_api_error(cls, response: requests.Response, default_message: str) -> None:
+    def _raise_api_error(cls, response, default_message: str) -> None:
         payload = cls._safe_json(response)
         message = default_message
         retry_after = 0
@@ -62,6 +52,60 @@ class Message(BaseService):
 
         raise OopzApiError(message, status_code=response.status_code, response=payload)
 
+    @staticmethod
+    def _extract_message_id(payload: dict) -> str:
+        data = payload.get("data", {})
+        if isinstance(data, dict):
+            value = data.get("messageId") or data.get("id")
+            if value is not None:
+                return str(value)
+        value = payload.get("messageId") or payload.get("id")
+        return str(value or "")
+
+    @staticmethod
+    def _extract_message_field(payload: dict, *names: str) -> str:
+        data = payload.get("data", {})
+        for source in (data if isinstance(data, dict) else {}, payload):
+            if not isinstance(source, dict):
+                continue
+            for name in names:
+                value = source.get(name)
+                if value not in (None, ""):
+                    return str(value)
+        return ""
+
+    @classmethod
+    def _build_send_result(
+        cls,
+        payload: dict,
+        *,
+        response,
+        area: str,
+        channel: str,
+        target: str,
+        client_message_id: str,
+        timestamp: str,
+    ) -> models.MessageSendResult:
+        return models.MessageSendResult(
+            message_id=cls._extract_message_id(payload),
+            area=area,
+            channel=channel,
+            target=target,
+            client_message_id=client_message_id,
+            timestamp=timestamp,
+            payload=payload,
+            response=response,
+        )
+
+    @staticmethod
+    def _build_operation_result(payload: dict, *, response, message: str) -> models.OperationResult:
+        return models.OperationResult(
+            ok=True,
+            message=str(payload.get("message") or message),
+            payload=payload,
+            response=response,
+        )
+
     def send_message(
         self,
         text: str,
@@ -69,7 +113,7 @@ class Message(BaseService):
         channel: Optional[str] = None,
         auto_recall: Optional[bool] = None,
         **kwargs,
-    ) -> requests.Response:
+    ) -> models.MessageSendResult:
         """发送聊天消息。
 
         Args:
@@ -79,16 +123,19 @@ class Message(BaseService):
             auto_recall: 是否自动撤回（None=按配置决定）
             **kwargs: attachments, mentionList, referenceMessageId, styleTags 等
         """
-        area = area or self._config.default_area
-        channel = channel or self._config.default_channel
+        area = self._resolve_area(area)
+        channel = self._resolve_channel(channel)
         default_style = ["IMPORTANT"] if self._config.use_announcement_style else []
+        target = str(kwargs.get("target", ""))
+        client_message_id = self.signer.client_message_id()
+        timestamp = self.signer.timestamp_us()
 
         body = {
             "area": area,
             "channel": channel,
-            "target": kwargs.get("target", ""),
-            "clientMessageId": self.signer.client_message_id(),
-            "timestamp": self.signer.timestamp_us(),
+            "target": target,
+            "clientMessageId": client_message_id,
+            "timestamp": timestamp,
             "isMentionAll": kwargs.get("isMentionAll", False),
             "mentionList": kwargs.get("mentionList", []),
             "styleTags": kwargs.get("styleTags", default_style),
@@ -115,18 +162,27 @@ class Message(BaseService):
                 raise OopzApiError("发送消息失败: 响应非 JSON", status_code=resp.status_code)
             if not result.get("status") and result.get("code") not in (0, "0", 200, "200", "success"):
                 self._raise_api_error(resp, "发送消息失败")
-            if auto_recall is not False:
-                self._schedule_auto_recall(resp, area, channel)
-            return resp
+            send_result = self._build_send_result(
+                result,
+                response=resp,
+                area=area,
+                channel=channel,
+                target=target,
+                client_message_id=client_message_id,
+                timestamp=timestamp,
+            )
+            if auto_recall is not False and send_result.message_id:
+                self._schedule_auto_recall(send_result.message_id, area, channel)
+            return send_result
         except Exception as e:
             logger.error("发送失败: %s", e)
             raise
 
-    def send_to_default(self, text: str, **kwargs) -> requests.Response:
+    def send_to_default(self, text: str, **kwargs) -> models.MessageSendResult:
         """发送到默认频道。"""
         return self.send_message(text, **kwargs)
 
-    def _schedule_auto_recall(self, resp: requests.Response, area: str, channel: str):
+    def _schedule_auto_recall(self, message_id: str, area: str, channel: str):
         if not self._config.auto_recall_enabled:
             return
         delay = self._config.auto_recall_delay
@@ -134,48 +190,48 @@ class Message(BaseService):
             return
 
         try:
-            result = resp.json()
-            data = result.get("data", {})
-            msg_id = None
-            if isinstance(data, dict):
-                msg_id = data.get("messageId")
-            if not msg_id:
-                msg_id = result.get("messageId")
-            if not msg_id:
-                logger.debug("自动撤回: 无法从响应中提取 messageId，跳过")
-                return
-            msg_id = str(msg_id)
-
             timer = threading.Timer(
-                delay, self._do_auto_recall, args=[msg_id, area, channel],
+                delay, self._do_auto_recall, args=[message_id, area, channel],
             )
             timer.daemon = True
             timer.start()
-            logger.debug("已安排 %ds 后自动撤回: %s...", delay, msg_id[:16])
+            logger.debug("已安排 %ds 后自动撤回: %s...", delay, message_id[:16])
         except Exception as e:
             logger.debug("安排自动撤回失败: %s", e)
 
     def _do_auto_recall(self, message_id: str, area: str, channel: str):
         try:
             result = self.recall_message(message_id, area=area, channel=channel)
-            if "error" in result:
-                logger.warning("自动撤回失败: %s (msgId=%s...)", result["error"], message_id[:16])
+            if not result.ok:
+                logger.warning("自动撤回失败: %s (msgId=%s...)", result.message, message_id[:16])
             else:
                 logger.info("自动撤回成功: %s...", message_id[:16])
         except Exception as e:
             logger.error("自动撤回异常: %s", e)
 
-    def send_multiple(self, messages: list[str], interval: float = 1.0) -> list[dict]:
+    def send_multiple(self, messages: list[str], interval: float = 1.0) -> list[models.OperationResult]:
         """批量发送消息。"""
-        results = []
+        results: list[models.OperationResult] = []
         for i, msg in enumerate(messages, 1):
             try:
                 resp = self.send_to_default(msg)
-                results.append({"message": msg, "status_code": resp.status_code, "success": resp.status_code == 200})
+                results.append(
+                    models.OperationResult(
+                        ok=True,
+                        message=f"已发送: {msg}",
+                        payload={"message": msg, "messageId": resp.message_id},
+                    )
+                )
                 if i < len(messages):
                     time.sleep(interval)
             except Exception as e:
-                results.append({"message": msg, "status_code": None, "success": False, "error": str(e)})
+                results.append(
+                    models.OperationResult(
+                        ok=False,
+                        message=str(e),
+                        payload={"message": msg},
+                    )
+                )
         return results
 
     def recall_message(
@@ -185,10 +241,10 @@ class Message(BaseService):
         channel: Optional[str] = None,
         timestamp: Optional[str] = None,
         target: str = "",
-    ) -> dict:
+    ) -> models.OperationResult:
         """撤回指定消息（需要管理员权限）。"""
-        area = area or self._config.default_area
-        channel = channel or self._config.default_channel
+        area = self._resolve_area(area)
+        channel = self._resolve_channel(channel)
         timestamp = timestamp or self.signer.timestamp_us()
         message_id = str(message_id).strip() if message_id is not None else ""
 
@@ -209,12 +265,12 @@ class Message(BaseService):
 
         try:
             body_str = json.dumps(body, separators=(",", ":"), ensure_ascii=False)
-            headers = {**self.session.headers, **self.signer.oopz_headers(full_path, body_str)}
+            headers = {**self.session.headers, **build_oopz_headers(self._config, self.signer, full_path, body_str)}
             url = self._config.base_url + full_path
             resp = self.session.post(url, headers=headers, data=body_str.encode("utf-8"))
         except Exception as e:
             logger.error("撤回请求异常: %s", e)
-            return {"error": str(e)}
+            return models.OperationResult(ok=False, message=str(e), payload=body)
 
         raw_text = resp.text or ""
         logger.info("撤回 POST %s -> HTTP %d, body: %s", full_path, resp.status_code, raw_text[:300])
@@ -222,21 +278,26 @@ class Message(BaseService):
         if resp.status_code != 200:
             err = f"HTTP {resp.status_code}" + (f" | {raw_text[:200]}" if raw_text else "")
             logger.error("撤回消息失败: %s", err)
-            return {"error": err}
+            return models.OperationResult(ok=False, message=err, payload=body, response=resp)
 
         try:
             result = resp.json()
         except Exception:
             logger.error("撤回响应非 JSON: %s", raw_text[:200])
-            return {"error": f"响应非 JSON: {raw_text[:200]}"}
+            return models.OperationResult(
+                ok=False,
+                message=f"响应非 JSON: {raw_text[:200]}",
+                payload=body,
+                response=resp,
+            )
 
         if result.get("status") is True or result.get("code") in (0, "0", "success", 200):
             logger.info("撤回消息成功: %s", message_id)
-            return {"status": True, "message": "撤回成功"}
+            return self._build_operation_result(result, response=resp, message="撤回成功")
 
         err = result.get("message") or result.get("error") or str(result)
         logger.error("撤回消息失败: %s", err)
-        return {"error": err}
+        return models.OperationResult(ok=False, message=str(err), payload=result, response=resp)
 
     def get_channel_messages(
         self,
@@ -247,8 +308,8 @@ class Message(BaseService):
         as_model: bool = False,
     ) -> list:
         """获取频道最近的消息列表。"""
-        area = area or self._config.default_area
-        channel = channel or self._config.default_channel
+        area = self._resolve_area(area)
+        channel = self._resolve_channel(channel)
         url_path = "/im/session/v2/messageBefore"
         params = {"area": area, "channel": channel, "size": str(size)}
 
@@ -309,15 +370,19 @@ class Message(BaseService):
     def _to_message_model(cls, payload: dict) -> models.Message:
         attachments = payload.get("attachments") or []
         return models.Message(
+            message_id=str(payload.get("messageId") or payload.get("message_id") or payload.get("id") or ""),
             area=str(payload.get("area") or ""),
             channel=str(payload.get("channel") or ""),
+            person=str(payload.get("person") or payload.get("uid") or ""),
             target=str(payload.get("target") or ""),
             text=str(payload.get("text") or payload.get("content") or ""),
             client_message_id=str(payload.get("clientMessageId") or payload.get("client_message_id") or ""),
+            reference_message_id=str(payload.get("referenceMessageId") or payload.get("reference_message_id") or ""),
             timestamp=str(payload.get("timestamp") or ""),
             mention_list=list(payload.get("mentionList") or payload.get("mention_list") or []),
             style_tags=list(payload.get("styleTags") or payload.get("style_tags") or []),
             attachments=[
                 cls._to_attachment_model(a) for a in attachments if isinstance(a, dict)
             ],
+            payload=dict(payload),
         )

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 from oopz_sdk.auth.signer import Signer
 from oopz_sdk.config.settings import OopzConfig
 from oopz_sdk.transport.http import HttpTransport
@@ -30,6 +32,26 @@ class BaseService:
 
     def _patch(self, url_path: str, body: dict):
         return self.transport.patch(url_path, body)
+
+    def _resolve_area(self, area: str | None) -> str:
+        value = str(area or self._config.default_area).strip()
+        if not value:
+            raise ValueError("缺少 area，且未配置 default_area")
+        return value
+
+    def _resolve_channel(self, channel: str | None) -> str:
+        value = str(channel or self._config.default_channel).strip()
+        if not value:
+            raise ValueError("缺少 channel，且未配置 default_channel")
+        return value
+
+    @staticmethod
+    def _safe_json(response) -> dict[str, Any] | None:
+        try:
+            payload = response.json()
+        except ValueError:
+            return None
+        return payload if isinstance(payload, dict) else None
 
     def close(self) -> None:
         self.transport.close()

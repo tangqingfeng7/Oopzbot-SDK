@@ -3,6 +3,9 @@ import logging
 from typing import Optional
 
 from oopz_sdk import models
+from oopz_sdk.auth.signer import Signer
+from oopz_sdk.config.settings import OopzConfig
+from oopz_sdk.transport.http import HttpTransport
 
 from . import BaseService
 
@@ -12,12 +15,48 @@ logger = logging.getLogger("oopz_sdk.services.member")
 class Member(BaseService):
     """Member-related platform capabilities."""
 
+    def __init__(
+        self,
+        config: OopzConfig,
+        transport: HttpTransport | None = None,
+        signer: Signer | None = None,
+    ):
+        resolved_signer = signer or Signer(config)
+        resolved_transport = transport or HttpTransport(config, resolved_signer)
+        super().__init__(config, resolved_transport, resolved_signer)
+
     @staticmethod
     def _to_member_model(payload: dict) -> models.Member:
         return models.Member(
             uid=str(payload.get("uid") or payload.get("id") or ""),
+            name=str(payload.get("name") or payload.get("nickname") or ""),
             nickname=str(payload.get("name") or payload.get("nickname") or ""),
+            avatar=str(payload.get("avatar") or payload.get("avatarUrl") or ""),
+            common_id=str(payload.get("commonId") or ""),
+            bio=str(payload.get("bio") or payload.get("signature") or ""),
             online=bool(payload.get("online") in (1, True)),
+            payload=dict(payload),
+        )
+
+    @staticmethod
+    def _to_person_detail_model(payload: dict) -> models.PersonDetail:
+        return models.PersonDetail(
+            uid=str(payload.get("uid") or payload.get("id") or ""),
+            name=str(payload.get("name") or payload.get("nickname") or ""),
+            avatar=str(payload.get("avatar") or payload.get("avatarUrl") or ""),
+            common_id=str(payload.get("commonId") or ""),
+            bio=str(payload.get("bio") or payload.get("signature") or ""),
+            payload=dict(payload),
+        )
+
+    @staticmethod
+    def _to_self_detail_model(payload: dict) -> models.SelfDetail:
+        return models.SelfDetail(
+            uid=str(payload.get("uid") or payload.get("id") or ""),
+            name=str(payload.get("name") or payload.get("nickname") or ""),
+            avatar=str(payload.get("avatar") or payload.get("avatarUrl") or ""),
+            mobile=str(payload.get("mobile") or ""),
+            payload=dict(payload),
         )
 
     def get_person_infos_batch(self, uids: list[str]) -> dict[str, dict]:
@@ -45,7 +84,12 @@ class Member(BaseService):
                 logger.debug("批量获取用户信息部分失败: %s", e)
         return result_map
 
-    def get_person_detail(self, uid: Optional[str] = None, *, as_model: bool = False) -> dict | models.Member:
+    def get_person_detail(
+        self,
+        uid: Optional[str] = None,
+        *,
+        as_model: bool = False,
+    ) -> dict | models.PersonDetail:
         """获取用户信息（可查询任意用户）。"""
         uid = uid or self._config.person_uid
         url_path = "/client/v1/person/v1/personInfos"
@@ -70,7 +114,7 @@ class Member(BaseService):
             person = data_list[0]
             logger.info("获取个人信息成功: %s", person.get("name", "未知"))
             if as_model:
-                return self._to_member_model(person)
+                return self._to_person_detail_model(person)
             return person
         except Exception as e:
             logger.error("获取个人信息异常: %s", e)
@@ -92,7 +136,7 @@ class Member(BaseService):
             logger.error("获取他人详细资料异常: %s", e)
             return {"error": str(e)}
 
-    def get_self_detail(self) -> dict:
+    def get_self_detail(self, *, as_model: bool = False) -> dict | models.SelfDetail:
         """获取当前登录用户的完整详细资料。"""
         uid = self._config.person_uid
         url_path = "/client/v1/person/v2/selfDetail"
@@ -104,7 +148,10 @@ class Member(BaseService):
             result = resp.json()
             if not result.get("status"):
                 return {"error": result.get("message") or "未知错误"}
-            return result.get("data", {})
+            data = result.get("data", {})
+            if as_model and isinstance(data, dict):
+                return self._to_self_detail_model(data)
+            return data
         except Exception as e:
             logger.error("获取自身详细资料异常: %s", e)
             return {"error": str(e)}

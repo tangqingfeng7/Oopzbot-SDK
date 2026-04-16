@@ -7,7 +7,11 @@ import re
 import time
 from typing import Optional
 
-from oopz_sdk.models import Channel
+from oopz_sdk import models
+from oopz_sdk.auth.headers import build_oopz_headers
+from oopz_sdk.auth.signer import Signer
+from oopz_sdk.config.settings import OopzConfig
+from oopz_sdk.transport.http import HttpTransport
 
 from . import BaseService
 
@@ -16,6 +20,16 @@ logger = logging.getLogger("oopz_sdk.services.channel")
 
 class Channel(BaseService):
     """Channel-related platform capabilities."""
+
+    def __init__(
+        self,
+        config: OopzConfig,
+        transport: HttpTransport | None = None,
+        signer: Signer | None = None,
+    ):
+        resolved_signer = signer or Signer(config)
+        resolved_transport = transport or HttpTransport(config, resolved_signer)
+        super().__init__(config, resolved_transport, resolved_signer)
 
     @staticmethod
     def _extract_channel_id(payload: object) -> Optional[str]:
@@ -47,12 +61,64 @@ class Channel(BaseService):
         return store
 
     @staticmethod
-    def _to_channel_model(payload: dict, area: str = "") -> Channel:
-        return Channel(
+    def _to_channel_model(payload: dict, area: str = "") -> models.Channel:
+        return models.Channel(
             id=str(payload.get("id") or payload.get("channel") or ""),
             name=str(payload.get("name") or ""),
             type=str(payload.get("type") or ""),
             area=str(area or payload.get("area") or ""),
+            group=str(payload.get("group") or ""),
+            secret=bool(payload.get("secret")),
+            payload=dict(payload),
+        )
+
+    @classmethod
+    def _to_channel_group_model(cls, payload: dict, *, area: str = "") -> models.ChannelGroup:
+        channels = payload.get("channels") or []
+        return models.ChannelGroup(
+            id=str(payload.get("id") or ""),
+            name=str(payload.get("name") or ""),
+            channels=[
+                cls._to_channel_model(ch, area=area)
+                for ch in channels
+                if isinstance(ch, dict)
+            ],
+            payload=dict(payload),
+        )
+
+    @staticmethod
+    def _to_channel_setting_model(payload: dict) -> models.ChannelSetting:
+        accessible_members = [
+            str(item) for item in payload.get("accessibleMembers", []) if str(item).strip()
+        ] if isinstance(payload.get("accessibleMembers"), list) else []
+        return models.ChannelSetting(
+            channel=str(payload.get("channel") or payload.get("id") or ""),
+            area=str(payload.get("area") or ""),
+            name=str(payload.get("name") or ""),
+            text_gap_second=int(payload.get("textGapSecond", 0) or 0),
+            voice_quality=str(payload.get("voiceQuality") or "64k"),
+            voice_delay=str(payload.get("voiceDelay") or "LOW"),
+            max_member=int(payload.get("maxMember", 30000) or 30000),
+            voice_control_enabled=bool(payload.get("voiceControlEnabled")),
+            text_control_enabled=bool(payload.get("textControlEnabled")),
+            text_roles=list(payload.get("textRoles") or []),
+            voice_roles=list(payload.get("voiceRoles") or []),
+            access_control_enabled=bool(payload.get("accessControlEnabled")),
+            accessible=list(payload.get("accessible") or []),
+            accessible_members=accessible_members,
+            secret=bool(payload.get("secret")),
+            has_password=bool(payload.get("hasPassword")),
+            password=str(payload.get("password") or ""),
+            payload=dict(payload),
+        )
+
+    @staticmethod
+    def _ok_result(payload: dict, *, response=None, message: str = "") -> models.OperationResult:
+        return models.OperationResult(
+            ok=True,
+            message=str(payload.get("message") or message),
+            payload=payload,
+            response=response,
         )
 
     def get_area_channels(
@@ -61,9 +127,9 @@ class Channel(BaseService):
         quiet: bool = False,
         *,
         as_model: bool = False,
-    ) -> list:
+    ) -> list | models.ChannelGroupsResult:
         """获取域内完整频道列表（含分组）。"""
-        area = area or self._config.default_area
+        area = self._resolve_area(area)
         url_path = "/client/v1/area/v1/detail/v1/channels"
         params = {"area": area}
 
@@ -81,18 +147,23 @@ class Channel(BaseService):
                 total = sum(len(g.get("channels") or []) for g in groups)
                 logger.info("获取频道列表: %d 个频道, %d 个分组", total, len(groups))
             if as_model:
-                channels: list[Channel] = []
-                for group in groups:
-                    for ch in (group.get("channels") or []):
-                        if isinstance(ch, dict):
-                            channels.append(self._to_channel_model(ch, area=str(area)))
-                return channels
+                return models.ChannelGroupsResult(
+                    groups=[
+                        self._to_channel_group_model(group, area=str(area))
+                        for group in groups
+                        if isinstance(group, dict)
+                    ],
+                    payload={"groups": groups},
+                    response=resp,
+                )
             return groups
         except Exception as e:
             logger.error("获取频道列表异常: %s", e)
+            if as_model:
+                return models.ChannelGroupsResult(payload={"error": str(e)})
             return []
 
-    def get_channel_setting_info(self, channel: str) -> dict:
+    def get_channel_setting_info(self, channel: str, *, as_model: bool = False) -> dict | models.ChannelSetting:
         """获取频道设置详情（名称、访问权限等）。"""
         channel = str(channel or "").strip()
         if not channel:
@@ -113,6 +184,8 @@ class Channel(BaseService):
             data = result.get("data", {})
             if not isinstance(data, dict):
                 return {"error": "频道设置响应格式异常"}
+            if as_model:
+                return self._to_channel_setting_model(data)
             return data
         except Exception as e:
             logger.error("获取频道设置异常: %s", e)
@@ -151,17 +224,17 @@ class Channel(BaseService):
         name: str = "",
         channel_type: str = "text",
         group_id: str = "",
-    ) -> dict:
+    ) -> models.OperationResult:
         """创建频道。"""
-        area = area or self._config.default_area
+        area = self._resolve_area(area)
         name = str(name or "").strip()
         if not name:
-            return {"error": "频道名称不能为空"}
+            return models.OperationResult(ok=False, message="频道名称不能为空")
 
         if not group_id:
             group_id = self._pick_channel_group(area) or ""
             if not group_id:
-                return {"error": "未找到可用频道分组"}
+                return models.OperationResult(ok=False, message="未找到可用频道分组")
 
         type_map = {"text": "TEXT", "voice": "VOICE", "audio": "VOICE"}
         resolved_type = type_map.get(channel_type.lower(), channel_type.upper())
@@ -180,32 +253,37 @@ class Channel(BaseService):
             resp = self._post("/client/v1/area/v1/channel/v1/create", body)
         except Exception as e:
             logger.error("创建频道异常: %s", e)
-            return {"error": str(e)}
+            return models.OperationResult(ok=False, message=str(e), payload=body)
 
         raw = resp.text or ""
         if resp.status_code != 200:
-            return {"error": f"HTTP {resp.status_code}" + (f" | {raw[:200]}" if raw else "")}
+            return models.OperationResult(
+                ok=False,
+                message=f"HTTP {resp.status_code}" + (f" | {raw[:200]}" if raw else ""),
+                payload=body,
+                response=resp,
+            )
 
         try:
             result = resp.json()
         except Exception:
-            return {"error": f"响应非 JSON: {raw[:200]}"}
+            return models.OperationResult(ok=False, message=f"响应非 JSON: {raw[:200]}", payload=body, response=resp)
 
         if not result.get("status"):
             msg = result.get("message") or "创建频道失败"
             code = result.get("code") or result.get("errorCode") or ""
             logger.warning("创建频道被拒: %s (code=%s), body=%s", msg, code, body)
             hint = "（可能需要域主/管理员权限）" if "服务" in msg or "权限" in msg else ""
-            return {"error": f"{msg}{hint}"}
+            return models.OperationResult(ok=False, message=f"{msg}{hint}", payload=result, response=resp)
 
         data = result.get("data", {})
         channel_id = self._extract_channel_id(data) or self._extract_channel_id(result)
-        return {
-            "status": True,
-            "channel": channel_id or "",
-            "name": name,
-            "message": "频道已创建",
-        }
+        return models.OperationResult(
+            ok=True,
+            message="频道已创建",
+            payload={"channel": channel_id or "", "name": name, "raw": result},
+            response=resp,
+        )
 
     def update_channel(
         self,
@@ -214,16 +292,16 @@ class Channel(BaseService):
         overrides: Optional[dict] = None,
         *,
         name: str = "",
-    ) -> dict:
+    ) -> models.OperationResult:
         """修改频道设置。"""
         area = area or self._config.default_area
         channel_id = str(channel_id or "").strip()
         if not channel_id:
-            return {"error": "缺少 channel_id"}
+            return models.OperationResult(ok=False, message="缺少 channel_id")
 
         setting = self.get_channel_setting_info(channel_id)
         if isinstance(setting, dict) and "error" in setting:
-            return {"error": f"获取频道设置失败: {setting['error']}"}
+            return models.OperationResult(ok=False, message=f"获取频道设置失败: {setting['error']}")
 
         _BOOL_FIELDS = ("secret", "hasPassword", "voiceControlEnabled",
                         "textControlEnabled", "accessControlEnabled")
@@ -284,22 +362,27 @@ class Channel(BaseService):
             resp = self._post("/area/v3/channel/setting/edit", edit_body)
         except Exception as e:
             logger.error("更新频道异常: %s", e)
-            return {"error": str(e)}
+            return models.OperationResult(ok=False, message=str(e), payload=edit_body)
 
         raw = resp.text or ""
         if resp.status_code != 200:
             logger.error("更新频道 HTTP %d: %s", resp.status_code, raw[:300])
-            return {"error": f"HTTP {resp.status_code}" + (f" | {raw[:200]}" if raw else "")}
+            return models.OperationResult(
+                ok=False,
+                message=f"HTTP {resp.status_code}" + (f" | {raw[:200]}" if raw else ""),
+                payload=edit_body,
+                response=resp,
+            )
 
         try:
             result = resp.json()
         except Exception:
-            return {"error": f"响应非 JSON: {raw[:200]}"}
+            return models.OperationResult(ok=False, message=f"响应非 JSON: {raw[:200]}", payload=edit_body, response=resp)
 
         if not result.get("status"):
-            return {"error": result.get("message") or "更新频道失败"}
+            return models.OperationResult(ok=False, message=str(result.get("message") or "更新频道失败"), payload=result, response=resp)
 
-        return {"status": True, "message": "频道已更新"}
+        return self._ok_result(result, response=resp, message="频道已更新")
 
     def create_restricted_text_channel(
         self,
@@ -417,12 +500,12 @@ class Channel(BaseService):
             "name": edit_body["name"],
         }
 
-    def delete_channel(self, channel: str, area: Optional[str] = None) -> dict:
+    def delete_channel(self, channel: str, area: Optional[str] = None) -> models.OperationResult:
         """删除频道。"""
         area = area or self._config.default_area
         channel = str(channel or "").strip()
         if not channel:
-            return {"error": "缺少 channel"}
+            return models.OperationResult(ok=False, message="缺少 channel")
 
         url_path = f"/client/v1/area/v1/channel/v1/delete?channel={channel}&area={area}"
 
@@ -430,24 +513,28 @@ class Channel(BaseService):
             resp = self._delete(url_path)
         except Exception as e:
             logger.error("删除频道异常: %s", e)
-            return {"error": str(e)}
+            return models.OperationResult(ok=False, message=str(e))
 
         raw = resp.text or ""
         logger.info("删除频道 DELETE %s -> HTTP %d, body: %s", url_path, resp.status_code, raw[:300])
         if resp.status_code != 200:
-            return {"error": f"HTTP {resp.status_code}" + (f" | {raw[:200]}" if raw else "")}
+            return models.OperationResult(
+                ok=False,
+                message=f"HTTP {resp.status_code}" + (f" | {raw[:200]}" if raw else ""),
+                response=resp,
+            )
 
         try:
             result = resp.json()
         except Exception:
-            return {"error": f"响应非 JSON: {raw[:200]}"}
+            return models.OperationResult(ok=False, message=f"响应非 JSON: {raw[:200]}", response=resp)
 
         if result.get("status") is True:
-            return {"status": True, "message": result.get("message") or "已删除频道"}
+            return self._ok_result(result, response=resp, message="已删除频道")
 
         err = result.get("message") or result.get("error") or str(result)
         logger.error("删除频道失败: %s", err)
-        return {"error": err}
+        return models.OperationResult(ok=False, message=str(err), payload=result, response=resp)
 
     def enter_channel(self, channel: Optional[str] = None, area: Optional[str] = None,
                       channel_type: str = "TEXT", from_channel: str = "",
@@ -490,7 +577,7 @@ class Channel(BaseService):
 
         try:
             body_str = ""
-            headers = {**self.session.headers, **self.signer.oopz_headers(full_path, body_str)}
+            headers = {**self.session.headers, **build_oopz_headers(self._config, self.signer, full_path, body_str)}
             url = self._config.base_url + full_path
             resp = self.session.delete(url, headers=headers)
         except Exception as e:
@@ -530,11 +617,18 @@ class Channel(BaseService):
         cache_store[area] = {"ids": ids, "ts": time.time()}
         return ids
 
-    def get_voice_channel_members(self, area: Optional[str] = None) -> dict:
+    def get_voice_channel_members(
+        self,
+        area: Optional[str] = None,
+        *,
+        as_model: bool = False,
+    ) -> dict | models.VoiceChannelMembersResult:
         """获取域内各语音频道的在线成员列表。"""
-        area = area or self._config.default_area
+        area = self._resolve_area(area)
         voice_ids = self._get_voice_channel_ids(area)
         if not voice_ids:
+            if as_model:
+                return models.VoiceChannelMembersResult()
             return {}
 
         url_path = "/area/v3/channel/membersByChannels"
@@ -550,15 +644,45 @@ class Channel(BaseService):
                     continue
                 if resp.status_code != 200:
                     logger.error("获取语音频道成员失败: HTTP %d", resp.status_code)
+                    if as_model:
+                        return models.VoiceChannelMembersResult(payload={"error": f"HTTP {resp.status_code}"}, response=resp)
                     return {}
                 result = resp.json()
                 if not result.get("status"):
+                    if as_model:
+                        return models.VoiceChannelMembersResult(payload=result, response=resp)
                     return {}
-                return result.get("data", {}).get("channelMembers", {})
+                data = result.get("data", {}).get("channelMembers", {})
+                if as_model:
+                    return models.VoiceChannelMembersResult(
+                        channels={
+                            str(channel_id): [
+                                models.Member(
+                                    uid=str(member.get("uid") or member.get("id") or ""),
+                                    name=str(member.get("name") or member.get("nickname") or ""),
+                                    nickname=str(member.get("name") or member.get("nickname") or ""),
+                                    avatar=str(member.get("avatar") or member.get("avatarUrl") or ""),
+                                    online=bool(member.get("online") in (1, True)),
+                                    payload=dict(member),
+                                )
+                                for member in members
+                                if isinstance(member, dict)
+                            ]
+                            for channel_id, members in data.items()
+                            if isinstance(members, list)
+                        },
+                        payload=result,
+                        response=resp,
+                    )
+                return data
             except Exception as e:
                 logger.error("获取语音频道成员异常: %s", e)
+                if as_model:
+                    return models.VoiceChannelMembersResult(payload={"error": str(e)})
                 return {}
         logger.error("获取语音频道成员失败: 重试次数用尽")
+        if as_model:
+            return models.VoiceChannelMembersResult(payload={"error": "重试次数用尽"})
         return {}
 
     def get_voice_channel_for_user(self, user_uid: str, area: Optional[str] = None) -> Optional[str]:
