@@ -61,16 +61,14 @@ class EventParser:
                 raw=data,
                 message=message,
             )
-
-        if event_type == EVENT_HEARTBEAT:
+        elif event_type == EVENT_HEARTBEAT:
             return Event(
                 name="heartbeat",
                 event_type=event_type,
                 body=body,
                 raw=data,
             )
-
-        if event_type == EVENT_SERVER_ID:
+        elif event_type == EVENT_SERVER_ID:
             return Event(
                 name="server_id",
                 event_type=event_type,
