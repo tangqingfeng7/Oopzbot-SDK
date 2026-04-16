@@ -105,23 +105,13 @@ class OopzBot:
     def send(self, text: str, area: str, channel: str, **kwargs):
         return self.messages.send_message(text=text, area=area, channel=channel, **kwargs)
 
-
     def recall(self, message_id: str, area: str, channel: str, **kwargs):
         return self.messages.recall_message(message_id, area=area, channel=channel,**kwargs)
 
-    def reply_to(self, message: Any, text: str, **kwargs):
+    def reply(self, text: str,area: str, channel: str, reference_message_id: str, **kwargs):
         """
-        对某条消息进行回复。
-        兼容 message 为 dict 或 model 的情况。
+        对某条消息进行回复
         """
-        area = self._get_message_field(message, "area") or self.config.default_area
-        channel = self._get_message_field(message, "channel") or self.config.default_channel
-        reference_message_id = (
-            self._get_message_field(message, "message_id")
-            or self._get_message_field(message, "messageId")
-            or self._get_message_field(message, "id")
-        )
-
         return self.messages.send_message(
             text=text,
             area=area,
