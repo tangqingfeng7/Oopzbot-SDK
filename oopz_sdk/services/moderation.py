@@ -1,0 +1,181 @@
+from __future__ import annotations
+
+import json
+import logging
+from typing import Optional
+
+from . import BaseService
+
+logger = logging.getLogger("oopz_sdk.services.moderation")
+
+
+class Moderation(BaseService):
+    """Moderation capabilities."""
+
+    _TEXT_INTERVALS = {1: "60秒", 2: "5分钟", 3: "1小时", 4: "1天", 5: "3天", 6: "7天"}
+    _VOICE_INTERVALS = {7: "60秒", 8: "5分钟", 9: "1小时", 10: "1天", 11: "3天", 12: "7天"}
+
+    @staticmethod
+    def _minutes_to_interval_id(minutes: int, voice: bool = False) -> str:
+        thresholds = [(1, 7), (5, 8), (60, 9), (1440, 10), (4320, 11), (10080, 12)] if voice \
+            else [(1, 1), (5, 2), (60, 3), (1440, 4), (4320, 5), (10080, 6)]
+        for limit, iid in thresholds:
+            if minutes <= limit:
+                return str(iid)
+        return str(thresholds[-1][1])
+
+    def mute_user(self, uid: str, area: Optional[str] = None, channel: Optional[str] = None, duration: int = 10) -> dict:
+        """禁言用户。"""
+        area = area or self._config.default_area
+        interval_id = self._minutes_to_interval_id(duration, voice=False)
+        url_path = "/client/v1/area/v1/member/v1/disableText"
+        query = f"?area={area}&target={uid}&intervalId={interval_id}"
+        body = {"area": area, "target": uid, "intervalId": interval_id}
+        return self._manage_patch("禁言", url_path, query, body)
+
+    def unmute_user(self, uid: str, area: Optional[str] = None, channel: Optional[str] = None) -> dict:
+        """解除禁言。"""
+        area = area or self._config.default_area
+        url_path = "/client/v1/area/v1/member/v1/recoverText"
+        query = f"?area={area}&target={uid}"
+        body = {"area": area, "target": uid}
+        return self._manage_patch("解除禁言", url_path, query, body)
+
+    def mute_mic(self, uid: str, area: Optional[str] = None, channel: Optional[str] = None, duration: int = 10) -> dict:
+        """禁麦用户。"""
+        area = area or self._config.default_area
+        interval_id = self._minutes_to_interval_id(duration, voice=True)
+        url_path = "/client/v1/area/v1/member/v1/disableVoice"
+        query = f"?area={area}&target={uid}&intervalId={interval_id}"
+        body = {"area": area, "target": uid, "intervalId": interval_id}
+        return self._manage_patch("禁麦", url_path, query, body)
+
+    def unmute_mic(self, uid: str, area: Optional[str] = None, channel: Optional[str] = None) -> dict:
+        """解除禁麦。"""
+        area = area or self._config.default_area
+        url_path = "/client/v1/area/v1/member/v1/recoverVoice"
+        query = f"?area={area}&target={uid}"
+        body = {"area": area, "target": uid}
+        return self._manage_patch("解除禁麦", url_path, query, body)
+
+    def remove_from_area(self, uid: str, area: Optional[str] = None) -> dict:
+        """将用户移出当前域（踢出域）。"""
+        area = area or self._config.default_area
+        url_path = f"/area/v3/remove?area={area}&target={uid}"
+        body = {"area": area, "target": uid}
+        try:
+            resp = self._post(url_path, body)
+        except Exception as e:
+            logger.error("移出域请求异常: %s", e)
+            return {"error": str(e)}
+
+        raw = resp.text or ""
+        logger.info("移出域 POST %s -> HTTP %s, body: %s", url_path, resp.status_code, raw[:300])
+        if resp.status_code != 200:
+            return {"error": f"HTTP {resp.status_code}" + (f" | {raw[:200]}" if raw else "")}
+        try:
+            result = resp.json()
+        except Exception:
+            return {"error": f"响应非 JSON: {raw[:200]}"}
+        if result.get("status") is True:
+            logger.info("移出域成功")
+            return {"status": True, "message": "已移出域"}
+        err = result.get("message") or result.get("error") or str(result)
+        logger.error("移出域失败: %s", err)
+        return {"error": err}
+
+    def block_user_in_area(self, uid: str, area: Optional[str] = None) -> dict:
+        """封禁用户。"""
+        area = area or self._config.default_area
+        url_path = f"/client/v1/area/v1/block?area={area}&target={uid}"
+        try:
+            resp = self._delete(url_path)
+        except Exception as e:
+            logger.error("封禁请求异常: %s", e)
+            return {"error": str(e)}
+
+        raw = resp.text or ""
+        logger.info("封禁 DELETE %s -> HTTP %s, body: %s", url_path, resp.status_code, raw[:300])
+        if resp.status_code != 200:
+            return {"error": f"HTTP {resp.status_code}" + (f" | {raw[:200]}" if raw else "")}
+        try:
+            result = resp.json()
+        except Exception:
+            return {"error": f"响应非 JSON: {raw[:200]}"}
+        if result.get("status") is True:
+            msg = result.get("message") or "已封禁"
+            logger.info("封禁成功: %s", msg)
+            return {"status": True, "message": msg}
+        err = result.get("message") or result.get("error") or str(result)
+        logger.error("封禁失败: %s", err)
+        return {"error": err}
+
+    def get_area_blocks(self, area: Optional[str] = None, name: str = "") -> dict:
+        """获取域内封禁列表。"""
+        area = area or self._config.default_area
+        url_path = "/client/v1/area/v1/areaSettings/v1/blocks"
+        params = {"area": area, "name": name}
+
+        try:
+            resp = self._get(url_path, params=params)
+            if resp.status_code != 200:
+                logger.debug("获取域封禁列表失败: HTTP %d", resp.status_code)
+                return {"error": f"HTTP {resp.status_code}"}
+
+            result = resp.json()
+            if not result.get("status"):
+                msg = result.get("message") or result.get("error") or "未知错误"
+                logger.debug("获取域封禁列表失败: %s", msg)
+                return {"error": msg}
+
+            data = result.get("data", {})
+            blocks = data if isinstance(data, list) else data.get("blocks", data.get("list", []))
+            if not isinstance(blocks, list):
+                blocks = []
+            logger.info("获取域封禁列表: %d 人", len(blocks))
+            return {"blocks": blocks}
+        except Exception as e:
+            logger.error("获取域封禁列表异常: %s", e)
+            return {"error": str(e)}
+
+    def unblock_user_in_area(self, uid: str, area: Optional[str] = None) -> dict:
+        """解除域内封禁。"""
+        area = area or self._config.default_area
+        url_path = "/client/v1/area/v1/unblock"
+        query = f"?area={area}&target={uid}"
+        body = {"area": area, "target": uid}
+        return self._manage_patch("解除域内封禁", url_path, query, body)
+
+    def _manage_patch(self, action: str, url_path: str, query: str, body: dict) -> dict:
+        """通用 PATCH 管理操作（禁言/禁麦等）。"""
+        full_path = url_path + query
+        try:
+            self._throttle()
+            body_str = json.dumps(body, separators=(",", ":"), ensure_ascii=False)
+            headers = {**self.session.headers, **self.signer.oopz_headers(full_path, body_str)}
+            url = self._config.base_url + full_path
+            resp = self.session.patch(url, headers=headers, data=body_str.encode("utf-8"))
+        except Exception as e:
+            logger.error("%s请求异常: %s", action, e)
+            return {"error": str(e)}
+
+        raw = resp.text or ""
+        logger.info("%s PATCH %s -> HTTP %d, body: %s", action, full_path, resp.status_code, raw[:300])
+
+        if resp.status_code != 200:
+            err = f"HTTP {resp.status_code}" + (f" | {raw[:200]}" if raw else "")
+            return {"error": err}
+
+        try:
+            result = resp.json()
+        except Exception:
+            return {"error": f"响应非 JSON: {raw[:200]}"}
+
+        if result.get("status") is True:
+            msg = result.get("message") or f"{action}成功"
+            logger.info("%s成功: %s", action, msg)
+            return {"status": True, "message": msg}
+
+        err = result.get("message") or result.get("error") or str(result)
+        logger.error("%s失败: %s", action, err)
+        return {"error": err}

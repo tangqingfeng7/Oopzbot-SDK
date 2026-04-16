@@ -5,3 +5,4 @@ build/
 dist/
 dist-check/
 *.egg-info/
+oopz_sdk/test-client.py
