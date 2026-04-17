@@ -4,6 +4,7 @@ import pytest
 from cryptography.hazmat.primitives.asymmetric import rsa
 
 from oopz_sdk import OopzClient, OopzSender, models
+from oopz_sdk.client.bot import OopzBot
 from oopz_sdk.config import OopzConfig
 from oopz_sdk.exceptions import OopzApiError
 from oopz_sdk.events.context import EventContext
@@ -364,6 +365,30 @@ def test_oopz_sdk_dispatcher_message_handler_receives_message_then_context():
     assert isinstance(captured["message"], models.Message)
     assert captured["message"].message_id == "msg-1"
     assert captured["ctx"] is ctx
+
+
+def test_oopz_sdk_event_registry_deduplicates_same_handler():
+    registry = EventRegistry()
+
+    def handler(ctx):
+        return ctx
+
+    registry.on("ready", handler)
+    registry.on("ready", handler)
+
+    assert registry.get_handlers("ready") == [handler]
+
+
+def test_oopz_sdk_bot_named_hooks_share_one_registration_path():
+    bot = OopzBot(_make_config())
+
+    def handler(ctx):
+        return ctx
+
+    bot.on("ready")(handler)
+    bot.on_ready(handler)
+
+    assert bot.registry.get_handlers("ready") == [handler]
 
 
 def test_oopz_sdk_message_from_dict_accepts_legacy_id_field():

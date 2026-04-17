@@ -56,35 +56,38 @@ class OopzBot:
     # -------------------------
     # 事件注册 API
     # -------------------------
-    def on(self, event_name: str):
+    def _hook(self, event_name: str):
         return self.registry.on(event_name)
 
+    def on(self, event_name: str):
+        return self._hook(event_name)
+
     def event(self, name: str):
-        return self.registry.on(name)
+        return self.on(name)
 
     @property
     def on_ready(self):
-        return self.registry.on("ready")
+        return self.on("ready")
 
     @property
     def on_message(self):
-        return self.registry.on("message")
+        return self.on("message")
 
     @property
     def on_error(self):
-        return self.registry.on("error")
+        return self.on("error")
 
     @property
     def on_close(self):
-        return self.registry.on("close")
+        return self.on("close")
 
     @property
     def on_reconnect(self):
-        return self.registry.on("reconnect")
+        return self.on("reconnect")
 
     @property
     def on_raw_event(self):
-        return self.registry.on("raw_event")
+        return self.on("raw_event")
 
     # -------------------------
     # 生命周期
