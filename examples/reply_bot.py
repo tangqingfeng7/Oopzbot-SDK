@@ -1,6 +1,6 @@
 """最小收消息并自动回复示例。"""
 
-from oopz_sdk import ChatMessageEvent, OopzClient, OopzConfig, OopzSender
+from oopz_sdk import ChatMessageEvent, OopzClient, OopzConfig, OopzRESTClient
 
 
 def main() -> None:
@@ -13,7 +13,7 @@ def main() -> None:
         default_channel="默认频道ID",
     )
 
-    sender = OopzSender(config)
+sender = OopzRESTClient(config)
 
     def on_message(message: ChatMessageEvent) -> None:
         content = message.content

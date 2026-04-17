@@ -1,5 +1,4 @@
 from .rest import OopzRESTClient
-from .sender import OopzSender
 try:
     from .compat import OopzClient
     from .bot import OopzBot
@@ -13,4 +12,4 @@ except ModuleNotFoundError:  # pragma: no cover - optional runtime dependency
     OopzBot = _MissingWebSocketDependency
     OopzWSClient = _MissingWebSocketDependency
 
-__all__ = ["OopzBot", "OopzClient", "OopzRESTClient", "OopzSender", "OopzWSClient"]
+__all__ = ["OopzBot", "OopzClient", "OopzRESTClient", "OopzWSClient"]

@@ -11,7 +11,7 @@ except ModuleNotFoundError:  # pragma: no cover - optional runtime dependency
 
 from .api import OopzApiMixin
 from .auth import Signer
-from .client import OopzClient, OopzRESTClient, OopzSender
+from .client import OopzClient, OopzRESTClient
 from .config import (
     DEFAULT_HEADERS,
     EVENT_AUTH,
@@ -130,7 +130,6 @@ __all__ = [
     "OopzParseError",
     "OopzRESTClient",
     "OopzRateLimitError",
-    "OopzSender",
     "OopzTransportError",
     "OopzWSClient",
     "OperationResult",

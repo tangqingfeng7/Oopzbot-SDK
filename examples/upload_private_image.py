@@ -1,6 +1,6 @@
 """上传图片并通过私信发送示例。"""
 
-from oopz_sdk import OopzConfig, OopzSender
+from oopz_sdk import OopzConfig, OopzRESTClient
 
 
 def main() -> None:
@@ -11,7 +11,7 @@ def main() -> None:
         private_key="-----BEGIN RSA PRIVATE KEY-----\n...\n-----END RSA PRIVATE KEY-----",
     )
 
-    with OopzSender(config) as sender:
+with OopzRESTClient(config) as sender:
         result = sender.upload_and_send_private_image(
             target="目标UID",
             file_path="demo.png",

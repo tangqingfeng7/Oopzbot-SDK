@@ -3,7 +3,7 @@ import asyncio
 import pytest
 from cryptography.hazmat.primitives.asymmetric import rsa
 
-from oopz_sdk import OopzClient, OopzSender, models
+from oopz_sdk import OopzClient, OopzRESTClient, models
 from oopz_sdk.client.bot import OopzBot
 from oopz_sdk.config import OopzConfig
 from oopz_sdk.exceptions import OopzApiError
@@ -211,6 +211,52 @@ def test_oopz_sdk_upload_file_returns_upload_result(monkeypatch, tmp_path):
     assert isinstance(result, models.UploadResult)
     assert result.attachment.file_key == "file-key"
     assert result.attachment.url == "https://cdn.example.com/file-key"
+
+
+def test_oopz_sdk_send_image_delegates_to_message_service(monkeypatch, tmp_path):
+    service = Media(None, _make_config())
+    sample = tmp_path / "sample.png"
+    sample.write_bytes(b"fake-image")
+
+    monkeypatch.setattr(
+        "oopz_sdk.services.media.get_image_info",
+        lambda path: (16, 16, 10),
+    )
+    monkeypatch.setattr(
+        service,
+        "_put",
+        lambda url_path, body: _FakeResponse(
+                200,
+                payload={
+                    "data": {
+                        "signedUrl": "",
+                        "file": "file-key",
+                        "url": "https://cdn.example.com/file-key",
+                    }
+                },
+            ),
+    )
+
+    class _UploadResp:
+        def raise_for_status(self):
+            return None
+
+    monkeypatch.setattr(service.session, "put", lambda *args, **kwargs: _UploadResp())
+
+    captured = {}
+
+    class _Messages:
+        def send_message(self, **kwargs):
+            captured.update(kwargs)
+            return "ok"
+
+    monkeypatch.setattr(service, "_message_service", lambda: _Messages())
+
+    result = service.send_image(str(sample), text="hello")
+
+    assert result == "ok"
+    assert captured["text"] == "![IMAGEw16h16](file-key)\nhello"
+    assert captured["attachments"][0]["fileKey"] == "file-key"
 
 
 def test_oopz_sdk_area_members_retries_after_429(monkeypatch):
@@ -436,7 +482,7 @@ def test_oopz_sdk_event_context_reply_uses_message_id_from_legacy_id():
 
 
 def test_oopz_sdk_sender_send_message_v2_builds_wrapped_payload(monkeypatch):
-    sender = OopzSender(_make_config())
+    sender = OopzRESTClient(_make_config())
     captured = {}
 
     monkeypatch.setattr(
@@ -460,7 +506,7 @@ def test_oopz_sdk_sender_send_message_v2_builds_wrapped_payload(monkeypatch):
 
 
 def test_oopz_sdk_sender_list_sessions_returns_dict_list(monkeypatch):
-    sender = OopzSender(_make_config())
+    sender = OopzRESTClient(_make_config())
     captured = {}
 
     monkeypatch.setattr(
@@ -480,7 +526,7 @@ def test_oopz_sdk_sender_list_sessions_returns_dict_list(monkeypatch):
 
 
 def test_oopz_sdk_sender_get_area_channels_returns_compat_models(monkeypatch):
-    sender = OopzSender(_make_config())
+    sender = OopzRESTClient(_make_config())
     monkeypatch.setattr(
         sender.channels,
         "_get",

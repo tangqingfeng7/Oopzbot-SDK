@@ -26,7 +26,7 @@ from oopz_sdk import (
     OopzConfig,
     OopzConnectionError,
     OopzRateLimitError,
-    OopzSender,
+    OopzRESTClient,
     PersonDetail,
     PersonInfo,
     PrivateSessionResult,
@@ -39,7 +39,6 @@ from oopz_sdk import (
 from oopz_sdk.auth import Signer as SdkSigner
 from oopz_sdk.client import OopzClient as SdkOopzClient
 from oopz_sdk.client import OopzRESTClient as SdkOopzRESTClient
-from oopz_sdk.client import OopzSender as SdkOopzSender
 from oopz_sdk.config import OopzConfig as SdkOopzConfig
 from oopz_sdk.models import ChannelMessage as SdkChannelMessage
 from oopz_sdk.services.media import UploadMixin as SdkUploadMixin
@@ -111,7 +110,7 @@ def test_signer_invalid_private_key_raises_auth_error() -> None:
 
 
 def test_sender_context_manager_closes_session(monkeypatch) -> None:
-    sender = OopzSender(_make_config())
+    sender = OopzRESTClient(_make_config())
     state = {"closed": False}
 
     def _close() -> None:
@@ -126,7 +125,7 @@ def test_sender_context_manager_closes_session(monkeypatch) -> None:
 
 
 def test_send_message_returns_result_model(monkeypatch) -> None:
-    sender = OopzSender(_make_config())
+    sender = OopzRESTClient(_make_config())
 
     monkeypatch.setattr(
         sender.messages,
@@ -146,7 +145,7 @@ def test_send_message_returns_result_model(monkeypatch) -> None:
 
 
 def test_send_message_v2_builds_wrapped_payload(monkeypatch) -> None:
-    sender = OopzSender(_make_config())
+    sender = OopzRESTClient(_make_config())
     captured = {}
 
     def _fake_post(url_path: str, body: dict):
@@ -168,7 +167,7 @@ def test_send_message_v2_builds_wrapped_payload(monkeypatch) -> None:
 
 
 def test_send_message_raises_rate_limit_error(monkeypatch) -> None:
-    sender = OopzSender(_make_config())
+    sender = OopzRESTClient(_make_config())
 
     monkeypatch.setattr(
         sender.messages,
@@ -188,7 +187,7 @@ def test_send_message_raises_rate_limit_error(monkeypatch) -> None:
 
 
 def test_sender_get_translates_request_exception(monkeypatch) -> None:
-    sender = OopzSender(_make_config())
+    sender = OopzRESTClient(_make_config())
 
     def _raise(*args, **kwargs):
         raise requests.RequestException("network down")
@@ -200,7 +199,7 @@ def test_sender_get_translates_request_exception(monkeypatch) -> None:
 
 
 def test_send_private_message_returns_result_model(monkeypatch) -> None:
-    sender = OopzSender(_make_config())
+    sender = OopzRESTClient(_make_config())
 
     monkeypatch.setattr(
         sender.private,
@@ -225,7 +224,7 @@ def test_send_private_message_returns_result_model(monkeypatch) -> None:
 
 
 def test_upload_file_returns_upload_result(monkeypatch, tmp_path) -> None:
-    sender = OopzSender(_make_config())
+    sender = OopzRESTClient(_make_config())
     sample = tmp_path / "sample.bin"
     sample.write_bytes(b"hello")
 
@@ -259,7 +258,7 @@ def test_upload_file_returns_upload_result(monkeypatch, tmp_path) -> None:
 
 
 def test_get_area_channels_returns_model(monkeypatch) -> None:
-    sender = OopzSender(_make_config())
+    sender = OopzRESTClient(_make_config())
 
     monkeypatch.setattr(
         sender.channels,
@@ -286,7 +285,7 @@ def test_get_area_channels_returns_model(monkeypatch) -> None:
 
 
 def test_get_self_detail_returns_model(monkeypatch) -> None:
-    sender = OopzSender(_make_config())
+    sender = OopzRESTClient(_make_config())
 
     monkeypatch.setattr(
         sender.members,
@@ -304,7 +303,7 @@ def test_get_self_detail_returns_model(monkeypatch) -> None:
 
 
 def test_get_person_detail_returns_model(monkeypatch) -> None:
-    sender = OopzSender(_make_config())
+    sender = OopzRESTClient(_make_config())
 
     monkeypatch.setattr(
         sender.members,
@@ -323,7 +322,7 @@ def test_get_person_detail_returns_model(monkeypatch) -> None:
 
 
 def test_get_voice_channel_members_returns_model(monkeypatch) -> None:
-    sender = OopzSender(_make_config())
+    sender = OopzRESTClient(_make_config())
 
     monkeypatch.setattr(sender.channels, "_get_voice_channel_ids", lambda area: ["voice-1"])
     monkeypatch.setattr(
@@ -342,7 +341,7 @@ def test_get_voice_channel_members_returns_model(monkeypatch) -> None:
 
 
 def test_get_channel_messages_returns_models(monkeypatch) -> None:
-    sender = OopzSender(_make_config())
+    sender = OopzRESTClient(_make_config())
 
     monkeypatch.setattr(
         sender.messages,
@@ -449,8 +448,7 @@ def test_client_emits_auth_failed_and_closes_socket() -> None:
 def test_public_modules_expose_sdk_symbols() -> None:
     assert sdk_config_module.OopzConfig is SdkOopzConfig
     assert sdk_client_module.OopzClient is SdkOopzClient
-    assert sdk_client_module.OopzSender is SdkOopzSender
-    assert SdkOopzSender is SdkOopzRESTClient
+    assert not hasattr(sdk_client_module, "OopzSender")
     assert SdkSigner is sdk_client_module.Signer if hasattr(sdk_client_module, "Signer") else SdkSigner
     assert sdk_models_module.ChannelMessage is SdkChannelMessage
     assert sdk_api_module.OopzApiMixin is OopzApiMixin

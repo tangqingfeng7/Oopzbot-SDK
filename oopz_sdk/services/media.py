@@ -13,6 +13,8 @@ from oopz_sdk.config.settings import OopzConfig
 from oopz_sdk.exceptions import OopzApiError, OopzRateLimitError
 from oopz_sdk.transport.http import HttpTransport
 from . import BaseService
+from .message import Message
+from .privatemessage import PrivateMessage
 
 from ..models import ImageAttachment
 from ..models.attachment import AudioAttachment
@@ -67,6 +69,12 @@ class Media(BaseService):
         resolved_signer = signer or Signer(config)
         resolved_transport = transport or HttpTransport(config, resolved_signer)
         super().__init__(config, resolved_transport, resolved_signer, bot=bot)
+
+    def _message_service(self) -> Message:
+        return Message(self._bot, self._config, self.transport, self.signer)
+
+    def _private_message_service(self) -> PrivateMessage:
+        return PrivateMessage(self._bot, self._config, self.transport, self.signer)
 
     def upload_file(self, file_path: str, file_type: str = "IMAGE", ext: str = ".webp") -> models.UploadResult:
         """上传本地文件并返回附件模型。"""
@@ -262,7 +270,11 @@ class Media(BaseService):
         if text:
             msg_text += f"\n{text}"
 
-        return self.send_message(text=msg_text, attachments=attachments, **kwargs)
+        return self._message_service().send_message(
+            text=msg_text,
+            attachments=attachments,
+            **kwargs,
+        )
 
     def send_private_image(self, target: str, file_path: str, text: str = "") -> models.MessageSendResult:
         """上传本地图片并通过私信发送。"""
@@ -303,6 +315,10 @@ class Media(BaseService):
         msg_text = f"![IMAGEw{width}h{height}]({file_key})"
         if text:
             msg_text += f"\n{text}"
-        return self.send_private_message(target, msg_text, attachments=[attachment])
+        return self._private_message_service().send_private_message(
+            target,
+            msg_text,
+            attachments=[attachment],
+        )
 
 UploadMixin = Media
