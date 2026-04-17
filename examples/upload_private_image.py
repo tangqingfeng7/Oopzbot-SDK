@@ -1,6 +1,6 @@
 """上传图片并通过私信发送示例。"""
 
-from oopz import OopzConfig, OopzSender
+from oopz_sdk import OopzConfig, OopzSender
 
 
 def main() -> None:

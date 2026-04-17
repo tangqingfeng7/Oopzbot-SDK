@@ -1,6 +1,6 @@
 """最小发送消息示例。"""
 
-from oopz import MessageSendResult, OopzConfig, OopzSender
+from oopz_sdk import MessageSendResult, OopzConfig, OopzSender
 
 
 def main() -> None:

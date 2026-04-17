@@ -51,7 +51,7 @@ pip install -e .[dev]
 需要使用的地方：
 
 ```python
-from oopz import OopzClient, OopzConfig, OopzSender
+from oopz_sdk import OopzClient, OopzConfig, OopzSender
 ```
 
 ### 凭证准备
@@ -88,7 +88,7 @@ from oopz import OopzClient, OopzConfig, OopzSender
 先创建配置对象：
 
 ```python
-from oopz import OopzConfig
+from oopz_sdk import OopzConfig
 
 config = OopzConfig(
     device_id="你的设备ID",
@@ -105,7 +105,7 @@ config = OopzConfig(
 创建 `OopzSender`，发送一条最小测试消息：
 
 ```python
-from oopz import OopzSender
+from oopz_sdk import OopzSender
 
 with OopzSender(config) as sender:
     result = sender.send_message("Hello from oopz-sdk")
@@ -119,7 +119,7 @@ with OopzSender(config) as sender:
 如果你需要收消息和做实时处理，再启动 `OopzClient`：
 
 ```python
-from oopz import ChatMessageEvent, LifecycleEvent, OopzClient, OopzSender
+from oopz_sdk import ChatMessageEvent, LifecycleEvent, OopzClient, OopzSender
 
 sender = OopzSender(config)
 
@@ -146,7 +146,7 @@ client.start()
 #### 发送私信
 
 ```python
-from oopz import OopzSender
+from oopz_sdk import OopzSender
 
 with OopzSender(config) as sender:
     result = sender.send_private_message("目标UID", "你好")
@@ -156,7 +156,7 @@ with OopzSender(config) as sender:
 #### 上传图片并发送
 
 ```python
-from oopz import OopzSender, UploadResult
+from oopz_sdk import OopzSender, UploadResult
 
 with OopzSender(config) as sender:
     upload: UploadResult = sender.upload_file("demo.png", file_type="IMAGE", ext=".png")
@@ -168,7 +168,7 @@ with OopzSender(config) as sender:
 #### 获取频道最近消息
 
 ```python
-from oopz import OopzSender
+from oopz_sdk import OopzSender
 
 with OopzSender(config) as sender:
     messages = sender.get_channel_messages(size=20)
@@ -181,7 +181,7 @@ with OopzSender(config) as sender:
 也可以不设置默认域和默认频道，而是在调用时显式传入：
 
 ```python
-from oopz import OopzSender
+from oopz_sdk import OopzSender
 
 with OopzSender(config) as sender:
     sender.send_message("显式指定发送位置", area="域ID", channel="频道ID")
@@ -251,7 +251,7 @@ OopzError
 示例：
 
 ```python
-from oopz import OopzApiError, OopzConnectionError, OopzRateLimitError, OopzSender
+from oopz_sdk import OopzApiError, OopzConnectionError, OopzRateLimitError, OopzSender
 
 try:
     with OopzSender(config) as sender:

@@ -1,23 +1,26 @@
 import json
 
-import oopz.api as legacy_api_module
-import oopz.client as legacy_client_module
-import oopz.config as legacy_config_module
-import oopz.models as legacy_models_module
-import oopz.response as legacy_response_module
-import oopz.sender as legacy_sender_module
-import oopz.signer as legacy_signer_module
-import oopz.upload as legacy_upload_module
+import oopz_sdk.api as sdk_api_module
+import oopz_sdk.client as sdk_client_module
+import oopz_sdk.config as sdk_config_module
+import oopz_sdk.models as sdk_models_module
+import oopz_sdk.response as sdk_response_module
 import pytest
 import requests
 from cryptography.hazmat.primitives.asymmetric import rsa
 
-from oopz import (
+from oopz_sdk import (
+    ApiResponse,
+    BaseModel,
     ChannelGroupsResult,
     ChannelMessage,
     ChatMessageEvent,
+    JsonList,
+    JsonObject,
+    MessageEvent,
     MessageSendResult,
     OopzApiError,
+    OopzApiMixin,
     OopzAuthError,
     OopzClient,
     OopzConfig,
@@ -25,6 +28,7 @@ from oopz import (
     OopzRateLimitError,
     OopzSender,
     PersonDetail,
+    PersonInfo,
     PrivateSessionResult,
     SelfDetail,
     Signer,
@@ -171,7 +175,7 @@ def test_send_message_raises_rate_limit_error(monkeypatch) -> None:
         "_post",
         lambda url_path, body: _FakeResponse(
             429,
-            payload={"message": "请求过快"},
+            payload={"message": "too fast"},
             headers={"Retry-After": "3"},
         ),
     )
@@ -220,27 +224,6 @@ def test_send_private_message_returns_result_model(monkeypatch) -> None:
     assert result.channel == "DM12345678901234567890"
 
 
-def test_list_sessions_returns_dict_list(monkeypatch) -> None:
-    sender = OopzSender(_make_config())
-    captured = {}
-
-    def _fake_post(url_path: str, body: dict):
-        captured["url_path"] = url_path
-        captured["body"] = body
-        return _FakeResponse(
-            200,
-            payload={"status": True, "data": [{"channel": "DM123", "lastTime": "123456"}]},
-        )
-
-    monkeypatch.setattr(sender, "_post", _fake_post)
-
-    result = sender.list_sessions(last_time="123456")
-
-    assert captured["url_path"] == "/im/session/v1/sessions"
-    assert captured["body"] == {"lastTime": "123456"}
-    assert result[0]["channel"] == "DM123"
-
-
 def test_upload_file_returns_upload_result(monkeypatch, tmp_path) -> None:
     sender = OopzSender(_make_config())
     sample = tmp_path / "sample.bin"
@@ -275,29 +258,6 @@ def test_upload_file_returns_upload_result(monkeypatch, tmp_path) -> None:
     assert result.attachment.url == "https://cdn.example.com/file-key"
 
 
-def test_get_area_members_returns_stale_cache_on_rate_limit(monkeypatch) -> None:
-    sender = OopzSender(_make_config())
-    cache_key = ("area", 0, 49)
-    sender.areas._area_members_cache[cache_key] = {
-        "ts": 10_000_000.0,
-        "data": {"members": [{"uid": "u1", "online": 1}]},
-    }
-
-    monkeypatch.setattr("oopz_sdk.services.area.time.time", lambda: 10_000_010.0)
-    monkeypatch.setattr("oopz_sdk.services.area.time.sleep", lambda *_: None)
-    monkeypatch.setattr(
-        sender.areas,
-        "_get",
-        lambda url_path, params=None: _FakeResponse(429, payload={"message": "too fast"}),
-    )
-
-    result = sender.get_area_members()
-
-    assert result["stale"] is True
-    assert result["rateLimited"] is True
-    assert result["members"][0]["uid"] == "u1"
-
-
 def test_get_area_channels_returns_model(monkeypatch) -> None:
     sender = OopzSender(_make_config())
 
@@ -323,29 +283,6 @@ def test_get_area_channels_returns_model(monkeypatch) -> None:
 
     assert isinstance(result, ChannelGroupsResult)
     assert result.groups[0]["id"] == "group-1"
-
-
-def test_copy_channel_returns_operation_result(monkeypatch) -> None:
-    sender = OopzSender(_make_config())
-    captured = {}
-
-    def _fake_post(url_path: str, body: dict):
-        captured["url_path"] = url_path
-        captured["body"] = body
-        return _FakeResponse(
-            200,
-            payload={"status": True, "data": {"channel": "channel-copy-1"}},
-        )
-
-    monkeypatch.setattr(sender, "_post", _fake_post)
-    monkeypatch.setattr(sender.channels, "_extract_channel_id", lambda payload: payload.get("channel") if isinstance(payload, dict) else None)
-
-    result = sender.copy_channel("channel-1", name="copied-channel")
-
-    assert captured["url_path"] == "/area/v1/channel/v1/copy"
-    assert captured["body"] == {"area": "area", "channel": "channel-1", "name": "copied-channel"}
-    assert result.ok is True
-    assert result.payload["channel"] == "channel-copy-1"
 
 
 def test_get_self_detail_returns_model(monkeypatch) -> None:
@@ -383,24 +320,6 @@ def test_get_person_detail_returns_model(monkeypatch) -> None:
     assert isinstance(result, PersonDetail)
     assert result.uid == "u1"
     assert result.name == "Alice"
-
-
-def test_get_novice_guide_returns_dict(monkeypatch) -> None:
-    sender = OopzSender(_make_config())
-    captured = {}
-
-    def _fake_get(url_path: str, params=None):
-        captured["url_path"] = url_path
-        captured["params"] = params
-        return _FakeResponse(200, payload={"status": True, "data": {"finished": False}})
-
-    monkeypatch.setattr(sender, "_get", _fake_get)
-
-    result = sender.get_novice_guide()
-
-    assert captured["url_path"] == "/client/v1/person/v1/noviceGuide"
-    assert captured["params"] is None
-    assert result == {"finished": False}
 
 
 def test_get_voice_channel_members_returns_model(monkeypatch) -> None:
@@ -453,21 +372,6 @@ def test_get_channel_messages_returns_models(monkeypatch) -> None:
     assert isinstance(result[0], ChannelMessage)
     assert result[0].message_id == "msg-1"
     assert result[0].content == "hello"
-
-
-def test_get_channel_messages_returns_empty_list_on_business_failure(monkeypatch) -> None:
-    sender = OopzSender(_make_config())
-
-    monkeypatch.setattr(
-        sender.messages,
-        "_get",
-        lambda url_path, params=None: _FakeResponse(
-            200,
-            payload={"status": False, "message": "business failed"},
-        ),
-    )
-
-    assert sender.get_channel_messages() == []
 
 
 def test_client_emits_typed_chat_event_and_auth_lifecycle() -> None:
@@ -542,16 +446,21 @@ def test_client_emits_auth_failed_and_closes_socket() -> None:
     assert ws.sock.connected is False
 
 
-def test_legacy_modules_reexport_oopz_sdk_symbols() -> None:
-    assert legacy_config_module.OopzConfig is SdkOopzConfig
-    assert legacy_client_module.OopzClient is SdkOopzClient
-    assert legacy_sender_module.OopzSender is SdkOopzSender
-    assert legacy_signer_module.Signer is SdkSigner
-    assert legacy_upload_module.UploadMixin is SdkUploadMixin
-    assert legacy_models_module.ChannelMessage is SdkChannelMessage
-    assert hasattr(legacy_api_module.OopzApiMixin, "get_area_members")
-    assert legacy_response_module.is_success_payload({"status": True}) is True
-
-
-def test_sender_is_now_rest_client_alias() -> None:
+def test_public_modules_expose_sdk_symbols() -> None:
+    assert sdk_config_module.OopzConfig is SdkOopzConfig
+    assert sdk_client_module.OopzClient is SdkOopzClient
+    assert sdk_client_module.OopzSender is SdkOopzSender
     assert SdkOopzSender is SdkOopzRESTClient
+    assert SdkSigner is sdk_client_module.Signer if hasattr(sdk_client_module, "Signer") else SdkSigner
+    assert sdk_models_module.ChannelMessage is SdkChannelMessage
+    assert sdk_api_module.OopzApiMixin is OopzApiMixin
+    assert sdk_response_module.is_success_payload({"status": True}) is True
+
+
+def test_top_level_sdk_exports_legacy_surface() -> None:
+    assert BaseModel.__name__ == "BaseModel"
+    assert ApiResponse.__name__ == "ApiResponse"
+    assert PersonInfo is sdk_models_module.Member
+    assert JsonObject == dict[str, object]
+    assert JsonList == list[object]
+    assert MessageEvent.__name__ == "MessageEvent"

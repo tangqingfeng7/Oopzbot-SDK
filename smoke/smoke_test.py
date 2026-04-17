@@ -9,7 +9,7 @@ import time
 
 from PIL import Image
 
-from oopz import ChatMessageEvent, LifecycleEvent, OopzClient, OopzConfig, OopzSender
+from oopz_sdk import ChatMessageEvent, LifecycleEvent, OopzClient, OopzConfig, OopzSender
 
 
 def _read_required_env(name: str) -> str:

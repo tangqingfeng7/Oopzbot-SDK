@@ -46,10 +46,9 @@ dev = [
 include-package-data = true
 
 [tool.setuptools.packages.find]
-include = ["oopz", "oopz_sdk", "oopz_sdk.*"]
+include = ["oopz_sdk", "oopz_sdk.*"]
 
 [tool.setuptools.package-data]
-oopz = ["py.typed"]
 oopz_sdk = ["py.typed"]
 
 [tool.pytest.ini_options]
