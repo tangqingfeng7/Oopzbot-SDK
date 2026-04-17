@@ -47,7 +47,7 @@ def _make_config(**overrides) -> OopzConfig:
 
 
 def test_oopz_sdk_send_message_returns_result_model(monkeypatch):
-    service = Message(_make_config())
+    service = Message(None, _make_config())
     monkeypatch.setattr(
         service,
         "_post",
@@ -66,7 +66,7 @@ def test_oopz_sdk_send_message_returns_result_model(monkeypatch):
 
 
 def test_oopz_sdk_recall_message_returns_operation_result(monkeypatch):
-    service = Message(_make_config())
+    service = Message(None, _make_config())
     monkeypatch.setattr(
         service.session,
         "post",
@@ -81,7 +81,7 @@ def test_oopz_sdk_recall_message_returns_operation_result(monkeypatch):
 
 
 def test_oopz_sdk_private_message_returns_result_model(monkeypatch):
-    service = PrivateMessage(_make_config())
+    service = PrivateMessage(None, _make_config())
     dm_channel = "DM12345678901234567890"
     monkeypatch.setattr(
         service.session,
@@ -103,7 +103,7 @@ def test_oopz_sdk_private_message_returns_result_model(monkeypatch):
 
 
 def test_oopz_sdk_upload_file_returns_upload_result(monkeypatch, tmp_path):
-    service = Media(_make_config())
+    service = Media(None, _make_config())
     sample = tmp_path / "sample.bin"
     sample.write_bytes(b"hello")
 
@@ -136,7 +136,7 @@ def test_oopz_sdk_upload_file_returns_upload_result(monkeypatch, tmp_path):
 
 
 def test_oopz_sdk_joined_areas_as_model(monkeypatch):
-    service = AreaService(_make_config())
+    service = AreaService(None, _make_config())
     monkeypatch.setattr(
         service,
         "_get",
@@ -154,7 +154,7 @@ def test_oopz_sdk_joined_areas_as_model(monkeypatch):
 
 
 def test_oopz_sdk_channel_groups_as_model(monkeypatch):
-    service = Channel(_make_config())
+    service = Channel(None, _make_config())
     monkeypatch.setattr(
         service,
         "_get",
