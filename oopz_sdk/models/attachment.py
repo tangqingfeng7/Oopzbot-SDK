@@ -71,7 +71,7 @@ class ImageAttachment(Attachment):
     preview_file_key: str = ""
 
     def to_payload(self) -> dict[str, Any]:
-        payload = super().to_payload()
+        payload = super(ImageAttachment, self).to_payload()
         if self.width:
             payload["width"] = self.width
         if self.height:
@@ -87,7 +87,7 @@ class AudioAttachment(Attachment):
     duration: int = 0
 
     def to_payload(self) -> dict[str, Any]:
-        payload = super().to_payload()
+        payload = super(AudioAttachment, self).to_payload()
         if self.duration:
             payload["duration"] = self.duration
         return payload

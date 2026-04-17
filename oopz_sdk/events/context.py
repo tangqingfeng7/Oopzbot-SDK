@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from oopz_sdk.config.settings import OopzConfig
+from oopz_sdk.models.segment import Segment
 
 
 @dataclass(slots=True)
@@ -51,11 +52,16 @@ class EventContext:
             **kwargs,
         )
 
-    async def send(self, text: str, **kwargs):
+    async def send(self, *texts: str | Segment, **kwargs):
         """
         在上下文中发送消息
         """
-        return self.bot.messages.send_message(text=text, **kwargs)
+        if self.message is None:
+            raise RuntimeError("当前上下文中没有 message，无法 recall()")
+
+        area = self._get_message_field(self.message, "area") or self.config.default_area
+        channel = self._get_message_field(self.message, "channel") or self.config.default_channel
+        return self.bot.messages.send_message(*texts, area=area, channel=channel, **kwargs)
 
     async def recall(self, **kwargs):
         """
