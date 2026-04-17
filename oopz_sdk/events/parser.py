@@ -7,7 +7,7 @@ from typing import Any
 from oopz_sdk.config.constants import (
     EVENT_CHAT_MESSAGE,
     EVENT_HEARTBEAT,
-    EVENT_SERVER_ID,
+    EVENT_SERVER_ID, EVENT_RECALL_MESSAGE,
 )
 from oopz_sdk.exceptions.parse import OopzParseError
 from oopz_sdk.models.event import Event, MessageEvent
@@ -71,6 +71,13 @@ class EventParser:
         elif event_type == EVENT_SERVER_ID:
             return Event(
                 name="server_id",
+                event_type=event_type,
+                body=body,
+                raw=data,
+            )
+        elif event_type == EVENT_RECALL_MESSAGE:
+            return Event(
+                name="recall_message",
                 event_type=event_type,
                 body=body,
                 raw=data,

@@ -1,6 +1,6 @@
 """Legacy API mixin backed by oopz_sdk."""
 
-from oopz_sdk.client.sender import OopzSender as _CompatSender
+from oopz_sdk.compat.sender import OopzSender as _CompatSender
 
 
 class OopzApiMixin:

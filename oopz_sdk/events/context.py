@@ -88,19 +88,19 @@ class EventContext:
             **kwargs,
         )
 
-    async def send(self, *texts: str | Segment, **kwargs):
-        if texts and all(isinstance(part, str) for part in texts):
-            text = "".join(texts)
-            if self.message is None:
-                return self.bot.messages.send_message(text=text, **kwargs)
-
-            area = kwargs.pop("area", self._get_message_field(self.message, "area"))
-            channel = kwargs.pop("channel", self._get_message_field(self.message, "channel"))
-            return self.bot.messages.send_message(text=text, area=area, channel=channel, **kwargs)
-
-        if self.message is None:
-            return self.bot.messages.send_message(*texts, **kwargs)
-
-        area = kwargs.pop("area", self._get_message_field(self.message, "area"))
-        channel = kwargs.pop("channel", self._get_message_field(self.message, "channel"))
-        return self.bot.messages.send_message(*texts, area=area, channel=channel, **kwargs)
+    # async def send(self, *texts: str | Segment, **kwargs):
+    #     if texts and all(isinstance(part, str) for part in texts):
+    #         text = "".join(texts)
+    #         if self.message is None:
+    #             return self.bot.messages.send_message(text=text, **kwargs)
+    #
+    #         area = kwargs.pop("area", self._get_message_field(self.message, "area"))
+    #         channel = kwargs.pop("channel", self._get_message_field(self.message, "channel"))
+    #         return self.bot.messages.send_message(text=text, area=area, channel=channel, **kwargs)
+    #
+    #     if self.message is None:
+    #         return self.bot.messages.send_message(*texts, **kwargs)
+    #
+    #     area = kwargs.pop("area", self._get_message_field(self.message, "area"))
+    #     channel = kwargs.pop("channel", self._get_message_field(self.message, "channel"))
+    #     return self.bot.messages.send_message(*texts, area=area, channel=channel, **kwargs)

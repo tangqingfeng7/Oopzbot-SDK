@@ -308,15 +308,15 @@ def test_oopz_sdk_event_context_send_allows_explicit_channel_without_message():
 
     class _Bot:
         def __init__(self):
-            self.messages = _Messages()
+            self.message = _Messages()
 
     bot = _Bot()
-    ctx = EventContext(bot=bot, config=_make_config())
+    ctx = EventContext(bot=bot, config=_make_config(), message=_Messages(message_id="msg-1", content="hello", area="area-1",  channel="channel-1"))
 
     result = asyncio.run(ctx.send("hello", area="area-1", channel="channel-1"))
 
     assert result == {"text": "hello", "area": "area-1", "channel": "channel-1"}
-    assert bot.messages.calls == [{"text": "hello", "area": "area-1", "channel": "channel-1"}]
+    assert bot.message.calls == [{"text": "hello", "area": "area-1", "channel": "channel-1"}]
 
 
 def test_oopz_sdk_local_image_segment_preserves_upload_error(monkeypatch, tmp_path):

@@ -10,7 +10,7 @@ except ModuleNotFoundError:  # pragma: no cover - optional runtime dependency
         raise ModuleNotFoundError("Pillow is required for image helpers")
 
 from .auth import Signer
-from .client import OopzClient, OopzRESTClient, OopzSender
+from .client import  OopzRESTClient
 from .config import (
     DEFAULT_HEADERS,
     EVENT_AUTH,

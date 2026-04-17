@@ -28,7 +28,17 @@ class OopzBot:
     - 为 handler 提供可直接使用的上下文（ctx.bot / ctx.reply）
     """
 
-    def __init__(self, config: OopzConfig):
+    def __init__(
+        self,
+        config,
+        *,
+        on_message=None,
+        on_ready=None,
+        on_error=None,
+        on_close=None,
+        on_reconnect=None,
+        on_raw_event=None,
+    ):
         self.config = config
         self.registry = EventRegistry()
         self.dispatcher = EventDispatcher(self.registry)
@@ -42,7 +52,6 @@ class OopzBot:
         self.members = self.rest.members
         self.moderation = self.rest.moderation
 
-
         # WS 客户端只负责底层连接和回调
         self.ws = OopzWSClient(
             config=config,
@@ -52,6 +61,20 @@ class OopzBot:
             on_close=self._handle_close,
             on_reconnect=self._handle_reconnect,
         )
+
+        # 函数式事件注册
+        if on_message is not None:
+            self.registry.on("message", on_message)
+        if on_ready is not None:
+            self.registry.on("ready", on_ready)
+        if on_error is not None:
+            self.registry.on("error", on_error)
+        if on_close is not None:
+            self.registry.on("close", on_close)
+        if on_reconnect is not None:
+            self.registry.on("reconnect", on_reconnect)
+        if on_raw_event is not None:
+            self.registry.on("raw_event", on_raw_event)
 
     # -------------------------
     # 事件注册 API
@@ -69,6 +92,10 @@ class OopzBot:
     @property
     def on_message(self):
         return self.registry.on("message")
+
+    @property
+    def on_recall(self):
+        return self.registry.on("recall")
 
     @property
     def on_error(self):

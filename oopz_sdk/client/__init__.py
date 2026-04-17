@@ -1,7 +1,6 @@
 from .rest import OopzRESTClient
-from .sender import OopzSender
+from oopz_sdk.compat.sender import OopzSender
 try:
-    from .compat import OopzClient
     from .bot import OopzBot
     from .ws import OopzWSClient
 except ModuleNotFoundError:  # pragma: no cover - optional runtime dependency
@@ -9,8 +8,7 @@ except ModuleNotFoundError:  # pragma: no cover - optional runtime dependency
         def __init__(self, *args, **kwargs):
             raise ModuleNotFoundError("websocket-client is required for WebSocket features")
 
-    OopzClient = _MissingWebSocketDependency
     OopzBot = _MissingWebSocketDependency
     OopzWSClient = _MissingWebSocketDependency
 
-__all__ = ["OopzBot", "OopzClient", "OopzRESTClient", "OopzSender", "OopzWSClient"]
+__all__ = ["OopzBot",  "OopzRESTClient", "OopzSender", "OopzWSClient"]
