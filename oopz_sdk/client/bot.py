@@ -105,13 +105,20 @@ class OopzBot:
     # -------------------------
     # 高层便捷方法
     # -------------------------
-    def send(self, text: str, area: str, channel: str, **kwargs):
+    def send(self, text: str, area: str | None = None, channel: str | None = None, **kwargs):
         return self.messages.send_message(text=text, area=area, channel=channel, **kwargs)
 
-    def recall(self, message_id: str, area: str, channel: str, **kwargs):
-        return self.messages.recall_message(message_id, area=area, channel=channel,**kwargs)
+    def recall(self, message_id: str, area: str | None = None, channel: str | None = None, **kwargs):
+        return self.messages.recall_message(message_id, area=area, channel=channel, **kwargs)
 
-    def reply(self, text: str,area: str, channel: str, reference_message_id: str, **kwargs):
+    def reply(
+        self,
+        text: str,
+        area: str | None = None,
+        channel: str | None = None,
+        reference_message_id: str = "",
+        **kwargs,
+    ):
         """
         对某条消息进行回复
         """

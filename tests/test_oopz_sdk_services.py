@@ -1,4 +1,5 @@
 import asyncio
+from pathlib import Path
 
 import pytest
 from cryptography.hazmat.primitives.asymmetric import rsa
@@ -213,6 +214,24 @@ def test_oopz_sdk_upload_file_returns_upload_result(monkeypatch, tmp_path):
     assert result.attachment.url == "https://cdn.example.com/file-key"
 
 
+def test_oopz_sdk_upload_file_raises_api_error_for_200_failure_payload(monkeypatch, tmp_path):
+    service = Media(None, _make_config())
+    sample = tmp_path / "sample.bin"
+    sample.write_bytes(b"hello")
+
+    monkeypatch.setattr(
+        service,
+        "_put",
+        lambda url_path, body: _FakeResponse(
+            200,
+            payload={"status": False, "message": "signed url failed"},
+        ),
+    )
+
+    with pytest.raises(OopzApiError, match="signed url failed"):
+        service.upload_file(str(sample), file_type="IMAGE", ext=".bin")
+
+
 def test_oopz_sdk_send_image_delegates_to_message_service(monkeypatch, tmp_path):
     service = Media(None, _make_config())
     sample = tmp_path / "sample.png"
@@ -229,7 +248,7 @@ def test_oopz_sdk_send_image_delegates_to_message_service(monkeypatch, tmp_path)
                 200,
                 payload={
                     "data": {
-                        "signedUrl": "",
+                        "signedUrl": "https://upload.example.com",
                         "file": "file-key",
                         "url": "https://cdn.example.com/file-key",
                     }
@@ -257,6 +276,28 @@ def test_oopz_sdk_send_image_delegates_to_message_service(monkeypatch, tmp_path)
     assert result == "ok"
     assert captured["text"] == "![IMAGEw16h16](file-key)\nhello"
     assert captured["attachments"][0]["fileKey"] == "file-key"
+
+
+def test_oopz_sdk_send_image_raises_api_error_for_incomplete_upload_data(monkeypatch, tmp_path):
+    service = Media(None, _make_config())
+    sample = tmp_path / "sample.png"
+    sample.write_bytes(b"fake-image")
+
+    monkeypatch.setattr(
+        "oopz_sdk.services.media.get_image_info",
+        lambda path: (16, 16, 10),
+    )
+    monkeypatch.setattr(
+        service,
+        "_put",
+        lambda url_path, body: _FakeResponse(
+            200,
+            payload={"status": True, "data": {"signedUrl": "https://upload.example.com"}},
+        ),
+    )
+
+    with pytest.raises(OopzApiError, match="incomplete upload data"):
+        service.send_image(str(sample), text="hello")
 
 
 def test_oopz_sdk_area_members_retries_after_429(monkeypatch):
@@ -435,6 +476,53 @@ def test_oopz_sdk_bot_named_hooks_share_one_registration_path():
     bot.on_ready(handler)
 
     assert bot.registry.get_handlers("ready") == [handler]
+
+
+def test_oopz_sdk_bot_convenience_methods_allow_config_defaults():
+    bot = OopzBot(_make_config())
+    send_calls = []
+    recall_calls = []
+
+    class _Messages:
+        def send_message(self, **kwargs):
+            send_calls.append(kwargs)
+            return kwargs
+
+        def recall_message(self, message_id, area=None, channel=None, **kwargs):
+            payload = {
+                "message_id": message_id,
+                "area": area,
+                "channel": channel,
+                **kwargs,
+            }
+            recall_calls.append(payload)
+            return payload
+
+    bot.messages = _Messages()
+
+    send_result = bot.send("hello")
+    reply_result = bot.reply("pong", reference_message_id="msg-1")
+    recall_result = bot.recall("msg-2")
+
+    assert send_result["text"] == "hello"
+    assert send_calls[0]["area"] is None
+    assert send_calls[0]["channel"] is None
+
+    assert reply_result["referenceMessageId"] == "msg-1"
+    assert reply_result["area"] is None
+    assert reply_result["channel"] is None
+
+    assert recall_result["message_id"] == "msg-2"
+    assert recall_result["area"] is None
+    assert recall_result["channel"] is None
+    assert recall_calls[0]["area"] is None
+    assert recall_calls[0]["channel"] is None
+
+
+def test_oopz_sdk_event_context_has_single_send_definition():
+    source = Path("oopz_sdk/events/context.py").read_text(encoding="utf-8")
+
+    assert source.count("async def send(") == 1
 
 
 def test_oopz_sdk_message_from_dict_accepts_legacy_id_field():

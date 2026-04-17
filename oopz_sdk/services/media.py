@@ -4,6 +4,7 @@ import hashlib
 import io
 import logging
 import os
+
 from PIL import Image
 import requests
 
@@ -12,15 +13,16 @@ from oopz_sdk.auth.signer import Signer
 from oopz_sdk.config.settings import OopzConfig
 from oopz_sdk.exceptions import OopzApiError, OopzRateLimitError
 from oopz_sdk.transport.http import HttpTransport
+
 from . import BaseService
 from .message import Message
 from .privatemessage import PrivateMessage
-
 from ..models import ImageAttachment
 from ..models.attachment import AudioAttachment
 from ..utils.image import get_image_info
 
 logger = logging.getLogger("oopz_sdk.services.media")
+UPLOAD_PUT_TIMEOUT = (10, 60)
 
 
 def _safe_json(response: requests.Response) -> dict | None:
@@ -30,13 +32,34 @@ def _safe_json(response: requests.Response) -> dict | None:
         return None
     return payload if isinstance(payload, dict) else None
 
+
+def _error_message_from_payload(payload: dict | None, default_message: str) -> str:
+    if not payload:
+        return default_message
+    for key in ("message", "error", "msg", "reason"):
+        value = payload.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return default_message
+
+
+def _is_explicit_failure_payload(payload: dict) -> bool:
+    status = payload.get("status")
+    code = payload.get("code")
+    if status is False:
+        return True
+    if payload.get("success") is False:
+        return True
+    if code is None:
+        return False
+    return code not in (0, "0", 200, "200", "success")
+
+
 def _raise_upload_error(response: requests.Response, default_message: str) -> Exception:
     payload = _safe_json(response)
-    message = default_message
+    message = _error_message_from_payload(payload, default_message)
 
-    if payload:
-        message = str(payload.get("message") or payload.get("error") or message)
-    elif response.text:
+    if not payload and response.text:
         message = f"{message}: {response.text[:200]}"
 
     if response.status_code == 429:
@@ -45,10 +68,54 @@ def _raise_upload_error(response: requests.Response, default_message: str) -> Ex
             retry_after = int(response.headers.get("Retry-After", "0") or "0")
         except Exception:
             retry_after = 0
-        raise OopzRateLimitError(message=message, retry_after=retry_after, response=payload)
+        raise OopzRateLimitError(
+            message=message,
+            retry_after=retry_after,
+            response=payload,
+        )
     raise OopzApiError(message, status_code=response.status_code, response=payload)
 
-UPLOAD_PUT_TIMEOUT = (10, 60)
+
+def _require_upload_ticket(
+    response: requests.Response,
+    default_message: str,
+) -> tuple[dict, str, str, str]:
+    if response.status_code != 200:
+        _raise_upload_error(response, default_message)
+
+    payload = _safe_json(response)
+    if payload is None:
+        raise OopzApiError(
+            f"{default_message}: response is not JSON",
+            status_code=response.status_code,
+        )
+
+    if _is_explicit_failure_payload(payload):
+        raise OopzApiError(
+            _error_message_from_payload(payload, default_message),
+            status_code=response.status_code,
+            response=payload,
+        )
+
+    data = payload.get("data")
+    if not isinstance(data, dict):
+        raise OopzApiError(
+            f"{default_message}: missing upload data",
+            status_code=response.status_code,
+            response=payload,
+        )
+
+    signed_url = str(data.get("signedUrl") or "").strip()
+    file_key = str(data.get("file") or "").strip()
+    cdn_url = str(data.get("url") or "").strip()
+    if not signed_url or not file_key or not cdn_url:
+        raise OopzApiError(
+            f"{default_message}: incomplete upload data",
+            status_code=response.status_code,
+            response=payload,
+        )
+
+    return payload, signed_url, file_key, cdn_url
 
 
 class Media(BaseService):
@@ -76,19 +143,21 @@ class Media(BaseService):
     def _private_message_service(self) -> PrivateMessage:
         return PrivateMessage(self._bot, self._config, self.transport, self.signer)
 
-    def upload_file(self, file_path: str, file_type: str = "IMAGE", ext: str = ".webp") -> models.UploadResult:
+    def upload_file(
+        self,
+        file_path: str,
+        file_type: str = "IMAGE",
+        ext: str = ".webp",
+    ) -> models.UploadResult:
         """上传本地文件并返回附件模型。"""
         url_path = "/rtc/v1/cos/v1/signedUploadUrl"
         body = {"type": file_type, "ext": ext}
 
         resp = self._put(url_path, body)
-        if resp.status_code != 200:
-            _raise_upload_error(resp, "获取上传 URL 失败")
-
-        data = resp.json()["data"]
-        upload_url = data["signedUrl"]
-        file_key = data["file"]
-        cdn_url = data["url"]
+        payload, upload_url, file_key, cdn_url = _require_upload_ticket(
+            resp,
+            "获取上传 URL 失败",
+        )
 
         with open(file_path, "rb") as f:
             put_resp = self.session.put(
@@ -98,7 +167,10 @@ class Media(BaseService):
                 timeout=UPLOAD_PUT_TIMEOUT,
             )
         if put_resp.status_code not in (200, 201):
-            raise OopzApiError(f"文件上传失败: {put_resp.text}", status_code=put_resp.status_code)
+            raise OopzApiError(
+                f"文件上传失败: {put_resp.text}",
+                status_code=put_resp.status_code,
+            )
 
         attachment = models.Attachment(
             file_key=str(file_key),
@@ -107,10 +179,10 @@ class Media(BaseService):
             display_name=os.path.basename(file_path),
             file_size=os.path.getsize(file_path) if os.path.exists(file_path) else 0,
         )
-        return models.UploadResult(attachment=attachment, payload=resp.json(), response=resp)
+        return models.UploadResult(attachment=attachment, payload=payload, response=resp)
 
     def upload_file_from_url(self, image_url: str) -> models.UploadResult:
-        """从网络 URL 下载图片并上传到 Oopz（不落地磁盘）。"""
+        """从网络地址下载图片并上传到 Oopz。"""
         try:
             resp = self.session.get(image_url, stream=True, timeout=15)
             resp.raise_for_status()
@@ -124,12 +196,10 @@ class Media(BaseService):
             url_path = "/rtc/v1/cos/v1/signedUploadUrl"
             body = {"type": "IMAGE", "ext": ext}
             resp2 = self._put(url_path, body)
-            resp2.raise_for_status()
-            data = resp2.json()["data"]
-
-            signed_url = data["signedUrl"]
-            file_key = data["file"]
-            cdn_url = data["url"]
+            _, signed_url, file_key, cdn_url = _require_upload_ticket(
+                resp2,
+                "获取上传 URL 失败",
+            )
 
             put_resp = self.session.put(
                 signed_url,
@@ -168,13 +238,18 @@ class Media(BaseService):
             raise OopzApiError(f"从 URL 上传失败: {e}") from e
 
     def upload_audio_from_url(
-        self, audio_url: str, filename: str = "music.mp3", duration_ms: int = 0
+        self,
+        audio_url: str,
+        filename: str = "music.mp3",
+        duration_ms: int = 0,
     ) -> models.UploadResult:
-        """从网络 URL 下载音频并上传到 Oopz（AUDIO 类型）。"""
+        """从网络地址下载音频并上传到 Oopz。"""
         try:
-            resp = self.session.get(audio_url, timeout=30, headers={
-                "Referer": "https://music.163.com/",
-            })
+            resp = self.session.get(
+                audio_url,
+                timeout=30,
+                headers={"Referer": "https://music.163.com/"},
+            )
             resp.raise_for_status()
             audio_bytes = resp.content
             file_size = len(audio_bytes)
@@ -192,12 +267,10 @@ class Media(BaseService):
             url_path = "/rtc/v1/cos/v1/signedUploadUrl"
             body = {"type": "AUDIO", "ext": ext}
             resp2 = self._put(url_path, body)
-            resp2.raise_for_status()
-            data = resp2.json()["data"]
-
-            signed_url = data["signedUrl"]
-            file_key = data["file"]
-            cdn_url = data["url"]
+            _, signed_url, file_key, cdn_url = _require_upload_ticket(
+                resp2,
+                "获取上传 URL 失败",
+            )
 
             put_resp = self.session.put(
                 signed_url,
@@ -221,7 +294,12 @@ class Media(BaseService):
                 attachment_type="AUDIO",
                 duration=duration_ms,
             )
-            logger.info("音频上传成功: %s (%d bytes, %ds)", display_name, file_size, duration_sec)
+            logger.info(
+                "音频上传成功: %s (%d bytes, %ds)",
+                display_name,
+                file_size,
+                duration_sec,
+            )
             return models.UploadResult(
                 attachment=attachment,
                 payload={"code": "success", "data": attachment.to_payload()},
@@ -231,19 +309,22 @@ class Media(BaseService):
             logger.error("音频上传失败: %s", e)
             raise OopzApiError(f"音频上传失败: {e}") from e
 
-    def send_image(self, file_path: str, text: str = "", **kwargs) -> models.MessageSendResult:
-        """上传本地图片并作为消息发送。"""
+    def send_image(
+        self,
+        file_path: str,
+        text: str = "",
+        **kwargs,
+    ) -> models.MessageSendResult:
+        """上传本地图并作为消息发送。"""
         width, height, file_size = get_image_info(file_path)
 
         url_path = "/rtc/v1/cos/v1/signedUploadUrl"
         body = {"type": "IMAGE", "ext": os.path.splitext(file_path)[1]}
         resp = self._put(url_path, body)
-        resp.raise_for_status()
-        data = resp.json()["data"]
-
-        signed_url = data["signedUrl"]
-        file_key = data["file"]
-        cdn_url = data["url"]
+        _, signed_url, file_key, cdn_url = _require_upload_ticket(
+            resp,
+            "获取上传 URL 失败",
+        )
 
         with open(file_path, "rb") as f:
             self.session.put(
@@ -276,19 +357,23 @@ class Media(BaseService):
             **kwargs,
         )
 
-    def send_private_image(self, target: str, file_path: str, text: str = "") -> models.MessageSendResult:
-        """上传本地图片并通过私信发送。"""
+    def send_private_image(
+        self,
+        target: str,
+        file_path: str,
+        text: str = "",
+    ) -> models.MessageSendResult:
+        """上传本地图并通过私信发送。"""
         width, height, file_size = get_image_info(file_path)
 
         url_path = "/rtc/v1/cos/v1/signedUploadUrl"
         body = {"type": "IMAGE", "ext": os.path.splitext(file_path)[1]}
         try:
             resp = self._put(url_path, body)
-            resp.raise_for_status()
-            data = resp.json()["data"]
-            signed_url = data["signedUrl"]
-            file_key = data["file"]
-            cdn_url = data["url"]
+            _, signed_url, file_key, cdn_url = _require_upload_ticket(
+                resp,
+                "获取上传 URL 失败",
+            )
 
             with open(file_path, "rb") as f:
                 self.session.put(
@@ -320,5 +405,6 @@ class Media(BaseService):
             msg_text,
             attachments=[attachment],
         )
+
 
 UploadMixin = Media

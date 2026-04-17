@@ -13,9 +13,10 @@ class EventContext:
     事件上下文。
 
     目标：
-    - handler 中可以通过 ctx.bot 访问完整 Bot
-    - handler 中可以直接 ctx.reply(...)
+    - handler 里可以通过 ctx.bot 访问完整 Bot
+    - handler 里可以直接 ctx.reply(...)
     """
+
     bot: Any
     config: OopzConfig
     event: Any = None
@@ -31,10 +32,10 @@ class EventContext:
 
     async def reply(self, text: str, **kwargs):
         """
-        回复当前上下文中的消息
+        回复当前上下文中的消息。
         """
         if self.message is None:
-            raise RuntimeError("该上下文没有可以回复的消息, 无法 reply()")
+            raise RuntimeError("该上下文没有可以回复的消息，无法 reply()")
 
         area = self._get_message_field(self.message, "area")
         channel = self._get_message_field(self.message, "channel")
@@ -52,17 +53,6 @@ class EventContext:
             **kwargs,
         )
 
-    async def send(self, *texts: str | Segment, **kwargs):
-        """
-        在上下文中发送消息
-        """
-        if self.message is None:
-            raise RuntimeError("当前上下文中没有 message，无法 send()")
-
-        area = self._get_message_field(self.message, "area")
-        channel = self._get_message_field(self.message, "channel")
-        return self.bot.messages.send_message(*texts, area=area, channel=channel, **kwargs)
-
     async def recall(self, **kwargs):
         """
         撤回当前上下文中的消息。
@@ -76,7 +66,7 @@ class EventContext:
             or self._get_message_field(self.message, "id")
         )
         if not message_id:
-            raise RuntimeError("当前 message 中没有可用的 message_id")
+            raise RuntimeError("当前 message 里没有可用的 message_id")
 
         area = self._get_message_field(self.message, "area")
         channel = self._get_message_field(self.message, "channel")
@@ -96,7 +86,12 @@ class EventContext:
 
             area = kwargs.pop("area", self._get_message_field(self.message, "area"))
             channel = kwargs.pop("channel", self._get_message_field(self.message, "channel"))
-            return self.bot.messages.send_message(text=text, area=area, channel=channel, **kwargs)
+            return self.bot.messages.send_message(
+                text=text,
+                area=area,
+                channel=channel,
+                **kwargs,
+            )
 
         if self.message is None:
             return self.bot.messages.send_message(*texts, **kwargs)
