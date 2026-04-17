@@ -1,14 +1,12 @@
 from __future__ import annotations
 
 import copy
-import json
 import logging
 import re
 import time
 from typing import Optional
 
 from oopz_sdk import models
-from oopz_sdk.auth.headers import build_oopz_headers
 from oopz_sdk.auth.signer import Signer
 from oopz_sdk.config.settings import OopzConfig
 from oopz_sdk.transport.http import HttpTransport
@@ -576,10 +574,11 @@ class Channel(BaseService):
         full_path = url_path + query
 
         try:
-            body_str = ""
-            headers = {**self.session.headers, **build_oopz_headers(self._config, self.signer, full_path, body_str)}
-            url = self._config.base_url + full_path
-            resp = self.session.delete(url, headers=headers)
+            resp = self._request(
+                "DELETE",
+                url_path,
+                params={"area": area, "channel": channel, "target": target},
+            )
         except Exception as e:
             logger.error("退出语音频道异常: %s", e)
             return {"error": str(e)}

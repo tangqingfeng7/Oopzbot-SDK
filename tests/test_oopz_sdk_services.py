@@ -1,6 +1,9 @@
 import asyncio
 
-from oopz_sdk import models
+import pytest
+from cryptography.hazmat.primitives.asymmetric import rsa
+
+from oopz_sdk import OopzClient, OopzSender, models
 from oopz_sdk.config import OopzConfig
 from oopz_sdk.events.context import EventContext
 from oopz_sdk.events.dispatcher import EventDispatcher
@@ -32,18 +35,44 @@ class _FakeResponse:
             raise RuntimeError(f"http {self.status_code}")
 
 
+class _FakeWebSocket:
+    def __init__(self):
+        self.sent: list[str] = []
+        self.sock = type("Sock", (), {"connected": True})()
+
+    def send(self, payload: str) -> None:
+        self.sent.append(payload)
+
+    def close(self) -> None:
+        self.sock.connected = False
+
+
+def _make_private_key():
+    return rsa.generate_private_key(public_exponent=65537, key_size=2048)
+
+
 def _make_config(**overrides) -> OopzConfig:
     config = OopzConfig(
         device_id="device",
         person_uid="person",
         jwt_token="jwt",
-        private_key=None,
+        private_key=_make_private_key(),
         default_area="area",
         default_channel="channel",
     )
     for key, value in overrides.items():
         setattr(config, key, value)
     return config
+
+
+def test_oopz_sdk_config_requires_private_key():
+    with pytest.raises(ValueError):
+        OopzConfig(
+            device_id="device",
+            person_uid="person",
+            jwt_token="jwt",
+            private_key=None,
+        )
 
 
 def test_oopz_sdk_send_message_returns_result_model(monkeypatch):
@@ -67,10 +96,18 @@ def test_oopz_sdk_send_message_returns_result_model(monkeypatch):
 
 def test_oopz_sdk_recall_message_returns_operation_result(monkeypatch):
     service = Message(_make_config())
+    captured = {}
     monkeypatch.setattr(
         service.session,
         "post",
-        lambda *args, **kwargs: _FakeResponse(200, payload={"status": True, "message": "ok"}),
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("session.post should not be used")),
+    )
+    monkeypatch.setattr(
+        service.transport,
+        "request",
+        lambda method, url_path, body=None, params=None: captured.update(
+            {"method": method, "url_path": url_path, "body": body, "params": params}
+        ) or _FakeResponse(200, payload={"status": True, "message": "ok"}),
     )
 
     result = service.recall_message("msg-1")
@@ -78,20 +115,36 @@ def test_oopz_sdk_recall_message_returns_operation_result(monkeypatch):
     assert isinstance(result, models.OperationResult)
     assert result.ok is True
     assert result.message == "ok"
+    assert captured["method"] == "POST"
+    assert captured["url_path"] == "/im/session/v1/recallGim"
+    assert captured["params"]["messageId"] == "msg-1"
+    assert captured["params"]["channel"] == "channel"
 
 
 def test_oopz_sdk_private_message_returns_result_model(monkeypatch):
     service = PrivateMessage(_make_config())
     dm_channel = "DM12345678901234567890"
+    calls = []
     monkeypatch.setattr(
         service.session,
         "patch",
-        lambda *args, **kwargs: _FakeResponse(200, payload={"status": True, "data": {"channel": dm_channel}}),
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("session.patch should not be used")),
     )
     monkeypatch.setattr(
         service.session,
         "post",
-        lambda *args, **kwargs: _FakeResponse(200, payload={"status": True, "data": {"messageId": "dm-1"}}),
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("session.post should not be used")),
+    )
+    monkeypatch.setattr(
+        service.transport,
+        "request",
+        lambda method, url_path, body=None, params=None: calls.append(
+            {"method": method, "url_path": url_path, "body": body, "params": params}
+        ) or (
+            _FakeResponse(200, payload={"status": True, "data": {"channel": dm_channel}})
+            if method == "PATCH"
+            else _FakeResponse(200, payload={"status": True, "data": {"messageId": "dm-1"}})
+        ),
     )
 
     result = service.send_private_message("target-1", "hello")
@@ -100,6 +153,9 @@ def test_oopz_sdk_private_message_returns_result_model(monkeypatch):
     assert result.channel == dm_channel
     assert result.message_id == "dm-1"
     assert result.target == "target-1"
+    assert [call["method"] for call in calls] == ["PATCH", "POST"]
+    assert calls[0]["params"] == {"target": "target-1"}
+    assert calls[1]["url_path"] == "/im/session/v2/sendImMessage"
 
 
 def test_oopz_sdk_upload_file_returns_upload_result(monkeypatch, tmp_path):
@@ -133,6 +189,28 @@ def test_oopz_sdk_upload_file_returns_upload_result(monkeypatch, tmp_path):
     assert isinstance(result, models.UploadResult)
     assert result.attachment.file_key == "file-key"
     assert result.attachment.url == "https://cdn.example.com/file-key"
+
+
+def test_oopz_sdk_area_members_retries_after_429(monkeypatch):
+    service = AreaService(_make_config())
+    calls = {"count": 0}
+
+    def _fake_get(*args, **kwargs):
+        calls["count"] += 1
+        if calls["count"] < 3:
+            return _FakeResponse(429, payload={"message": "too fast"})
+        return _FakeResponse(
+            200,
+            payload={"status": True, "data": {"members": [{"uid": "u1", "online": 1}]}},
+        )
+
+    monkeypatch.setattr(service, "_get", _fake_get)
+    monkeypatch.setattr("oopz_sdk.services.area.time.sleep", lambda *_: None)
+
+    result = service.get_area_members()
+
+    assert calls["count"] == 3
+    assert result["members"][0]["uid"] == "u1"
 
 
 def test_oopz_sdk_joined_areas_as_model(monkeypatch):
@@ -286,3 +364,110 @@ def test_oopz_sdk_event_context_reply_uses_message_id_from_legacy_id():
 
     assert result["referenceMessageId"] == "msg-legacy"
     assert bot.messages.calls[0]["referenceMessageId"] == "msg-legacy"
+
+
+def test_oopz_sdk_sender_send_message_v2_builds_wrapped_payload(monkeypatch):
+    sender = OopzSender(_make_config())
+    captured = {}
+
+    monkeypatch.setattr(
+        sender,
+        "_post",
+        lambda url_path, body: captured.update({"url_path": url_path, "body": body}) or _FakeResponse(
+            200,
+            payload={"status": True, "data": {"messageId": "msg-v2"}},
+        ),
+    )
+
+    result = sender.send_message_v2("hello", mentionList=["user-1"], auto_recall=False)
+
+    assert captured["url_path"] == "/im/session/v2/sendGimMessage"
+    assert captured["body"]["message"]["channel"] == "channel"
+    assert captured["body"]["message"]["mentionList"] == [
+        {"person": "user-1", "isBot": False, "botType": "", "offset": -1}
+    ]
+    assert "(met)user-1(met)" in captured["body"]["message"]["content"]
+    assert result.message_id == "msg-v2"
+
+
+def test_oopz_sdk_sender_list_sessions_returns_dict_list(monkeypatch):
+    sender = OopzSender(_make_config())
+    captured = {}
+
+    monkeypatch.setattr(
+        sender,
+        "_post",
+        lambda url_path, body: captured.update({"url_path": url_path, "body": body}) or _FakeResponse(
+            200,
+            payload={"status": True, "data": [{"channel": "DM123", "lastTime": "123456"}]},
+        ),
+    )
+
+    result = sender.list_sessions(last_time="123456")
+
+    assert captured["url_path"] == "/im/session/v1/sessions"
+    assert captured["body"] == {"lastTime": "123456"}
+    assert result[0]["channel"] == "DM123"
+
+
+def test_oopz_sdk_sender_get_area_channels_returns_compat_models(monkeypatch):
+    sender = OopzSender(_make_config())
+    monkeypatch.setattr(
+        sender.channels,
+        "_get",
+        lambda *args, **kwargs: _FakeResponse(
+            200,
+            payload={
+                "status": True,
+                "data": [
+                    {
+                        "id": "group-1",
+                        "name": "分组",
+                        "channels": [{"id": "channel-1", "name": "大厅", "type": "TEXT"}],
+                    }
+                ],
+            },
+        ),
+    )
+
+    result = sender.get_area_channels()
+
+    assert isinstance(result, models.ChannelGroupsResult)
+    assert result.groups[0]["id"] == "group-1"
+    assert result.groups[0]["channels"][0]["id"] == "channel-1"
+
+
+def test_oopz_sdk_client_emits_typed_chat_event_and_auth_lifecycle():
+    lifecycle_states = []
+    chat_events = []
+    client = OopzClient(
+        _make_config(),
+        on_chat_message=chat_events.append,
+        on_lifecycle_event=lambda event: lifecycle_states.append(event.state),
+    )
+
+    ws = _FakeWebSocket()
+    client._running = True
+    client._on_open(ws)
+    client._on_message(
+        ws,
+        '{"event":253,"body":"{\\"status\\": true, \\"code\\": 0}"}',
+    )
+    client._on_message(
+        ws,
+        '{"event":9,"body":"{\\"data\\": {\\"messageId\\": \\"msg-1\\", \\"person\\": \\"other\\", \\"channel\\": \\"channel-1\\", \\"area\\": \\"area-1\\", \\"content\\": \\"hello\\"}}"}',
+    )
+    client.stop()
+
+    assert "connected" in lifecycle_states
+    assert "auth_sent" in lifecycle_states
+    assert "auth_ok" in lifecycle_states
+    assert len(chat_events) == 1
+    assert isinstance(chat_events[0], models.ChatMessageEvent)
+    assert chat_events[0].content == "hello"
+
+
+def test_oopz_sdk_version_matches_package_version():
+    from oopz_sdk import __version__
+
+    assert __version__ == "0.4.3"

@@ -1,12 +1,10 @@
 from __future__ import annotations
 
-import json
 import logging
 import threading
 import time
 from typing import Optional
 
-from oopz_sdk.auth.headers import build_oopz_headers
 from oopz_sdk.auth.signer import Signer
 from oopz_sdk.config.settings import OopzConfig
 from oopz_sdk.exceptions import OopzApiError, OopzRateLimitError
@@ -264,10 +262,7 @@ class Message(BaseService):
         }
 
         try:
-            body_str = json.dumps(body, separators=(",", ":"), ensure_ascii=False)
-            headers = {**self.session.headers, **build_oopz_headers(self._config, self.signer, full_path, body_str)}
-            url = self._config.base_url + full_path
-            resp = self.session.post(url, headers=headers, data=body_str.encode("utf-8"))
+            resp = self._request("POST", url_path, body=body, params=dict(body))
         except Exception as e:
             logger.error("撤回请求异常: %s", e)
             return models.OperationResult(ok=False, message=str(e), payload=body)

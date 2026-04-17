@@ -6,7 +6,6 @@ import re
 from typing import Optional
 
 from oopz_sdk import models
-from oopz_sdk.auth.headers import build_oopz_headers
 
 from .message import Message
 
@@ -130,11 +129,7 @@ class PrivateMessage(Message):
         body = {"target": target}
 
         try:
-            self._throttle()
-            body_str = json.dumps(body, separators=(",", ":"), ensure_ascii=False)
-            headers = {**self.session.headers, **build_oopz_headers(self._config, self.signer, full_path, body_str)}
-            url = self._config.base_url + full_path
-            resp = self.session.patch(url, headers=headers, data=body_str.encode("utf-8"))
+            resp = self._request("PATCH", url_path, body=body, params={"target": target})
         except Exception as e:
             logger.error("打开私信会话异常: %s", e)
             return models.PrivateSessionResult(channel="", target=target, payload={"error": str(e)})
@@ -241,11 +236,7 @@ class PrivateMessage(Message):
         url_path = "/im/session/v2/sendImMessage"
 
         try:
-            self._throttle()
-            body_str = json.dumps(body, separators=(",", ":"), ensure_ascii=False)
-            headers = {**self.session.headers, **build_oopz_headers(self._config, self.signer, url_path, body_str)}
-            url = self._config.base_url + url_path
-            resp = self.session.post(url, headers=headers, data=body_str.encode("utf-8"))
+            resp = self._post(url_path, body)
         except Exception as e:
             logger.error("发送私信异常: %s", e)
             return models.MessageSendResult(

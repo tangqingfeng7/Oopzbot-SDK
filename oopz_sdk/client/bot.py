@@ -145,7 +145,6 @@ class OopzBot:
     def _handle_ws_message(self, raw: str) -> None:
         try:
             event = self.parser.parse(raw)
-            print(event)
         except Exception as exc:
             logger.exception("解析 WebSocket 消息失败: %s", exc)
             ctx = self._make_context(event=exc, message=None)

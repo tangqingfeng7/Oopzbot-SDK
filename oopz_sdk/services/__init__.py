@@ -21,6 +21,9 @@ class BaseService:
     def _get(self, url_path: str, params: dict | None = None):
         return self.transport.get(url_path, params=params)
 
+    def _request(self, method: str, url_path: str, body: dict | None = None, params: dict | None = None):
+        return self.transport.request(method, url_path, body=body, params=params)
+
     def _post(self, url_path: str, body: dict):
         return self.transport.post(url_path, body)
 

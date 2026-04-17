@@ -133,10 +133,10 @@ class AreaService(BaseService):
                         "获取域成员被限流: HTTP 429 (area=%s, offset=%s-%s, 已重试%d次)",
                         area, offset_start, offset_end, max_attempts - 1,
                     )
-                err = {"error": "HTTP 429"}
-                if as_model:
-                    return models.AreaMembersPage(payload=err)
-                return err
+                    err = {"error": "HTTP 429"}
+                    if as_model:
+                        return models.AreaMembersPage(payload=err)
+                    return err
 
                 logger.warning(
                     "获取域成员被限流: HTTP 429 (area=%s, offset=%s-%s), %.1fs 后重试 (%d/%d)",

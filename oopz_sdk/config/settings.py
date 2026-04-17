@@ -68,6 +68,25 @@ class OopzConfig:
 
     ignore_self_messages: bool = True   # 如果设置为False, 会导致bot接收到自己处理的消息, 可能导致死循环
 
+    def __post_init__(self) -> None:
+        self.device_id = self._require_non_empty(self.device_id, "device_id")
+        self.person_uid = self._require_non_empty(self.person_uid, "person_uid")
+        self.jwt_token = self._require_non_empty(self.jwt_token, "jwt_token")
+
+        if self.private_key is None:
+            raise ValueError("private_key is required")
+        if isinstance(self.private_key, str) and not self.private_key.strip():
+            raise ValueError("private_key is required")
+        if isinstance(self.private_key, (bytes, bytearray)) and not self.private_key:
+            raise ValueError("private_key is required")
+
+    @staticmethod
+    def _require_non_empty(value: str, field_name: str) -> str:
+        text = str(value or "").strip()
+        if not text:
+            raise ValueError(f"{field_name} is required")
+        return text
+
     @property
     def rate_limit_interval(self) -> float:
         return self.retry.interval

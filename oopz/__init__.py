@@ -1,50 +1,55 @@
-"""Oopz SDK -- Oopz 平台通信核心库。
+"""Legacy oopz package backed by oopz_sdk."""
 
-用法::
+from oopz_sdk.version import __version__
 
-    from oopz import OopzConfig, OopzClient, OopzSender
-
-    config = OopzConfig(
-        device_id="...",
-        person_uid="...",
-        jwt_token="...",
-        private_key="-----BEGIN RSA PRIVATE KEY-----\\n...",
-        default_area="...",
-        default_channel="...",
-    )
-
-    sender = OopzSender(config)
-    sender.send_message("Hello!")
-
-    client = OopzClient(config, on_chat_message=lambda msg: print(msg))
-    client.start()
-"""
-
-from .config import DEFAULT_HEADERS, OopzConfig
-from .client import (
-    EVENT_AUTH,
-    EVENT_CHAT_MESSAGE,
-    EVENT_HEARTBEAT,
-    EVENT_SERVER_ID,
-    OopzClient,
+from .client import EVENT_AUTH, EVENT_CHAT_MESSAGE, EVENT_HEARTBEAT, EVENT_SERVER_ID, OopzClient
+from .config import (
+    AutoRecallConfig,
+    DEFAULT_HEADERS,
+    HeartbeatConfig,
+    OopzConfig,
+    ProxyConfig,
+    RetryConfig,
+)
+from .exceptions import (
+    OopzApiError,
+    OopzAuthError,
+    OopzConnectionError,
+    OopzError,
+    OopzParseError,
+    OopzRateLimitError,
+    OopzTransportError,
 )
 from .models import (
+    ApiResponse,
+    Area,
     AreaBlock,
     AreaBlocksResult,
     AreaInfo,
     AreaMembersPage,
+    Attachment,
+    AudioAttachment,
+    BaseModel,
+    Channel,
     ChannelGroup,
     ChannelGroupsResult,
     ChannelInfo,
-    ChatMessageEvent,
     ChannelMessage,
     ChannelSetting,
+    ChatMessageEvent,
     DailySpeechResult,
+    Event,
+    ImageAttachment,
     JoinedAreasResult,
     LifecycleEvent,
+    Member,
+    Message,
+    MessageEvent,
+    MessageListResult,
     MessageSendResult,
     OperationResult,
     PersonDetail,
+    PersonInfo,
     PrivateSessionResult,
     SelfDetail,
     UploadAttachment,
@@ -52,36 +57,44 @@ from .models import (
     VoiceChannelMember,
     VoiceChannelMembersResult,
 )
-from .exceptions import (
-    OopzApiError,
-    OopzAuthError,
-    OopzConnectionError,
-    OopzError,
-    OopzRateLimitError,
-)
 from .sender import OopzSender
-from .signer import Signer
+from .signer import ClientMessageIdGenerator, Signer, request_id, timestamp_ms, timestamp_us
 from .upload import UploadMixin, get_image_info
 
 __all__ = [
-    "AreaInfo",
-    "AreaMembersPage",
+    "ApiResponse",
+    "Area",
     "AreaBlock",
     "AreaBlocksResult",
+    "AreaInfo",
+    "AreaMembersPage",
+    "Attachment",
+    "AudioAttachment",
+    "AutoRecallConfig",
+    "BaseModel",
+    "Channel",
     "ChannelGroup",
     "ChannelGroupsResult",
     "ChannelInfo",
-    "ChatMessageEvent",
     "ChannelMessage",
     "ChannelSetting",
+    "ChatMessageEvent",
+    "ClientMessageIdGenerator",
     "DEFAULT_HEADERS",
     "DailySpeechResult",
     "EVENT_AUTH",
     "EVENT_CHAT_MESSAGE",
     "EVENT_HEARTBEAT",
     "EVENT_SERVER_ID",
+    "Event",
+    "HeartbeatConfig",
+    "ImageAttachment",
     "JoinedAreasResult",
     "LifecycleEvent",
+    "Member",
+    "Message",
+    "MessageEvent",
+    "MessageListResult",
     "MessageSendResult",
     "OopzApiError",
     "OopzAuthError",
@@ -89,19 +102,26 @@ __all__ = [
     "OopzConfig",
     "OopzConnectionError",
     "OopzError",
+    "OopzParseError",
     "OopzRateLimitError",
     "OopzSender",
+    "OopzTransportError",
     "OperationResult",
     "PersonDetail",
+    "PersonInfo",
     "PrivateSessionResult",
+    "ProxyConfig",
+    "RetryConfig",
     "SelfDetail",
     "Signer",
     "UploadAttachment",
-    "UploadResult",
     "UploadMixin",
+    "UploadResult",
     "VoiceChannelMember",
     "VoiceChannelMembersResult",
+    "__version__",
     "get_image_info",
+    "request_id",
+    "timestamp_ms",
+    "timestamp_us",
 ]
-
-__version__ = "0.4.3"

@@ -11,6 +11,7 @@ import requests
 from oopz_sdk.auth.headers import build_oopz_headers
 from oopz_sdk.auth.signer import Signer
 from oopz_sdk.config.settings import OopzConfig, ProxyConfig
+from oopz_sdk.exceptions import OopzConnectionError
 
 from .base import BaseTransport
 from .proxy import build_requests_proxies
@@ -57,14 +58,17 @@ class HttpTransport(BaseTransport):
             **build_oopz_headers(self.config, self.signer, sign_path, body_str),
         }
         url = self.config.base_url + url_path
-        return self.session.request(
-            method,
-            url,
-            headers=headers,
-            params=params,
-            data=data if body is not None or method.upper() in ("POST", "PUT", "PATCH") else None,
-            timeout=self.config.request_timeout,
-        )
+        try:
+            return self.session.request(
+                method,
+                url,
+                headers=headers,
+                params=params,
+                data=data if body is not None or method.upper() in ("POST", "PUT", "PATCH") else None,
+                timeout=self.config.request_timeout,
+            )
+        except requests.RequestException as exc:
+            raise OopzConnectionError(f"request failed: {exc}") from exc
 
     def get(self, url_path: str, params: Optional[dict] = None):
         return self.request("GET", url_path, params=params)

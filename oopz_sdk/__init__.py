@@ -10,7 +10,7 @@ except ModuleNotFoundError:  # pragma: no cover - optional runtime dependency
         raise ModuleNotFoundError("Pillow is required for image helpers")
 
 from .auth import Signer
-from .client.rest import OopzRESTClient
+from .client import OopzClient, OopzRESTClient, OopzSender
 from .config import (
     DEFAULT_HEADERS,
     EVENT_AUTH,
@@ -36,16 +36,21 @@ from .models import (
     Area,
     AreaBlock,
     AreaBlocksResult,
+    AreaInfo,
     AreaMembersPage,
     Attachment,
     AudioAttachment,
     Channel,
     ChannelGroup,
     ChannelGroupsResult,
+    ChannelInfo,
+    ChannelMessage,
     ChannelSetting,
+    ChatMessageEvent,
     DailySpeechResult,
     ImageAttachment,
     JoinedAreasResult,
+    LifecycleEvent,
     Member,
     Message as MessageModel,
     MessageListResult,
@@ -54,7 +59,9 @@ from .models import (
     PersonDetail,
     PrivateSessionResult,
     SelfDetail,
+    UploadAttachment,
     UploadResult,
+    VoiceChannelMember,
     VoiceChannelMembersResult,
 )
 from .services.message import Message as MessageService
@@ -72,10 +79,9 @@ except ModuleNotFoundError:  # pragma: no cover - optional runtime dependency
     OopzWSClient = _MissingWebSocketDependency
 
 Message = MessageService
-OopzSender = MessageService
-OopzClient = OopzWSClient
 
 __all__ = [
+    "AreaInfo",
     "AutoRecallConfig",
     "DEFAULT_HEADERS",
     "EVENT_AUTH",
@@ -121,9 +127,15 @@ __all__ = [
     "Attachment",
     "AudioAttachment",
     "Channel",
+    "ChannelInfo",
+    "ChannelMessage",
     "ChannelGroup",
     "ChannelGroupsResult",
     "ChannelSetting",
+    "ChatMessageEvent",
     "DailySpeechResult",
+    "LifecycleEvent",
     "get_image_info",
+    "UploadAttachment",
+    "VoiceChannelMember",
 ]

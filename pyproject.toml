@@ -46,7 +46,7 @@ dev = [
 include-package-data = true
 
 [tool.setuptools.packages.find]
-include = ["oopz*"]
+include = ["oopz", "oopz_sdk", "oopz_sdk.*"]
 
 [tool.setuptools.package-data]
 oopz = ["py.typed"]

@@ -1,11 +1,10 @@
 from __future__ import annotations
 
-import json
 import logging
 from typing import Optional
+from urllib.parse import parse_qsl
 
 from oopz_sdk import models
-from oopz_sdk.auth.headers import build_oopz_headers
 from oopz_sdk.auth.signer import Signer
 from oopz_sdk.config.settings import OopzConfig
 from oopz_sdk.transport.http import HttpTransport
@@ -210,12 +209,9 @@ class Moderation(BaseService):
     def _manage_patch(self, action: str, url_path: str, query: str, body: dict) -> models.OperationResult:
         """通用 PATCH 管理操作（禁言/禁麦等）。"""
         full_path = url_path + query
+        params = dict(parse_qsl(query.lstrip("?")))
         try:
-            self._throttle()
-            body_str = json.dumps(body, separators=(",", ":"), ensure_ascii=False)
-            headers = {**self.session.headers, **build_oopz_headers(self._config, self.signer, full_path, body_str)}
-            url = self._config.base_url + full_path
-            resp = self.session.patch(url, headers=headers, data=body_str.encode("utf-8"))
+            resp = self._request("PATCH", url_path, body=body, params=params)
         except Exception as e:
             logger.error("%s请求异常: %s", action, e)
             return models.OperationResult(ok=False, message=str(e), payload=body)
