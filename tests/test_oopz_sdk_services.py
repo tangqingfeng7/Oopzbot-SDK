@@ -1,13 +1,16 @@
 import asyncio
+import io
 from pathlib import Path
 
 import pytest
+import requests
 from cryptography.hazmat.primitives.asymmetric import rsa
+from PIL import Image
 
 from oopz_sdk import OopzClient, OopzRESTClient, models
 from oopz_sdk.client.bot import OopzBot
 from oopz_sdk.config import OopzConfig
-from oopz_sdk.exceptions import OopzApiError
+from oopz_sdk.exceptions import OopzApiError, OopzConnectionError, OopzRateLimitError
 from oopz_sdk.events.context import EventContext
 from oopz_sdk.events.dispatcher import EventDispatcher
 from oopz_sdk.events.registry import EventRegistry
@@ -232,6 +235,158 @@ def test_oopz_sdk_upload_file_raises_api_error_for_200_failure_payload(monkeypat
         service.upload_file(str(sample), file_type="IMAGE", ext=".bin")
 
 
+def test_oopz_sdk_upload_file_wraps_put_request_exception(monkeypatch, tmp_path):
+    service = Media(None, _make_config())
+    sample = tmp_path / "sample.bin"
+    sample.write_bytes(b"hello")
+
+    monkeypatch.setattr(
+        service,
+        "_put",
+        lambda url_path, body: _FakeResponse(
+            200,
+            payload={
+                "data": {
+                    "signedUrl": "https://upload.example.com",
+                    "file": "file-key",
+                    "url": "https://cdn.example.com/file-key",
+                }
+            },
+        ),
+    )
+    monkeypatch.setattr(
+        service.session,
+        "put",
+        lambda *args, **kwargs: (_ for _ in ()).throw(requests.Timeout("upload timeout")),
+    )
+
+    with pytest.raises(OopzConnectionError, match="upload timeout"):
+        service.upload_file(str(sample), file_type="IMAGE", ext=".bin")
+
+
+def test_oopz_sdk_upload_file_from_url_does_not_reuse_authenticated_session(monkeypatch):
+    service = Media(None, _make_config())
+    service.session.headers["X-Test-Auth"] = "secret"
+
+    image_buffer = io.BytesIO()
+    Image.new("RGB", (8, 6), color="white").save(image_buffer, format="PNG")
+
+    captured = {}
+
+    class _ExternalResp:
+        status_code = 200
+        headers = {}
+        content = image_buffer.getvalue()
+
+        def raise_for_status(self):
+            return None
+
+    monkeypatch.setattr(
+        service.session,
+        "get",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("session.get should not be used")),
+    )
+    monkeypatch.setattr(
+        "oopz_sdk.services.media.requests.get",
+        lambda url, **kwargs: captured.update({"url": url, **kwargs}) or _ExternalResp(),
+    )
+    monkeypatch.setattr(
+        service,
+        "_put",
+        lambda url_path, body: _FakeResponse(
+            200,
+            payload={
+                "data": {
+                    "signedUrl": "https://upload.example.com",
+                    "file": "file-key",
+                    "url": "https://cdn.example.com/file-key",
+                }
+            },
+        ),
+    )
+
+    class _UploadResp:
+        status_code = 200
+        text = ""
+
+        def raise_for_status(self):
+            return None
+
+    monkeypatch.setattr(service.session, "put", lambda *args, **kwargs: _UploadResp())
+
+    result = service.upload_file_from_url("https://example.com/image.png")
+
+    assert result.attachment.file_key == "file-key"
+    assert captured["url"] == "https://example.com/image.png"
+    assert captured["headers"] == {}
+    assert "X-Test-Auth" not in captured["headers"]
+
+
+def test_oopz_sdk_upload_file_from_url_preserves_rate_limit_error(monkeypatch):
+    service = Media(None, _make_config())
+
+    image_buffer = io.BytesIO()
+    Image.new("RGB", (8, 6), color="white").save(image_buffer, format="PNG")
+
+    class _ExternalResp:
+        status_code = 200
+        headers = {}
+        content = image_buffer.getvalue()
+
+        def raise_for_status(self):
+            return None
+
+    monkeypatch.setattr(
+        "oopz_sdk.services.media.requests.get",
+        lambda *args, **kwargs: _ExternalResp(),
+    )
+    monkeypatch.setattr(
+        service,
+        "_put",
+        lambda url_path, body: _FakeResponse(
+            429,
+            payload={"message": "too fast"},
+            headers={"Retry-After": "7"},
+        ),
+    )
+
+    with pytest.raises(OopzRateLimitError) as exc_info:
+        service.upload_file_from_url("https://example.com/image.png")
+
+    assert exc_info.value.retry_after == 7
+
+
+def test_oopz_sdk_upload_audio_from_url_preserves_rate_limit_error(monkeypatch):
+    service = Media(None, _make_config())
+
+    class _ExternalResp:
+        status_code = 200
+        headers = {"Content-Type": "audio/mpeg"}
+        content = b"audio-bytes"
+
+        def raise_for_status(self):
+            return None
+
+    monkeypatch.setattr(
+        "oopz_sdk.services.media.requests.get",
+        lambda *args, **kwargs: _ExternalResp(),
+    )
+    monkeypatch.setattr(
+        service,
+        "_put",
+        lambda url_path, body: _FakeResponse(
+            429,
+            payload={"message": "too fast"},
+            headers={"Retry-After": "11"},
+        ),
+    )
+
+    with pytest.raises(OopzRateLimitError) as exc_info:
+        service.upload_audio_from_url("https://example.com/audio.mp3")
+
+    assert exc_info.value.retry_after == 11
+
+
 def test_oopz_sdk_send_image_delegates_to_message_service(monkeypatch, tmp_path):
     service = Media(None, _make_config())
     sample = tmp_path / "sample.png"
@@ -257,6 +412,9 @@ def test_oopz_sdk_send_image_delegates_to_message_service(monkeypatch, tmp_path)
     )
 
     class _UploadResp:
+        status_code = 200
+        text = ""
+
         def raise_for_status(self):
             return None
 
@@ -298,6 +456,64 @@ def test_oopz_sdk_send_image_raises_api_error_for_incomplete_upload_data(monkeyp
 
     with pytest.raises(OopzApiError, match="incomplete upload data"):
         service.send_image(str(sample), text="hello")
+
+
+def test_oopz_sdk_send_image_wraps_put_request_exception(monkeypatch, tmp_path):
+    service = Media(None, _make_config())
+    sample = tmp_path / "sample.png"
+    sample.write_bytes(b"fake-image")
+
+    monkeypatch.setattr(
+        "oopz_sdk.services.media.get_image_info",
+        lambda path: (16, 16, 10),
+    )
+    monkeypatch.setattr(
+        service,
+        "_put",
+        lambda url_path, body: _FakeResponse(
+            200,
+            payload={
+                "data": {
+                    "signedUrl": "https://upload.example.com",
+                    "file": "file-key",
+                    "url": "https://cdn.example.com/file-key",
+                }
+            },
+        ),
+    )
+    monkeypatch.setattr(
+        service.session,
+        "put",
+        lambda *args, **kwargs: (_ for _ in ()).throw(requests.ConnectionError("upload disconnected")),
+    )
+
+    with pytest.raises(OopzConnectionError, match="upload disconnected"):
+        service.send_image(str(sample), text="hello")
+
+
+def test_oopz_sdk_send_private_image_preserves_rate_limit_error(monkeypatch, tmp_path):
+    service = Media(None, _make_config())
+    sample = tmp_path / "sample.png"
+    sample.write_bytes(b"fake-image")
+
+    monkeypatch.setattr(
+        "oopz_sdk.services.media.get_image_info",
+        lambda path: (16, 16, 10),
+    )
+    monkeypatch.setattr(
+        service,
+        "_put",
+        lambda url_path, body: _FakeResponse(
+            429,
+            payload={"message": "too fast"},
+            headers={"Retry-After": "5"},
+        ),
+    )
+
+    with pytest.raises(OopzRateLimitError) as exc_info:
+        service.send_private_image("target-1", str(sample), text="hello")
+
+    assert exc_info.value.retry_after == 5
 
 
 def test_oopz_sdk_area_members_retries_after_429(monkeypatch):

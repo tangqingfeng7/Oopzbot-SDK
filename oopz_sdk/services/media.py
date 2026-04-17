@@ -11,7 +11,7 @@ import requests
 from oopz_sdk import models
 from oopz_sdk.auth.signer import Signer
 from oopz_sdk.config.settings import OopzConfig
-from oopz_sdk.exceptions import OopzApiError, OopzRateLimitError
+from oopz_sdk.exceptions import OopzApiError, OopzConnectionError, OopzRateLimitError
 from oopz_sdk.transport.http import HttpTransport
 
 from . import BaseService
@@ -143,6 +143,36 @@ class Media(BaseService):
     def _private_message_service(self) -> PrivateMessage:
         return PrivateMessage(self._bot, self._config, self.transport, self.signer)
 
+    def _download_external(
+        self,
+        url: str,
+        *,
+        timeout: int | tuple[int, int],
+        stream: bool = False,
+        headers: dict | None = None,
+    ) -> requests.Response:
+        request_headers = dict(headers or {})
+        request_kwargs = {
+            "headers": request_headers,
+            "timeout": timeout,
+            "stream": stream,
+        }
+        proxies = getattr(self.session, "proxies", None)
+        if proxies:
+            request_kwargs["proxies"] = proxies
+        return requests.get(url, **request_kwargs)
+
+    def _upload_to_signed_url(self, signed_url: str, data, *, default_message: str) -> requests.Response:
+        try:
+            return self.session.put(
+                signed_url,
+                data=data,
+                headers={"Content-Type": "application/octet-stream"},
+                timeout=UPLOAD_PUT_TIMEOUT,
+            )
+        except requests.RequestException as exc:
+            raise OopzConnectionError(f"{default_message}: {exc}") from exc
+
     def upload_file(
         self,
         file_path: str,
@@ -160,11 +190,10 @@ class Media(BaseService):
         )
 
         with open(file_path, "rb") as f:
-            put_resp = self.session.put(
+            put_resp = self._upload_to_signed_url(
                 upload_url,
-                data=f,
-                headers={"Content-Type": "application/octet-stream"},
-                timeout=UPLOAD_PUT_TIMEOUT,
+                f,
+                default_message="文件上传失败",
             )
         if put_resp.status_code not in (200, 201):
             raise OopzApiError(
@@ -184,7 +213,7 @@ class Media(BaseService):
     def upload_file_from_url(self, image_url: str) -> models.UploadResult:
         """从网络地址下载图片并上传到 Oopz。"""
         try:
-            resp = self.session.get(image_url, stream=True, timeout=15)
+            resp = self._download_external(image_url, stream=True, timeout=15)
             resp.raise_for_status()
             image_bytes = resp.content
             img = Image.open(io.BytesIO(image_bytes))
@@ -201,13 +230,16 @@ class Media(BaseService):
                 "获取上传 URL 失败",
             )
 
-            put_resp = self.session.put(
+            put_resp = self._upload_to_signed_url(
                 signed_url,
-                data=image_bytes,
-                headers={"Content-Type": "application/octet-stream"},
-                timeout=UPLOAD_PUT_TIMEOUT,
+                image_bytes,
+                default_message="从 URL 上传失败",
             )
-            put_resp.raise_for_status()
+            if put_resp.status_code not in (200, 201):
+                raise OopzApiError(
+                    f"从 URL 上传失败: {put_resp.text}",
+                    status_code=put_resp.status_code,
+                )
 
             attachment = {
                 "fileKey": file_key,
@@ -233,6 +265,11 @@ class Media(BaseService):
                 payload={"code": "success", "message": "上传成功", "data": attachment},
             )
 
+        except OopzApiError:
+            raise
+        except requests.RequestException as e:
+            logger.error("从 URL 上传失败: %s", e)
+            raise OopzApiError(f"从 URL 上传失败: {e}") from e
         except Exception as e:
             logger.error("从 URL 上传失败: %s", e)
             raise OopzApiError(f"从 URL 上传失败: {e}") from e
@@ -245,7 +282,7 @@ class Media(BaseService):
     ) -> models.UploadResult:
         """从网络地址下载音频并上传到 Oopz。"""
         try:
-            resp = self.session.get(
+            resp = self._download_external(
                 audio_url,
                 timeout=30,
                 headers={"Referer": "https://music.163.com/"},
@@ -272,13 +309,16 @@ class Media(BaseService):
                 "获取上传 URL 失败",
             )
 
-            put_resp = self.session.put(
+            put_resp = self._upload_to_signed_url(
                 signed_url,
-                data=audio_bytes,
-                headers={"Content-Type": "application/octet-stream"},
-                timeout=UPLOAD_PUT_TIMEOUT,
+                audio_bytes,
+                default_message="音频上传失败",
             )
-            put_resp.raise_for_status()
+            if put_resp.status_code not in (200, 201):
+                raise OopzApiError(
+                    f"音频上传失败: {put_resp.text}",
+                    status_code=put_resp.status_code,
+                )
 
             base_name = os.path.splitext(filename or "")[0] or "music"
             display_name = base_name + ext
@@ -305,6 +345,11 @@ class Media(BaseService):
                 payload={"code": "success", "data": attachment.to_payload()},
             )
 
+        except OopzApiError:
+            raise
+        except requests.RequestException as e:
+            logger.error("音频上传失败: %s", e)
+            raise OopzApiError(f"音频上传失败: {e}") from e
         except Exception as e:
             logger.error("音频上传失败: %s", e)
             raise OopzApiError(f"音频上传失败: {e}") from e
@@ -327,12 +372,16 @@ class Media(BaseService):
         )
 
         with open(file_path, "rb") as f:
-            self.session.put(
+            put_resp = self._upload_to_signed_url(
                 signed_url,
-                data=f,
-                headers={"Content-Type": "application/octet-stream"},
-                timeout=UPLOAD_PUT_TIMEOUT,
-            ).raise_for_status()
+                f,
+                default_message="图片上传失败",
+            )
+        if put_resp.status_code not in (200, 201):
+            raise OopzApiError(
+                f"图片上传失败: {put_resp.text}",
+                status_code=put_resp.status_code,
+            )
 
         attachment = ImageAttachment(
             file_key=file_key,
@@ -376,12 +425,18 @@ class Media(BaseService):
             )
 
             with open(file_path, "rb") as f:
-                self.session.put(
+                put_resp = self._upload_to_signed_url(
                     signed_url,
-                    data=f,
-                    headers={"Content-Type": "application/octet-stream"},
-                    timeout=UPLOAD_PUT_TIMEOUT,
-                ).raise_for_status()
+                    f,
+                    default_message="上传私信图片失败",
+                )
+            if put_resp.status_code not in (200, 201):
+                raise OopzApiError(
+                    f"上传私信图片失败: {put_resp.text}",
+                    status_code=put_resp.status_code,
+                )
+        except OopzApiError:
+            raise
         except Exception as e:
             logger.error("上传私信图片失败: %s", e)
             raise OopzApiError(f"上传私信图片失败: {e}") from e
