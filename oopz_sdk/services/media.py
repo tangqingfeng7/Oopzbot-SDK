@@ -16,15 +16,10 @@ from . import BaseService
 
 from ..models import ImageAttachment
 from ..models.attachment import AudioAttachment
+from ..utils.image import get_image_info
 
 logger = logging.getLogger("oopz_sdk.services.media")
 
-def get_image_info(file_path: str) -> tuple[int, int, int]:
-    """获取本地图片的宽、高、文件大小。"""
-    with Image.open(file_path) as img:
-        width, height = img.size
-    file_size = os.path.getsize(file_path)
-    return width, height, file_size
 
 def _safe_json(response: requests.Response) -> dict | None:
     try:
@@ -33,7 +28,7 @@ def _safe_json(response: requests.Response) -> dict | None:
         return None
     return payload if isinstance(payload, dict) else None
 
-def _raise_upload_error(response: requests.Response, default_message: str) -> None:
+def _raise_upload_error(response: requests.Response, default_message: str) -> Exception:
     payload = _safe_json(response)
     message = default_message
 
@@ -49,7 +44,6 @@ def _raise_upload_error(response: requests.Response, default_message: str) -> No
         except Exception:
             retry_after = 0
         raise OopzRateLimitError(message=message, retry_after=retry_after, response=payload)
-
     raise OopzApiError(message, status_code=response.status_code, response=payload)
 
 UPLOAD_PUT_TIMEOUT = (10, 60)
@@ -60,13 +54,14 @@ class Media(BaseService):
 
     def __init__(
         self,
+        bot,
         config: OopzConfig,
         transport: HttpTransport | None = None,
         signer: Signer | None = None,
     ):
         resolved_signer = signer or Signer(config)
         resolved_transport = transport or HttpTransport(config, resolved_signer)
-        super().__init__(config, resolved_transport, resolved_signer)
+        super().__init__(bot, config, resolved_transport, resolved_signer)
 
     def upload_file(self, file_path: str, file_type: str = "IMAGE", ext: str = ".webp") -> models.UploadResult:
         """上传本地文件并返回附件模型。"""

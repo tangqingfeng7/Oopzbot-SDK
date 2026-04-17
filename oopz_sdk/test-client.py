@@ -7,6 +7,7 @@ import os
 from oopz_sdk.client.bot import OopzBot
 from oopz_sdk.config.settings import OopzConfig
 from oopz_sdk.events import EventContext
+from oopz_sdk.models.segment import Image
 
 
 def build_test_config() -> OopzConfig:
@@ -26,7 +27,7 @@ def run_real_bot():
     @bot.on_message
     async def handle_message(message, ctx: EventContext):
         print("[MESSAGE]", message)
-        await ctx.reply("盐盐盐收到了")
+        await ctx.send(Image(r"E:\Project\Oopzbot-SDK\test.png"), "这是测试消息")
 
     @bot.on_error
     async def handle_error(ctx, error):

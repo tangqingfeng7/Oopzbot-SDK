@@ -13,17 +13,18 @@ from oopz_sdk.transport.http import HttpTransport
 
 
 class OopzRESTClient:
-    def __init__(self, config: OopzConfig):
+    def __init__(self, bot, config: OopzConfig):
+        self._bot = bot
         self.config = config
         self.signer = Signer(config)
         self.transport = HttpTransport(config, self.signer)
-        self.messages = Message(config, self.transport, self.signer)
-        self.private = PrivateMessage(config, self.transport, self.signer)
-        self.media = Media(config, self.transport, self.signer)
-        self.areas = AreaService(config, self.transport, self.signer)
-        self.channels = Channel(config, self.transport, self.signer)
-        self.members = Member(config, self.transport, self.signer)
-        self.moderation = Moderation(config, self.transport, self.signer)
+        self.messages = Message(bot, config, self.transport, self.signer)
+        self.private = PrivateMessage(bot, config, self.transport, self.signer)
+        self.media = Media(bot, config, self.transport, self.signer)
+        self.areas = AreaService(bot, config, self.transport, self.signer)
+        self.channels = Channel(bot, config, self.transport, self.signer)
+        self.members = Member(bot, config, self.transport, self.signer)
+        self.moderation = Moderation(bot, config, self.transport, self.signer)
 
     def close(self) -> None:
         self.transport.close()

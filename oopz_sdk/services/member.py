@@ -17,13 +17,14 @@ class Member(BaseService):
 
     def __init__(
         self,
+        bot,
         config: OopzConfig,
         transport: HttpTransport | None = None,
         signer: Signer | None = None,
     ):
         resolved_signer = signer or Signer(config)
         resolved_transport = transport or HttpTransport(config, resolved_signer)
-        super().__init__(config, resolved_transport, resolved_signer)
+        super().__init__(bot, config, resolved_transport, resolved_signer)
 
     @staticmethod
     def _to_member_model(payload: dict) -> models.Member:

@@ -33,7 +33,7 @@ class OopzBot:
         self.registry = EventRegistry()
         self.dispatcher = EventDispatcher(self.registry)
         self.parser = EventParser()
-        self.rest = OopzRESTClient(config)
+        self.rest = OopzRESTClient(self, config)
         self.messages = self.rest.messages
         self.private = self.rest.private
         self.media = self.rest.media

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import threading
 import time
 from typing import Optional
@@ -9,8 +10,11 @@ from oopz_sdk.auth.signer import Signer
 from oopz_sdk.config.settings import OopzConfig
 from oopz_sdk.exceptions import OopzApiError, OopzRateLimitError
 from oopz_sdk import models
+from oopz_sdk.models.segment import Image, Segment, Text
 from oopz_sdk.services import BaseService
 from oopz_sdk.transport.http import HttpTransport
+from oopz_sdk.utils.image import get_image_info
+from oopz_sdk.utils.message_builder import normalize_message_parts, build_segments
 
 logger = logging.getLogger("oopz_sdk.services.message")
 
@@ -18,13 +22,14 @@ logger = logging.getLogger("oopz_sdk.services.message")
 class Message(BaseService):
     def __init__(
         self,
+        bot,
         config: OopzConfig,
         transport: HttpTransport | None = None,
         signer: Signer | None = None,
     ):
         resolved_signer = signer or Signer(config)
         resolved_transport = transport or HttpTransport(config, resolved_signer)
-        super().__init__(config, resolved_transport, resolved_signer)
+        super().__init__(bot, config, resolved_transport, resolved_signer)
 
     @classmethod
     def _raise_api_error(cls, response, default_message: str) -> None:
@@ -104,9 +109,13 @@ class Message(BaseService):
             response=response,
         )
 
+    @staticmethod
+    def segments_require_attachments(segments: list[Segment]) -> bool:
+        return any(isinstance(seg, Image) for seg in segments)
+
     def send_message(
         self,
-        text: str,
+        *texts: str | Segment,
         area: Optional[str] = None,
         channel: Optional[str] = None,
         auto_recall: Optional[bool] = None,
@@ -115,12 +124,32 @@ class Message(BaseService):
         """发送聊天消息。
 
         Args:
-            text:    消息文本
+            texts:    消息文本
             area:    区域 ID（默认取配置）
             channel: 频道 ID（默认取配置）
             auto_recall: 是否自动撤回（None=按配置决定）
             **kwargs: attachments, mentionList, referenceMessageId, styleTags 等
         """
+
+        # 判断是不是存在同时存在Segment和 attachments 的情况，如果是，则抛出异常,
+        # 因为Segment会自动处理附件，而 attachments 是手动指定的附件，两者不能共存
+        attachments = kwargs.get("attachments", [])
+        if attachments is None:
+            attachments = []
+
+        has_segment_parts = any(not isinstance(part, str) for part in texts)
+        if has_segment_parts and attachments:
+            raise ValueError(
+                "Manual attachments cannot be used together with Segment-style message parts"
+            )
+
+        if has_segment_parts:
+            segments = normalize_message_parts(texts)
+            resolved_segments = self.resolve_segments(segments)
+            text, attachments = build_segments(resolved_segments)
+        else:
+            text = "".join(str(part) for part in texts)
+
         area = self._resolve_area(area)
         channel = self._resolve_channel(channel)
         default_style = ["IMPORTANT"] if self._config.use_announcement_style else []
@@ -142,7 +171,7 @@ class Message(BaseService):
             "displayName": kwargs.get("displayName", ""),
             "duration": kwargs.get("duration", 0),
             "text": text,
-            "attachments": kwargs.get("attachments", []),
+            "attachments": attachments,
         }
 
         url_path = "/im/session/v1/sendGimMessage"
@@ -332,15 +361,93 @@ class Message(BaseService):
             logger.error("获取频道消息异常: %s", e)
             return []
 
-    def find_message_timestamp(
-        self,
-        message_id: str,
-        area: Optional[str] = None,
-        channel: Optional[str] = None,
-    ) -> Optional[str]:
-        """从频道最近消息中查找指定 messageId 的 timestamp。"""
-        messages = self.get_channel_messages(area=area, channel=channel)
-        for msg in messages:
-            if msg.get("messageId") == message_id:
-                return msg.get("timestamp")
-        return None
+    # def find_message_timestamp(
+    #     self,
+    #     message_id: str,
+    #     area: Optional[str] = None,
+    #     channel: Optional[str] = None,
+    # ) -> Optional[str]:
+    #     """从频道最近消息中查找指定 messageId 的 timestamp。"""
+    #     messages = self.get_channel_messages(area=area, channel=channel)
+    #     for msg in messages:
+    #         if msg.get("messageId") == message_id:
+    #             return msg.get("timestamp")
+    #     return None
+
+
+
+    def _upload_local_image_segment(self, seg: Image) -> Image | None:
+        """
+        将本地/缓存图片 ImageSegment 上传并返回可发送的新 ImageSegment。
+        """
+        source_path = seg.source_path
+        if not source_path:
+            raise ValueError("Image 缺少文件路径")
+
+
+        # 检查用户提供的图片大小
+        width = seg.width
+        height = seg.height
+        file_size = seg.file_size
+        if width <= 0 or height <= 0 or file_size <= 0:
+            width, height, file_size = get_image_info(source_path)
+
+        ext = os.path.splitext(source_path)[1] or ".jpg"
+
+        upload = None
+        try:
+            upload = self._bot.media.upload_file(
+                source_path,
+                file_type="IMAGE",
+                ext=ext,
+            )
+        except OopzApiError:
+            logger.error("上传图片失败: %s", source_path)
+
+        if upload is None:
+            return upload
+
+        attachment = upload.attachment
+
+        return Image.from_uploaded(
+            file_key=attachment.file_key,
+            url=attachment.url,
+            width=width,
+            height=height,
+            file_size=file_size,
+            hash=attachment.hash,
+            animated=attachment.animated,
+            display_name=attachment.display_name,
+            preview_file_key=getattr(attachment, "preview_file_key", ""),
+        )
+
+    def resolve_segments(self, segments: list[Segment]) -> list[Segment]:
+        """
+        将用户输入或 parse 得到的 segments 转成可发送状态。
+        - TextSegment: 原样返回
+        - ImageSegment(已上传): 原样返回
+        - ImageSegment(本地文件/缓存): 自动上传
+        """
+        resolved: list[Segment] = []
+
+        for seg in segments:
+            if isinstance(seg, Text):
+                resolved.append(seg)
+                continue
+
+            if isinstance(seg, Image):
+                if seg.is_uploaded:
+                    resolved.append(seg)
+                    continue
+
+                if seg.has_local_file:
+                    resolved.append(self._upload_local_image_segment(seg))
+                    continue
+
+                raise ValueError(
+                    "ImageSegment is neither uploaded nor backed by a local file"
+                )
+
+            raise TypeError(f"Unsupported segment type: {type(seg)!r}")
+
+        return resolved
