@@ -181,7 +181,7 @@ def test_oopz_sdk_channel_groups_as_model(monkeypatch):
 
 
 def test_oopz_sdk_person_detail_as_model(monkeypatch):
-    service = Member(_make_config())
+    service = Member(None, _make_config())
     monkeypatch.setattr(
         service,
         "_post",
