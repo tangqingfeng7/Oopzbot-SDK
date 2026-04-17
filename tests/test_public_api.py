@@ -34,6 +34,7 @@ from oopz import (
 )
 from oopz_sdk.auth import Signer as SdkSigner
 from oopz_sdk.client import OopzClient as SdkOopzClient
+from oopz_sdk.client import OopzRESTClient as SdkOopzRESTClient
 from oopz_sdk.client import OopzSender as SdkOopzSender
 from oopz_sdk.config import OopzConfig as SdkOopzConfig
 from oopz_sdk.models import ChannelMessage as SdkChannelMessage
@@ -550,3 +551,7 @@ def test_legacy_modules_reexport_oopz_sdk_symbols() -> None:
     assert legacy_models_module.ChannelMessage is SdkChannelMessage
     assert hasattr(legacy_api_module.OopzApiMixin, "get_area_members")
     assert legacy_response_module.is_success_payload({"status": True}) is True
+
+
+def test_sender_is_now_rest_client_alias() -> None:
+    assert SdkOopzSender is SdkOopzRESTClient
