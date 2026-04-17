@@ -57,7 +57,7 @@ class EventContext:
         在上下文中发送消息
         """
         if self.message is None:
-            raise RuntimeError("当前上下文中没有 message，无法 recall()")
+            raise RuntimeError("当前上下文中没有 message，无法 send()")
 
         area = self._get_message_field(self.message, "area")
         channel = self._get_message_field(self.message, "channel")
