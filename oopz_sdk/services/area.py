@@ -20,14 +20,19 @@ class AreaService(BaseService):
 
     def __init__(
         self,
-        bot,
-        config: OopzConfig,
+        config_or_bot,
+        config: OopzConfig | None = None,
         transport: HttpTransport | None = None,
         signer: Signer | None = None,
     ):
+        if config is None:
+            bot = None
+            config = config_or_bot
+        else:
+            bot = config_or_bot
         resolved_signer = signer or Signer(config)
         resolved_transport = transport or HttpTransport(config, resolved_signer)
-        super().__init__(bot, config, resolved_transport, resolved_signer)
+        super().__init__(config, resolved_transport, resolved_signer, bot=bot)
 
     def _get_area_members_cache_store(self) -> dict:
         store = getattr(self, "_area_members_cache", None)

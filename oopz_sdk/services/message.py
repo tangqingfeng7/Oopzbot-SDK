@@ -22,14 +22,19 @@ logger = logging.getLogger("oopz_sdk.services.message")
 class Message(BaseService):
     def __init__(
         self,
-        bot,
-        config: OopzConfig,
+        config_or_bot,
+        config: OopzConfig | None = None,
         transport: HttpTransport | None = None,
         signer: Signer | None = None,
     ):
+        if config is None:
+            bot = None
+            config = config_or_bot
+        else:
+            bot = config_or_bot
         resolved_signer = signer or Signer(config)
         resolved_transport = transport or HttpTransport(config, resolved_signer)
-        super().__init__(bot, config, resolved_transport, resolved_signer)
+        super().__init__(config, resolved_transport, resolved_signer, bot=bot)
 
     @classmethod
     def _raise_api_error(cls, response, default_message: str) -> None:
@@ -116,6 +121,7 @@ class Message(BaseService):
     def send_message(
         self,
         *texts: str | Segment,
+        text: str | None = None,
         area: Optional[str] = None,
         channel: Optional[str] = None,
         auto_recall: Optional[bool] = None,
@@ -133,22 +139,28 @@ class Message(BaseService):
 
         # 判断是不是存在同时存在Segment和 attachments 的情况，如果是，则抛出异常,
         # 因为Segment会自动处理附件，而 attachments 是手动指定的附件，两者不能共存
+        message_parts = list(texts)
+        if text is not None:
+            if message_parts:
+                raise TypeError("Use either positional message parts or the legacy text= argument, not both")
+            message_parts.append(text)
+
         attachments = kwargs.get("attachments", [])
         if attachments is None:
             attachments = []
 
-        has_segment_parts = any(not isinstance(part, str) for part in texts)
+        has_segment_parts = any(not isinstance(part, str) for part in message_parts)
         if has_segment_parts and attachments:
             raise ValueError(
                 "Manual attachments cannot be used together with Segment-style message parts"
             )
 
         if has_segment_parts:
-            segments = normalize_message_parts(texts)
+            segments = normalize_message_parts(message_parts)
             resolved_segments = self.resolve_segments(segments)
             text, attachments = build_segments(resolved_segments)
         else:
-            text = "".join(str(part) for part in texts)
+            text = "".join(str(part) for part in message_parts)
 
         area = self._resolve_area(area)
         channel = self._resolve_channel(channel)
@@ -451,3 +463,60 @@ class Message(BaseService):
             raise TypeError(f"Unsupported segment type: {type(seg)!r}")
 
         return resolved
+
+    def find_message_timestamp(
+        self,
+        message_id: str,
+        area: Optional[str] = None,
+        channel: Optional[str] = None,
+    ) -> Optional[str]:
+        messages = self.get_channel_messages(area=area, channel=channel)
+        for msg in messages:
+            if msg.get("messageId") == message_id:
+                return msg.get("timestamp")
+        return None
+
+    def _upload_local_image_segment(self, seg: Image) -> Image:
+        source_path = seg.source_path
+        if not source_path:
+            raise ValueError("Image 缺少文件路径")
+
+        width = seg.width
+        height = seg.height
+        file_size = seg.file_size
+        if width <= 0 or height <= 0 or file_size <= 0:
+            width, height, file_size = get_image_info(source_path)
+
+        ext = os.path.splitext(source_path)[1] or ".jpg"
+        uploader = getattr(self._bot, "media", None)
+        if uploader is None:
+            from oopz_sdk.services.media import Media
+
+            uploader = Media(
+                self._config,
+                transport=self.transport,
+                signer=self.signer,
+            )
+
+        try:
+            upload = uploader.upload_file(
+                source_path,
+                file_type="IMAGE",
+                ext=ext,
+            )
+        except OopzApiError:
+            logger.error("上传图片失败: %s", source_path)
+            raise
+
+        attachment = upload.attachment
+        return Image.from_uploaded(
+            file_key=attachment.file_key,
+            url=attachment.url,
+            width=width,
+            height=height,
+            file_size=file_size,
+            hash=attachment.hash,
+            animated=attachment.animated,
+            display_name=attachment.display_name,
+            preview_file_key=getattr(attachment, "preview_file_key", ""),
+        )

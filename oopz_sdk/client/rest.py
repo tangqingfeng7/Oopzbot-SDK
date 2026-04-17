@@ -13,7 +13,12 @@ from oopz_sdk.transport.http import HttpTransport
 
 
 class OopzRESTClient:
-    def __init__(self, bot, config: OopzConfig):
+    def __init__(self, config_or_bot, config: OopzConfig | None = None):
+        if config is None:
+            bot = None
+            config = config_or_bot
+        else:
+            bot = config_or_bot
         self._bot = bot
         self.config = config
         self.signer = Signer(config)

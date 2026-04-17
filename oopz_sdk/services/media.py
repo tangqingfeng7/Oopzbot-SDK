@@ -54,14 +54,19 @@ class Media(BaseService):
 
     def __init__(
         self,
-        bot,
-        config: OopzConfig,
+        config_or_bot,
+        config: OopzConfig | None = None,
         transport: HttpTransport | None = None,
         signer: Signer | None = None,
     ):
+        if config is None:
+            bot = None
+            config = config_or_bot
+        else:
+            bot = config_or_bot
         resolved_signer = signer or Signer(config)
         resolved_transport = transport or HttpTransport(config, resolved_signer)
-        super().__init__(bot, config, resolved_transport, resolved_signer)
+        super().__init__(config, resolved_transport, resolved_signer, bot=bot)
 
     def upload_file(self, file_path: str, file_type: str = "IMAGE", ext: str = ".webp") -> models.UploadResult:
         """上传本地文件并返回附件模型。"""

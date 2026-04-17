@@ -8,7 +8,14 @@ from oopz_sdk.transport.http import HttpTransport
 
 
 class BaseService:
-    def __init__(self, bot, config: OopzConfig, transport: HttpTransport, signer: Signer):
+    def __init__(
+        self,
+        config: OopzConfig,
+        transport: HttpTransport,
+        signer: Signer,
+        *,
+        bot=None,
+    ):
         self._bot = bot
         self._config = config
         self.transport = transport

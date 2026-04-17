@@ -5,10 +5,12 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 
 from oopz_sdk import OopzClient, OopzSender, models
 from oopz_sdk.config import OopzConfig
+from oopz_sdk.exceptions import OopzApiError
 from oopz_sdk.events.context import EventContext
 from oopz_sdk.events.dispatcher import EventDispatcher
 from oopz_sdk.events.registry import EventRegistry
 from oopz_sdk.models.event import MessageEvent
+from oopz_sdk.models.segment import Image as ImageSegment
 from oopz_sdk.services.area import AreaService
 from oopz_sdk.services.channel import Channel
 from oopz_sdk.services.media import Media
@@ -92,6 +94,25 @@ def test_oopz_sdk_send_message_returns_result_model(monkeypatch):
     assert result.message_id == "msg-1"
     assert result.area == "area"
     assert result.channel == "channel"
+
+
+def test_oopz_sdk_send_message_accepts_legacy_text_keyword(monkeypatch):
+    service = Message(_make_config())
+    captured = {}
+    monkeypatch.setattr(
+        service,
+        "_post",
+        lambda url_path, body: captured.update({"url_path": url_path, "body": body}) or _FakeResponse(
+            200,
+            payload={"status": True, "data": {"messageId": "msg-legacy-text"}},
+        ),
+    )
+
+    result = service.send_message(text="hello", auto_recall=False)
+
+    assert result.message_id == "msg-legacy-text"
+    assert captured["url_path"] == "/im/session/v1/sendGimMessage"
+    assert captured["body"]["text"] == "hello"
 
 
 def test_oopz_sdk_recall_message_returns_operation_result(monkeypatch):
@@ -296,6 +317,29 @@ def test_oopz_sdk_event_context_send_allows_explicit_channel_without_message():
 
     assert result == {"text": "hello", "area": "area-1", "channel": "channel-1"}
     assert bot.messages.calls == [{"text": "hello", "area": "area-1", "channel": "channel-1"}]
+
+
+def test_oopz_sdk_local_image_segment_preserves_upload_error(monkeypatch, tmp_path):
+    service = Message(_make_config())
+    sample = tmp_path / "sample.png"
+    sample.write_bytes(b"not-an-image")
+
+    monkeypatch.setattr(
+        "oopz_sdk.services.message.get_image_info",
+        lambda path: (32, 24, 128),
+    )
+    monkeypatch.setattr(
+        "oopz_sdk.services.media.get_image_info",
+        lambda path: (32, 24, 128),
+    )
+    monkeypatch.setattr(
+        service.transport,
+        "put",
+        lambda *args, **kwargs: (_ for _ in ()).throw(OopzApiError("upload failed")),
+    )
+
+    with pytest.raises(OopzApiError, match="upload failed"):
+        service.send_message(ImageSegment.from_file(str(sample)), auto_recall=False)
 
 
 def test_oopz_sdk_dispatcher_message_handler_receives_message_then_context():
