@@ -36,8 +36,8 @@ class EventContext:
         if self.message is None:
             raise RuntimeError("该上下文没有可以回复的消息, 无法 reply()")
 
-        area = self._get_message_field(self.message, "area") or self.config.default_area
-        channel = self._get_message_field(self.message, "channel") or self.config.default_channel
+        area = self._get_message_field(self.message, "area")
+        channel = self._get_message_field(self.message, "channel")
         reference_message_id = (
             self._get_message_field(self.message, "message_id")
             or self._get_message_field(self.message, "messageId")
@@ -59,8 +59,8 @@ class EventContext:
         if self.message is None:
             raise RuntimeError("当前上下文中没有 message，无法 recall()")
 
-        area = self._get_message_field(self.message, "area") or self.config.default_area
-        channel = self._get_message_field(self.message, "channel") or self.config.default_channel
+        area = self._get_message_field(self.message, "area")
+        channel = self._get_message_field(self.message, "channel")
         return self.bot.messages.send_message(*texts, area=area, channel=channel, **kwargs)
 
     async def recall(self, **kwargs):
@@ -78,8 +78,8 @@ class EventContext:
         if not message_id:
             raise RuntimeError("当前 message 中没有可用的 message_id")
 
-        area = self._get_message_field(self.message, "area") or self.config.default_area
-        channel = self._get_message_field(self.message, "channel") or self.config.default_channel
+        area = self._get_message_field(self.message, "area")
+        channel = self._get_message_field(self.message, "channel")
 
         return self.bot.messages.recall_message(
             message_id=message_id,
