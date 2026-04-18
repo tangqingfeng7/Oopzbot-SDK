@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import copy
 import logging
 import time
@@ -88,7 +89,7 @@ class AreaService(BaseService):
             payload=dict(payload),
         )
 
-    def get_area_members(
+    async def get_area_members(
         self,
         area: Optional[str] = None,
         offset_start: int = 0,
@@ -114,7 +115,7 @@ class AreaService(BaseService):
         try:
             resp = None
             for attempt in range(1, max_attempts + 1):
-                resp = self._get(url_path, params=params)
+                resp = await self._await_if_needed(self._get(url_path, params=params))
                 if resp.status_code != 429:
                     break
 
@@ -148,7 +149,7 @@ class AreaService(BaseService):
                     "获取域成员被限流: HTTP 429 (area=%s, offset=%s-%s), %.1fs 后重试 (%d/%d)",
                     area, offset_start, offset_end, float(wait_seconds), attempt, max_attempts - 1,
                 )
-                time.sleep(wait_seconds)
+                await asyncio.sleep(wait_seconds)
 
             if resp is None:
                 return {"error": "未获得响应"}
@@ -264,7 +265,7 @@ class AreaService(BaseService):
                 return models.AreaMembersPage(payload=err)
             return err
 
-    def get_joined_areas(
+    async def get_joined_areas(
         self,
         quiet: bool = False,
         *,
@@ -273,7 +274,7 @@ class AreaService(BaseService):
         """获取当前用户已加入（订阅）的域列表。"""
         url_path = "/userSubscribeArea/v1/list"
         try:
-            resp = self._get(url_path)
+            resp = await self._await_if_needed(self._get(url_path))
             if resp.status_code != 200:
                 logger.error("获取已加入域列表失败: HTTP %d", resp.status_code)
                 return []
@@ -299,13 +300,13 @@ class AreaService(BaseService):
                 return models.JoinedAreasResult(payload={"error": str(e)})
             return []
 
-    def get_area_info(self, area: Optional[str] = None, *, as_model: bool = False) -> dict | models.Area:
+    async def get_area_info(self, area: Optional[str] = None, *, as_model: bool = False) -> dict | models.Area:
         """获取域详细信息（含角色列表、主页频道等）。"""
         area = self._resolve_area(area)
         url_path = "/area/v3/info"
         params = {"area": area}
         try:
-            resp = self._get(url_path, params=params)
+            resp = await self._await_if_needed(self._get(url_path, params=params))
             if resp.status_code != 200:
                 logger.error("获取域详情失败: HTTP %d", resp.status_code)
                 return {"error": f"HTTP {resp.status_code}"}
@@ -320,13 +321,13 @@ class AreaService(BaseService):
             logger.error("获取域详情异常: %s", e)
             return {"error": str(e)}
 
-    def enter_area(self, area: Optional[str] = None, recover: bool = False) -> dict:
+    async def enter_area(self, area: Optional[str] = None, recover: bool = False) -> dict:
         """进入指定域。"""
         area = area or self._config.default_area
         url_path = f"/client/v1/area/v1/enter?area={area}&recover={str(recover).lower()}"
         body = {"area": area, "recover": recover}
         try:
-            resp = self._post(url_path, body)
+            resp = await self._await_if_needed(self._post(url_path, body))
             if resp.status_code != 200:
                 return {"error": f"HTTP {resp.status_code}"}
             result = resp.json()
@@ -337,14 +338,14 @@ class AreaService(BaseService):
             logger.error("进入域异常: %s", e)
             return {"error": str(e)}
 
-    def get_area_channels(self, area: Optional[str] = None, quiet: bool = True) -> list:
+    async def get_area_channels(self, area: Optional[str] = None, quiet: bool = True) -> list:
         """Fetch all channel groups in an area."""
         area = area or self._config.default_area
         url_path = "/client/v1/area/v1/detail/v1/channels"
         params = {"area": area}
 
         try:
-            resp = self._get(url_path, params=params)
+            resp = await self._await_if_needed(self._get(url_path, params=params))
             if resp.status_code != 200:
                 logger.error("get_area_channels failed: HTTP %d", resp.status_code)
                 return []
@@ -363,7 +364,7 @@ class AreaService(BaseService):
             logger.error("get_area_channels exception: %s", e)
             return []
 
-    def populate_names(self, *, set_area=None, set_channel=None) -> dict:
+    async def populate_names(self, *, set_area=None, set_channel=None) -> dict:
         """从 API 获取已加入域列表及各域频道列表，通过回调填充名称。
 
         Args:
@@ -375,7 +376,7 @@ class AreaService(BaseService):
         """
         areas_count = 0
         channels_count = 0
-        areas = self.get_joined_areas()
+        areas = await self.get_joined_areas()
         for a in areas:
             area_id = a.get("id", "")
             area_name = a.get("name", "")
@@ -383,7 +384,7 @@ class AreaService(BaseService):
                 set_area(area_id, area_name)
                 areas_count += 1
 
-            groups = self.get_area_channels(area_id) or []
+            groups = await self.get_area_channels(area_id) or []
             for group in groups:
                 for ch in (group.get("channels") or []):
                     ch_id = ch.get("id", "")

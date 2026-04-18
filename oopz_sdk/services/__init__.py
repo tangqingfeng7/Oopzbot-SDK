@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 from typing import Any
 
 from oopz_sdk.auth.signer import Signer
@@ -23,26 +24,40 @@ class BaseService:
         self.session = transport.session
         self._area_members_cache: dict[tuple[str, int, int], dict] = {}
 
+    @staticmethod
+    async def _await_if_needed(value):
+        if inspect.isawaitable(value):
+            return await value
+        return value
+
     def _throttle(self) -> None:
         self.transport.throttle()
 
-    def _get(self, url_path: str, params: dict | None = None):
-        return self.transport.get(url_path, params=params)
+    async def _get(self, url_path: str, params: dict | None = None):
+        return await self._await_if_needed(self.transport.get(url_path, params=params))
 
-    def _request(self, method: str, url_path: str, body: dict | None = None, params: dict | None = None):
-        return self.transport.request(method, url_path, body=body, params=params)
+    async def _request(
+        self,
+        method: str,
+        url_path: str,
+        body: dict | None = None,
+        params: dict | None = None,
+    ):
+        return await self._await_if_needed(
+            self.transport.request(method, url_path, body=body, params=params)
+        )
 
-    def _post(self, url_path: str, body: dict):
-        return self.transport.post(url_path, body)
+    async def _post(self, url_path: str, body: dict):
+        return await self._await_if_needed(self.transport.post(url_path, body))
 
-    def _put(self, url_path: str, body: dict):
-        return self.transport.put(url_path, body)
+    async def _put(self, url_path: str, body: dict):
+        return await self._await_if_needed(self.transport.put(url_path, body))
 
-    def _delete(self, url_path: str, body: dict | None = None):
-        return self.transport.delete(url_path, body)
+    async def _delete(self, url_path: str, body: dict | None = None):
+        return await self._await_if_needed(self.transport.delete(url_path, body))
 
-    def _patch(self, url_path: str, body: dict):
-        return self.transport.patch(url_path, body)
+    async def _patch(self, url_path: str, body: dict):
+        return await self._await_if_needed(self.transport.patch(url_path, body))
 
     def _resolve_area(self, area: str | None) -> str:
         value = str(area or self._config.default_area).strip()
@@ -64,14 +79,14 @@ class BaseService:
             return None
         return payload if isinstance(payload, dict) else None
 
-    def close(self) -> None:
-        self.transport.close()
+    async def close(self) -> None:
+        await self.transport.close()
 
-    def __enter__(self):
+    async def __aenter__(self):
         return self
 
-    def __exit__(self, exc_type, exc, tb) -> None:
-        self.close()
+    async def __aexit__(self, exc_type, exc, tb) -> None:
+        await self.close()
 
 
 __all__ = ["BaseService"]

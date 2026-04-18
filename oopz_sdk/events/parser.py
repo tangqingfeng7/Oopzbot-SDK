@@ -14,6 +14,7 @@ from oopz_sdk.models.event import Event, MessageEvent
 from oopz_sdk.models.message import Message
 
 logger = logging.getLogger("oopz_sdk.events.parser")
+_MISSING = object()
 
 
 class EventParser:
@@ -23,8 +24,8 @@ class EventParser:
     """
 
     @staticmethod
-    def safe_json_parse(raw: Any, fallback=None):
-        default = fallback if fallback is not None else {}
+    def safe_json_parse(raw: Any, fallback: Any = _MISSING):
+        default = {} if fallback is _MISSING else fallback
 
         if isinstance(raw, dict):
             return raw
@@ -52,7 +53,14 @@ class EventParser:
         body = self.safe_json_parse(data.get("body", {}), fallback={})
 
         if event_type == EVENT_CHAT_MESSAGE:
-            msg_data = self.safe_json_parse(body.get("data", {}), fallback={})
+            body = self.safe_json_parse(data.get("body", {}), fallback=None)
+            if not isinstance(body, dict):
+                raise OopzParseError("Invalid chat event body")
+
+            msg_data = self.safe_json_parse(body.get("data", {}), fallback=None)
+            if not isinstance(msg_data, dict):
+                raise OopzParseError("Invalid chat event data")
+
             message = Message.from_dict(msg_data)
             return MessageEvent(
                 name="message",

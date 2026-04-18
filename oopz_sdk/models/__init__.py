@@ -33,6 +33,10 @@ from .response import (
     VoiceChannelMembersResult,
 )
 
+JsonObject = dict[str, object]
+JsonList = list[object]
+PersonInfo = Member
+
 __all__ = [
     "ApiResponse",
     "Area",
@@ -54,6 +58,8 @@ __all__ = [
     "Event",
     "ImageAttachment",
     "JoinedAreasResult",
+    "JsonList",
+    "JsonObject",
     "LifecycleEvent",
     "Member",
     "Message",
@@ -62,6 +68,7 @@ __all__ = [
     "MessageSendResult",
     "OperationResult",
     "PersonDetail",
+    "PersonInfo",
     "PrivateSessionResult",
     "SelfDetail",
     "UploadAttachment",

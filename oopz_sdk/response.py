@@ -1,4 +1,4 @@
-"""Legacy response helpers retained for deep-import compatibility."""
+"""Shared response helpers exposed from oopz_sdk."""
 
 from __future__ import annotations
 
@@ -6,9 +6,9 @@ from typing import NoReturn
 
 import requests
 
-from oopz.exceptions import OopzApiError, OopzConnectionError, OopzRateLimitError
-from oopz.models import JsonObject
+from oopz_sdk.exceptions import OopzApiError, OopzConnectionError, OopzRateLimitError
 
+JsonObject = dict[str, object]
 SUCCESS_CODES = (0, "0", 200, "200", "success")
 
 
@@ -28,7 +28,9 @@ def response_preview(response: requests.Response, limit: int = 200) -> str:
     return (response.text or "")[:limit]
 
 
-def error_message_from_payload(payload: JsonObject | None, default_message: str) -> str:
+def error_message_from_payload(
+    payload: JsonObject | None, default_message: str
+) -> str:
     if not payload:
         return default_message
     for key in ("message", "error", "msg", "reason"):
@@ -57,7 +59,11 @@ def raise_api_error(response: requests.Response, default_message: str) -> NoRetu
             retry_after = 0
         if not payload and response.text:
             message = f"{default_message}: {response_preview(response)}"
-        raise OopzRateLimitError(message=message, retry_after=retry_after, response=payload)
+        raise OopzRateLimitError(
+            message=message,
+            retry_after=retry_after,
+            response=payload,
+        )
 
     if not payload and response.text:
         message = f"{default_message}: {response_preview(response)}"
@@ -77,7 +83,9 @@ def raise_payload_error(
     )
 
 
-def ensure_http_ok(response: requests.Response, default_message: str) -> requests.Response:
+def ensure_http_ok(
+    response: requests.Response, default_message: str
+) -> requests.Response:
     if response.status_code != 200:
         raise_api_error(response, default_message)
     return response
@@ -98,7 +106,9 @@ def is_success_payload(payload: JsonObject) -> bool:
     return code in SUCCESS_CODES
 
 
-def ensure_success_payload(response: requests.Response, default_message: str) -> JsonObject:
+def ensure_success_payload(
+    response: requests.Response, default_message: str
+) -> JsonObject:
     ensure_http_ok(response, default_message)
     payload = safe_json_object(response)
     if payload is None:
@@ -107,7 +117,11 @@ def ensure_success_payload(response: requests.Response, default_message: str) ->
             status_code=response.status_code,
         )
     if not is_success_payload(payload):
-        raise_payload_error(payload, default_message=default_message, status_code=response.status_code)
+        raise_payload_error(
+            payload,
+            default_message=default_message,
+            status_code=response.status_code,
+        )
     return payload
 
 
@@ -125,7 +139,9 @@ def require_list_data(payload: JsonObject, default_message: str) -> list[object]
     return data
 
 
-def retry_delay_from_exception(exc: Exception, attempt: int, *, max_delay: float = 4.0) -> float:
+def retry_delay_from_exception(
+    exc: Exception, attempt: int, *, max_delay: float = 4.0
+) -> float:
     if isinstance(exc, OopzRateLimitError) and exc.retry_after > 0:
         return float(exc.retry_after)
     return min(float(2 ** (attempt - 1)), max_delay)

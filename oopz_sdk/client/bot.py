@@ -78,19 +78,22 @@ class OopzBot:
     # -------------------------
     # 事件注册 API
     # -------------------------
-    def on(self, event_name: str):
+    def _hook(self, event_name: str):
         return self.registry.on(event_name)
 
+    def on(self, event_name: str):
+        return self._hook(event_name)
+
     def event(self, name: str):
-        return self.registry.on(name)
+        return self.on(name)
 
     @property
     def on_ready(self):
-        return self.registry.on("ready")
+        return self.on("ready")
 
     @property
     def on_message(self):
-        return self.registry.on("message")
+        return self.on("message")
 
     @property
     def on_private_message(self):
@@ -102,19 +105,19 @@ class OopzBot:
 
     @property
     def on_error(self):
-        return self.registry.on("error")
+        return self.on("error")
 
     @property
     def on_close(self):
-        return self.registry.on("close")
+        return self.on("close")
 
     @property
     def on_reconnect(self):
-        return self.registry.on("reconnect")
+        return self.on("reconnect")
 
     @property
     def on_raw_event(self):
-        return self.registry.on("raw_event")
+        return self.on("raw_event")
 
     # -------------------------
     # 生命周期
@@ -125,24 +128,43 @@ class OopzBot:
     def start_async(self):
         return self.ws.start_async()
 
-    def close(self) -> None:
+    async def close(self) -> None:
         self.ws.stop()
-        self.rest.close()
+        await self.rest.close()
 
     # -------------------------
     # 高层便捷方法
     # -------------------------
-    def send(self, text: str, area: str, channel: str, **kwargs):
-        return self.messages.send_message(text=text, area=area, channel=channel, **kwargs)
+    async def send(
+        self, text: str, area: str | None = None, channel: str | None = None, **kwargs
+    ):
+        return await self.messages.send_message(
+            text=text, area=area, channel=channel, **kwargs
+        )
 
-    def recall(self, message_id: str, area: str, channel: str, **kwargs):
-        return self.messages.recall_message(message_id, area=area, channel=channel,**kwargs)
+    async def recall(
+        self,
+        message_id: str,
+        area: str | None = None,
+        channel: str | None = None,
+        **kwargs,
+    ):
+        return await self.messages.recall_message(
+            message_id, area=area, channel=channel, **kwargs
+        )
 
-    def reply(self, text: str,area: str, channel: str, reference_message_id: str, **kwargs):
+    async def reply(
+        self,
+        text: str,
+        area: str | None = None,
+        channel: str | None = None,
+        reference_message_id: str = "",
+        **kwargs,
+    ):
         """
         对某条消息进行回复
         """
-        return self.messages.send_message(
+        return await self.messages.send_message(
             text=text,
             area=area,
             channel=channel,

@@ -6,3 +6,9 @@ dist/
 dist-check/
 *.egg-info/
 oopz_sdk/test-client.py
+.venv/
+test.env
+smoke/test_private_key.pem
+.vscode/
+.idea/
+*.log

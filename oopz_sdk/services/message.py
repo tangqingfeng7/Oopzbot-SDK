@@ -1,20 +1,20 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
-import threading
 import time
 from typing import Optional, Any
 
+from oopz_sdk import models
 from oopz_sdk.auth.signer import Signer
 from oopz_sdk.config.settings import OopzConfig
 from oopz_sdk.exceptions import OopzApiError, OopzRateLimitError
-from oopz_sdk import models
 from oopz_sdk.models.segment import Image, Segment, Text
 from oopz_sdk.services import BaseService
 from oopz_sdk.transport.http import HttpTransport
 from oopz_sdk.utils.image import get_image_info
-from oopz_sdk.utils.message_builder import normalize_message_parts, build_segments
+from oopz_sdk.utils.message_builder import build_segments, normalize_message_parts
 
 logger = logging.getLogger("oopz_sdk.services.message")
 
@@ -112,7 +112,9 @@ class Message(BaseService):
         )
 
     @staticmethod
-    def _build_operation_result(payload: dict, *, response, message: str) -> models.OperationResult:
+    def _build_operation_result(
+        payload: dict, *, response, message: str
+    ) -> models.OperationResult:
         return models.OperationResult(
             ok=True,
             message=str(payload.get("message") or message),
@@ -141,7 +143,7 @@ class Message(BaseService):
 
         if has_segment_parts:
             segments = normalize_message_parts(message_parts)
-            resolved_segments = self._resolve_segments(segments)
+            resolved_segments =await self._resolve_segments(segments)
             built_text, built_attachments = build_segments(resolved_segments)
             return built_text, built_attachments
 
@@ -468,11 +470,10 @@ class Message(BaseService):
             auto_recall=False,
         )
 
-    def send_to_default(self, text: str, **kwargs) -> models.MessageSendResult:
-        """发送到默认频道。"""
-        return self.send_message(text, **kwargs)
+    async def send_to_default(self, text: str, **kwargs) -> models.MessageSendResult:
+        return await self.send_message(text, **kwargs)
 
-    def _schedule_auto_recall(self, message_id: str, area: str, channel: str):
+    async def _schedule_auto_recall(self, message_id: str, area: str, channel: str) -> None:
         if not self._config.auto_recall_enabled:
             return
         delay = self._config.auto_recall_delay
@@ -480,53 +481,61 @@ class Message(BaseService):
             return
 
         try:
-            timer = threading.Timer(
-                delay,
-                self._do_auto_recall,
-                args=[message_id, area, channel],
-            )
-            timer.daemon = True
-            timer.start()
-            logger.debug("scheduled auto recall in %ds: %s...", delay, message_id[:16])
-        except Exception as e:
-            logger.debug("schedule auto recall failed: %s", e)
+            loop = asyncio.get_running_loop()
+            loop.create_task(self._do_auto_recall(message_id, area, channel, delay))
+            logger.debug("scheduled auto recall in %ds for %s...", delay, message_id[:16])
+        except Exception as exc:
+            logger.debug("failed to schedule auto recall: %s", exc)
+            raise RuntimeError(
+                "auto recall scheduling requires a running event loop"
+            ) from exc
 
-    def _do_auto_recall(self, message_id: str, area: str, channel: str):
+    async def _do_auto_recall(
+        self, message_id: str, area: str, channel: str, delay: int
+    ) -> None:
         try:
-            result = self.recall_message(message_id, area=area, channel=channel)
+            await asyncio.sleep(delay)
+            result = await self.recall_message(message_id, area=area, channel=channel)
             if not result.ok:
                 logger.warning("auto recall failed: %s (msgId=%s...)", result.message, message_id[:16])
+                logger.warning(
+                    "auto recall failed: %s (msgId=%s...)",
+                    result.message,
+                    message_id[:16],
+                )
             else:
                 logger.info("auto recall success: %s...", message_id[:16])
         except Exception as e:
             logger.error("auto recall exception: %s", e)
 
     # todo 感觉属于高级实现, 超出了sdk的范围
-    def send_multiple(self, messages: list[str], interval: float = 1.0) -> list[models.OperationResult]:
+    async def send_multiple(
+        self, messages: list[str], interval: float = 1.0
+    ) -> list[models.OperationResult]:
         results: list[models.OperationResult] = []
-        for i, msg in enumerate(messages, 1):
+        for index, message in enumerate(messages, 1):
             try:
-                resp = self.send_to_default(msg)
+                resp = await self.send_to_default(message)
                 results.append(
                     models.OperationResult(
                         ok=True,
-                        message=f"已发送: {msg}",
-                        payload={"message": msg, "messageId": resp.message_id},
+                        message=f"sent {message}",
+                        payload={"message": message, "messageId": resp.message_id},
                     )
                 )
-                if i < len(messages):
-                    time.sleep(interval)
-            except Exception as e:
+                if index < len(messages):
+                    await asyncio.sleep(interval)
+            except Exception as exc:
                 results.append(
                     models.OperationResult(
                         ok=False,
-                        message=str(e),
-                        payload={"message": msg},
+                        message=str(exc),
+                        payload={"message": message},
                     )
                 )
         return results
 
-    def recall_message(
+    async def recall_message(
         self,
         message_id: str,
         area: Optional[str] = None,
@@ -627,7 +636,7 @@ class Message(BaseService):
         return models.OperationResult(ok=False, message=str(err), payload=result, response=resp)
 
 
-    def get_channel_messages(
+    async def get_channel_messages(
         self,
         area: Optional[str] = None,
         channel: Optional[str] = None,
@@ -641,15 +650,17 @@ class Message(BaseService):
         params = {"area": area, "channel": channel, "size": str(size)}
 
         try:
-            resp = self._get(url_path, params=params)
+            resp = await self._await_if_needed(self._get(url_path, params=params))
             if resp.status_code != 200:
-                logger.error("get_channel_messages failed: HTTP %d", resp.status_code)
+                logger.error("failed to get channel messages: HTTP %d", resp.status_code)
                 return []
 
-            result = self._safe_json(resp)
-            if result is None or not result.get("status"):
-                logger.error("get_channel_messages failed: %s", (result or {}).get("message"))
-                return []
+            result = resp.json()
+            if not result.get("status"):
+                logger.error(
+                    "failed to get channel messages: %s",
+                    result.get("message") or result.get("error"),
+                )
 
             raw_list = result.get("data", {}).get("messages", [])
             messages = []
@@ -664,11 +675,15 @@ class Message(BaseService):
 
             logger.info("get_channel_messages: %d", len(messages))
             if as_model:
-                return [models.Message.from_dict(m) for m in messages]
+                return [
+                    models.Message.from_dict(message)
+                    for message in messages
+                    if isinstance(message, dict)
+                ]
             return messages
 
-        except Exception as e:
-            logger.error("get_channel_messages exception: %s", e)
+        except Exception as exc:
+            logger.error("get channel messages exception: %s", exc)
             return []
 
     def _upload_local_image_segment(self, seg: Image) -> Image:
@@ -718,7 +733,7 @@ class Message(BaseService):
                     continue
 
                 if seg.has_local_file:
-                    resolved.append(self._upload_local_image_segment(seg))
+                    resolved.append(await self._upload_local_image_segment(seg))
                     continue
 
                 raise ValueError("ImageSegment is neither uploaded nor backed by a local file")
@@ -727,7 +742,7 @@ class Message(BaseService):
 
         return resolved
 
-    def find_message_timestamp(
+    async def find_message_timestamp(
         self,
         message_id: str,
         area: Optional[str] = None,
@@ -737,4 +752,47 @@ class Message(BaseService):
         for msg in messages:
             if isinstance(msg, dict) and msg.get("messageId") == message_id:
                 return msg.get("timestamp")
+        messages = await self.get_channel_messages(area=area, channel=channel)
+        for message in messages:
+            if message.get("messageId") == message_id:
+                return message.get("timestamp")
         return None
+
+    # async def _upload_local_image_segment(self, seg: Image) -> Image:
+    #     source_path = seg.source_path
+    #     if not source_path:
+    #         raise ValueError("Image missing file path")
+    #
+    #     width = seg.width
+    #     height = seg.height
+    #     file_size = seg.file_size
+    #     if width <= 0 or height <= 0 or file_size <= 0:
+    #         width, height, file_size = get_image_info(source_path)
+    #
+    #     ext = os.path.splitext(source_path)[1] or ".jpg"
+    #     uploader = self._media_uploader()
+    #
+    #     try:
+    #         upload = await self._await_if_needed(
+    #             uploader.upload_file(
+    #                 source_path,
+    #                 file_type="IMAGE",
+    #                 ext=ext,
+    #             )
+    #         )
+    #     except OopzApiError:
+    #         logger.error("failed to upload image: %s", source_path)
+    #         raise
+    #
+    #     attachment = upload.attachment
+    #     return Image.from_uploaded(
+    #         file_key=attachment.file_key,
+    #         url=attachment.url,
+    #         width=width,
+    #         height=height,
+    #         file_size=file_size,
+    #         hash=attachment.hash,
+    #         animated=attachment.animated,
+    #         display_name=attachment.display_name,
+    #         preview_file_key=getattr(attachment, "preview_file_key", ""),
+    #     )

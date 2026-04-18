@@ -65,7 +65,7 @@ class Member(BaseService):
             payload=dict(payload),
         )
 
-    def get_person_infos_batch(self, uids: list[str]) -> dict[str, dict]:
+    async def get_person_infos_batch(self, uids: list[str]) -> dict[str, dict]:
         """批量获取用户基本信息。"""
         if not uids:
             return {}
@@ -76,7 +76,7 @@ class Member(BaseService):
             batch = uids[i : i + batch_size]
             body = {"persons": batch, "commonIds": []}
             try:
-                resp = self._post(url_path, body)
+                resp = await self._await_if_needed(self._post(url_path, body))
                 if resp.status_code != 200:
                     continue
                 data = resp.json()
@@ -90,7 +90,7 @@ class Member(BaseService):
                 logger.debug("批量获取用户信息部分失败: %s", e)
         return result_map
 
-    def get_person_detail(
+    async def get_person_detail(
         self,
         uid: Optional[str] = None,
         *,
@@ -102,7 +102,7 @@ class Member(BaseService):
         body = {"persons": [uid], "commonIds": []}
 
         try:
-            resp = self._post(url_path, body)
+            resp = await self._await_if_needed(self._post(url_path, body))
             if resp.status_code != 200:
                 logger.error("获取个人信息失败: HTTP %d", resp.status_code)
                 return {"error": f"HTTP {resp.status_code}"}
@@ -126,12 +126,12 @@ class Member(BaseService):
             logger.error("获取个人信息异常: %s", e)
             return {"error": str(e)}
 
-    def get_person_detail_full(self, uid: str) -> dict:
+    async def get_person_detail_full(self, uid: str) -> dict:
         """获取他人完整详细资料（含 VIP、IP 属地等）。"""
         url_path = "/client/v1/person/v1/personDetail"
         params = {"uid": uid}
         try:
-            resp = self._get(url_path, params=params)
+            resp = await self._await_if_needed(self._get(url_path, params=params))
             if resp.status_code != 200:
                 return {"error": f"HTTP {resp.status_code}"}
             result = resp.json()
@@ -142,13 +142,13 @@ class Member(BaseService):
             logger.error("获取他人详细资料异常: %s", e)
             return {"error": str(e)}
 
-    def get_self_detail(self, *, as_model: bool = False) -> dict | models.SelfDetail:
+    async def get_self_detail(self, *, as_model: bool = False) -> dict | models.SelfDetail:
         """获取当前登录用户的完整详细资料。"""
         uid = self._config.person_uid
         url_path = "/client/v1/person/v2/selfDetail"
         params = {"uid": uid}
         try:
-            resp = self._get(url_path, params=params)
+            resp = await self._await_if_needed(self._get(url_path, params=params))
             if resp.status_code != 200:
                 return {"error": f"HTTP {resp.status_code}"}
             result = resp.json()
@@ -162,11 +162,11 @@ class Member(BaseService):
             logger.error("获取自身详细资料异常: %s", e)
             return {"error": str(e)}
 
-    def get_level_info(self) -> dict:
+    async def get_level_info(self) -> dict:
         """获取当前用户等级、积分信息。"""
         url_path = "/user_points/v1/level_info"
         try:
-            resp = self._get(url_path)
+            resp = await self._await_if_needed(self._get(url_path))
             if resp.status_code != 200:
                 return {"error": f"HTTP {resp.status_code}"}
             result = resp.json()
@@ -177,13 +177,13 @@ class Member(BaseService):
             logger.error("获取等级信息异常: %s", e)
             return {"error": str(e)}
 
-    def get_user_area_detail(self, target: str, area: Optional[str] = None) -> dict:
+    async def get_user_area_detail(self, target: str, area: Optional[str] = None) -> dict:
         """获取指定用户在域内的角色列表和禁言/禁麦状态。"""
         area = area or self._config.default_area
         url_path = "/area/v3/userDetail"
         params = {"area": area, "target": target}
         try:
-            resp = self._get(url_path, params=params)
+            resp = await self._await_if_needed(self._get(url_path, params=params))
             if resp.status_code != 200:
                 return {"error": f"HTTP {resp.status_code}"}
             result = resp.json()
@@ -194,13 +194,13 @@ class Member(BaseService):
             logger.error("获取用户域内详情异常: %s", e)
             return {"error": str(e)}
 
-    def get_assignable_roles(self, target: str, area: Optional[str] = None) -> list:
+    async def get_assignable_roles(self, target: str, area: Optional[str] = None) -> list:
         """获取当前用户可以分配给目标用户的角色列表。"""
         area = area or self._config.default_area
         url_path = "/area/v3/role/canGiveList"
         params = {"area": area, "target": target}
         try:
-            resp = self._get(url_path, params=params)
+            resp = await self._await_if_needed(self._get(url_path, params=params))
             if resp.status_code != 200:
                 logger.error("获取可分配角色失败: HTTP %d", resp.status_code)
                 return []
@@ -215,7 +215,7 @@ class Member(BaseService):
             logger.error("获取可分配角色异常: %s", e)
             return []
 
-    def edit_user_role(
+    async def edit_user_role(
         self,
         target_uid: str,
         role_id: int,
@@ -224,7 +224,7 @@ class Member(BaseService):
     ) -> dict:
         """给目标用户添加或取消指定身份组。"""
         area = area or self._config.default_area
-        detail = self.get_user_area_detail(target_uid, area=area)
+        detail = await self.get_user_area_detail(target_uid, area=area)
         if "error" in detail:
             return {"error": detail["error"]}
         current_list = detail.get("list") or []
@@ -238,7 +238,7 @@ class Member(BaseService):
         url_path = "/area/v3/role/editUserRole"
         body = {"area": area, "target": target_uid, "targetRoleIDs": current_ids}
         try:
-            resp = self._post(url_path, body)
+            resp = await self._await_if_needed(self._post(url_path, body))
             raw = resp.text or ""
             logger.info("editUserRole POST %s add=%s -> %d, body: %s", url_path, add, resp.status_code, raw[:200])
             if resp.status_code != 200:
@@ -251,7 +251,7 @@ class Member(BaseService):
             logger.error("editUserRole 异常: %s", e)
             return {"error": str(e)}
 
-    def search_area_members(
+    async def search_area_members(
         self,
         area: Optional[str] = None,
         keyword: str = "",
@@ -263,7 +263,7 @@ class Member(BaseService):
         url_path = "/area/v3/search/areaSettingMembers"
         body = {"area": area, "name": keyword, "offset": 0, "limit": 50}
         try:
-            resp = self._post(url_path, body)
+            resp = await self._await_if_needed(self._post(url_path, body))
             if resp.status_code != 200:
                 logger.error("搜索域成员失败: HTTP %d", resp.status_code)
                 return []

@@ -1,13 +1,18 @@
 import asyncio
+import io
+from pathlib import Path
 
 import pytest
 from cryptography.hazmat.primitives.asymmetric import rsa
+from PIL import Image
 
-from oopz_sdk import OopzClient, OopzSender, models
+from oopz_sdk import OopzClient, OopzRESTClient, models
+from oopz_sdk.client.bot import OopzBot
 from oopz_sdk.config import OopzConfig
-from oopz_sdk.exceptions import OopzApiError
+from oopz_sdk.exceptions import OopzApiError, OopzConnectionError, OopzParseError, OopzRateLimitError
 from oopz_sdk.events.context import EventContext
 from oopz_sdk.events.dispatcher import EventDispatcher
+from oopz_sdk.events.parser import EventParser
 from oopz_sdk.events.registry import EventRegistry
 from oopz_sdk.models.event import MessageEvent
 from oopz_sdk.models.segment import Image as ImageSegment
@@ -67,6 +72,10 @@ def _make_config(**overrides) -> OopzConfig:
     return config
 
 
+def _run(awaitable):
+    return asyncio.run(awaitable)
+
+
 def test_oopz_sdk_config_requires_private_key():
     with pytest.raises(ValueError):
         OopzConfig(
@@ -88,7 +97,7 @@ def test_oopz_sdk_send_message_returns_result_model(monkeypatch):
         ),
     )
 
-    result = service.send_message("hello", auto_recall=False)
+    result = _run(service.send_message("hello", auto_recall=False))
 
     assert isinstance(result, models.MessageSendResult)
     assert result.message_id == "msg-1"
@@ -108,7 +117,7 @@ def test_oopz_sdk_send_message_accepts_legacy_text_keyword(monkeypatch):
         ),
     )
 
-    result = service.send_message(text="hello", auto_recall=False)
+    result = _run(service.send_message(text="hello", auto_recall=False))
 
     assert result.message_id == "msg-legacy-text"
     assert captured["url_path"] == "/im/session/v1/sendGimMessage"
@@ -131,7 +140,7 @@ def test_oopz_sdk_recall_message_returns_operation_result(monkeypatch):
         ) or _FakeResponse(200, payload={"status": True, "message": "ok"}),
     )
 
-    result = service.recall_message("msg-1")
+    result = _run(service.recall_message("msg-1"))
 
     assert isinstance(result, models.OperationResult)
     assert result.ok is True
@@ -161,14 +170,17 @@ def test_oopz_sdk_private_message_returns_result_model(monkeypatch):
         "request",
         lambda method, url_path, body=None, params=None: calls.append(
             {"method": method, "url_path": url_path, "body": body, "params": params}
-        ) or (
-            _FakeResponse(200, payload={"status": True, "data": {"channel": dm_channel}})
-            if method == "PATCH"
-            else _FakeResponse(200, payload={"status": True, "data": {"messageId": "dm-1"}})
-        ),
+        ) or _FakeResponse(200, payload={"status": True, "data": {"channel": dm_channel}}),
+    )
+    monkeypatch.setattr(
+        service,
+        "_post",
+        lambda url_path, body: calls.append(
+            {"method": "POST", "url_path": url_path, "body": body, "params": None}
+        ) or _FakeResponse(200, payload={"status": True, "data": {"messageId": "dm-1"}}),
     )
 
-    result = service.send_private_message("target-1", "hello")
+    result = _run(service.send_private_message("target-1", "hello"))
 
     assert isinstance(result, models.MessageSendResult)
     assert result.channel == dm_channel
@@ -203,13 +215,309 @@ def test_oopz_sdk_upload_file_returns_upload_result(monkeypatch, tmp_path):
         status_code = 200
         text = ""
 
-    monkeypatch.setattr(service.session, "put", lambda *args, **kwargs: _UploadResp())
+    async def _upload_to_signed_url(*args, **kwargs):
+        return _UploadResp()
 
-    result = service.upload_file(str(sample), file_type="IMAGE", ext=".bin")
+    monkeypatch.setattr(service, "_upload_to_signed_url", _upload_to_signed_url)
+
+    result = _run(service.upload_file(str(sample), file_type="IMAGE", ext=".bin"))
 
     assert isinstance(result, models.UploadResult)
     assert result.attachment.file_key == "file-key"
     assert result.attachment.url == "https://cdn.example.com/file-key"
+
+
+def test_oopz_sdk_upload_file_raises_api_error_for_200_failure_payload(monkeypatch, tmp_path):
+    service = Media(None, _make_config())
+    sample = tmp_path / "sample.bin"
+    sample.write_bytes(b"hello")
+
+    monkeypatch.setattr(
+        service,
+        "_put",
+        lambda url_path, body: _FakeResponse(
+            200,
+            payload={"status": False, "message": "signed url failed"},
+        ),
+    )
+
+    with pytest.raises(OopzApiError, match="signed url failed"):
+        _run(service.upload_file(str(sample), file_type="IMAGE", ext=".bin"))
+
+
+def test_oopz_sdk_upload_file_wraps_put_request_exception(monkeypatch, tmp_path):
+    service = Media(None, _make_config())
+    sample = tmp_path / "sample.bin"
+    sample.write_bytes(b"hello")
+
+    monkeypatch.setattr(
+        service,
+        "_put",
+        lambda url_path, body: _FakeResponse(
+            200,
+            payload={
+                "data": {
+                    "signedUrl": "https://upload.example.com",
+                    "file": "file-key",
+                    "url": "https://cdn.example.com/file-key",
+                }
+            },
+        ),
+    )
+    async def _upload_to_signed_url(*args, **kwargs):
+        raise OopzConnectionError("文件上传失败: upload timeout")
+
+    monkeypatch.setattr(service, "_upload_to_signed_url", _upload_to_signed_url)
+
+    with pytest.raises(OopzConnectionError, match="upload timeout"):
+        _run(service.upload_file(str(sample), file_type="IMAGE", ext=".bin"))
+
+
+def test_oopz_sdk_upload_file_from_url_does_not_reuse_authenticated_session(monkeypatch):
+    service = Media(None, _make_config())
+    service.session.headers["X-Test-Auth"] = "secret"
+
+    image_buffer = io.BytesIO()
+    Image.new("RGB", (8, 6), color="white").save(image_buffer, format="PNG")
+
+    captured = {}
+
+    class _ExternalResp:
+        status_code = 200
+        headers = {}
+        content = image_buffer.getvalue()
+
+        def raise_for_status(self):
+            return None
+
+    async def _download_external(url, **kwargs):
+        captured.update({"url": url, "headers": kwargs.get("headers", {}), **kwargs})
+        return _ExternalResp()
+
+    monkeypatch.setattr(service, "_download_external", _download_external)
+    monkeypatch.setattr(
+        service,
+        "_put",
+        lambda url_path, body: _FakeResponse(
+            200,
+            payload={
+                "data": {
+                    "signedUrl": "https://upload.example.com",
+                    "file": "file-key",
+                    "url": "https://cdn.example.com/file-key",
+                }
+            },
+        ),
+    )
+
+    class _UploadResp:
+        status_code = 200
+        text = ""
+
+    async def _upload_to_signed_url(*args, **kwargs):
+        return _UploadResp()
+
+    monkeypatch.setattr(service, "_upload_to_signed_url", _upload_to_signed_url)
+
+    result = _run(service.upload_file_from_url("https://example.com/image.png"))
+
+    assert result.attachment.file_key == "file-key"
+    assert captured["url"] == "https://example.com/image.png"
+    assert captured["headers"] == {}
+    assert "X-Test-Auth" not in captured["headers"]
+
+
+def test_oopz_sdk_upload_file_from_url_preserves_rate_limit_error(monkeypatch):
+    service = Media(None, _make_config())
+
+    image_buffer = io.BytesIO()
+    Image.new("RGB", (8, 6), color="white").save(image_buffer, format="PNG")
+
+    class _ExternalResp:
+        status_code = 200
+        headers = {}
+        content = image_buffer.getvalue()
+
+        def raise_for_status(self):
+            return None
+
+    async def _download_external(*args, **kwargs):
+        return _ExternalResp()
+
+    monkeypatch.setattr(service, "_download_external", _download_external)
+    monkeypatch.setattr(
+        service,
+        "_put",
+        lambda url_path, body: _FakeResponse(
+            429,
+            payload={"message": "too fast"},
+            headers={"Retry-After": "7"},
+        ),
+    )
+
+    with pytest.raises(OopzRateLimitError) as exc_info:
+        _run(service.upload_file_from_url("https://example.com/image.png"))
+
+    assert exc_info.value.retry_after == 7
+
+
+def test_oopz_sdk_upload_audio_from_url_preserves_rate_limit_error(monkeypatch):
+    service = Media(None, _make_config())
+
+    class _ExternalResp:
+        status_code = 200
+        headers = {"Content-Type": "audio/mpeg"}
+        content = b"audio-bytes"
+
+        def raise_for_status(self):
+            return None
+
+    async def _download_external(*args, **kwargs):
+        return _ExternalResp()
+
+    monkeypatch.setattr(service, "_download_external", _download_external)
+    monkeypatch.setattr(
+        service,
+        "_put",
+        lambda url_path, body: _FakeResponse(
+            429,
+            payload={"message": "too fast"},
+            headers={"Retry-After": "11"},
+        ),
+    )
+
+    with pytest.raises(OopzRateLimitError) as exc_info:
+        _run(service.upload_audio_from_url("https://example.com/audio.mp3"))
+
+    assert exc_info.value.retry_after == 11
+
+
+def test_oopz_sdk_send_image_delegates_to_message_service(monkeypatch, tmp_path):
+    service = Media(None, _make_config())
+    sample = tmp_path / "sample.png"
+    sample.write_bytes(b"fake-image")
+
+    monkeypatch.setattr(
+        "oopz_sdk.services.media.get_image_info",
+        lambda path: (16, 16, 10),
+    )
+    monkeypatch.setattr(
+        service,
+        "_put",
+        lambda url_path, body: _FakeResponse(
+                200,
+                payload={
+                    "data": {
+                        "signedUrl": "https://upload.example.com",
+                        "file": "file-key",
+                        "url": "https://cdn.example.com/file-key",
+                    }
+                },
+            ),
+    )
+
+    class _UploadResp:
+        status_code = 200
+        text = ""
+
+    async def _upload_to_signed_url(*args, **kwargs):
+        return _UploadResp()
+
+    monkeypatch.setattr(service, "_upload_to_signed_url", _upload_to_signed_url)
+
+    captured = {}
+
+    class _Messages:
+        async def send_message(self, **kwargs):
+            captured.update(kwargs)
+            return "ok"
+
+    monkeypatch.setattr(service, "_message_service", lambda: _Messages())
+
+    result = _run(service.send_image(str(sample), text="hello"))
+
+    assert result == "ok"
+    assert captured["text"] == "![IMAGEw16h16](file-key)\nhello"
+    assert captured["attachments"][0]["fileKey"] == "file-key"
+
+
+def test_oopz_sdk_send_image_raises_api_error_for_incomplete_upload_data(monkeypatch, tmp_path):
+    service = Media(None, _make_config())
+    sample = tmp_path / "sample.png"
+    sample.write_bytes(b"fake-image")
+
+    monkeypatch.setattr(
+        "oopz_sdk.services.media.get_image_info",
+        lambda path: (16, 16, 10),
+    )
+    monkeypatch.setattr(
+        service,
+        "_put",
+        lambda url_path, body: _FakeResponse(
+            200,
+            payload={"status": True, "data": {"signedUrl": "https://upload.example.com"}},
+        ),
+    )
+
+    with pytest.raises(OopzApiError, match="incomplete upload data"):
+        _run(service.send_image(str(sample), text="hello"))
+
+
+def test_oopz_sdk_send_image_wraps_put_request_exception(monkeypatch, tmp_path):
+    service = Media(None, _make_config())
+    sample = tmp_path / "sample.png"
+    sample.write_bytes(b"fake-image")
+
+    monkeypatch.setattr(
+        "oopz_sdk.services.media.get_image_info",
+        lambda path: (16, 16, 10),
+    )
+    monkeypatch.setattr(
+        service,
+        "_put",
+        lambda url_path, body: _FakeResponse(
+            200,
+            payload={
+                "data": {
+                    "signedUrl": "https://upload.example.com",
+                    "file": "file-key",
+                    "url": "https://cdn.example.com/file-key",
+                }
+            },
+        ),
+    )
+    async def _upload_to_signed_url(*args, **kwargs):
+        raise OopzConnectionError("图片上传失败: upload disconnected")
+
+    monkeypatch.setattr(service, "_upload_to_signed_url", _upload_to_signed_url)
+
+    with pytest.raises(OopzConnectionError, match="upload disconnected"):
+        _run(service.send_image(str(sample), text="hello"))
+
+
+def test_oopz_sdk_send_private_image_preserves_rate_limit_error(monkeypatch, tmp_path):
+    service = Media(None, _make_config())
+    sample = tmp_path / "sample.png"
+    sample.write_bytes(b"fake-image")
+
+    monkeypatch.setattr(
+        "oopz_sdk.services.media.get_image_info",
+        lambda path: (16, 16, 10),
+    )
+    monkeypatch.setattr(
+        service,
+        "_put",
+        lambda url_path, body: _FakeResponse(
+            429,
+            payload={"message": "too fast"},
+            headers={"Retry-After": "5"},
+        ),
+    )
+
+    with pytest.raises(OopzRateLimitError) as exc_info:
+        _run(service.send_private_image("target-1", str(sample), text="hello"))
+
+    assert exc_info.value.retry_after == 5
 
 
 def test_oopz_sdk_area_members_retries_after_429(monkeypatch):
@@ -226,9 +534,12 @@ def test_oopz_sdk_area_members_retries_after_429(monkeypatch):
         )
 
     monkeypatch.setattr(service, "_get", _fake_get)
-    monkeypatch.setattr("oopz_sdk.services.area.time.sleep", lambda *_: None)
+    async def _sleep(*_args, **_kwargs):
+        return None
 
-    result = service.get_area_members()
+    monkeypatch.setattr("oopz_sdk.services.area.asyncio.sleep", _sleep)
+
+    result = _run(service.get_area_members())
 
     assert calls["count"] == 3
     assert result["members"][0]["uid"] == "u1"
@@ -245,7 +556,7 @@ def test_oopz_sdk_joined_areas_as_model(monkeypatch):
         ),
     )
 
-    result = service.get_joined_areas(as_model=True)
+    result = _run(service.get_joined_areas(as_model=True))
 
     assert isinstance(result, models.JoinedAreasResult)
     assert result.areas[0].id == "area-1"
@@ -272,7 +583,7 @@ def test_oopz_sdk_channel_groups_as_model(monkeypatch):
         ),
     )
 
-    result = service.get_area_channels(as_model=True)
+    result = _run(service.get_area_channels(as_model=True))
 
     assert isinstance(result, models.ChannelGroupsResult)
     assert result.groups[0].channels[0].id == "channel-1"
@@ -290,7 +601,7 @@ def test_oopz_sdk_person_detail_as_model(monkeypatch):
         ),
     )
 
-    result = service.get_person_detail("u1", as_model=True)
+    result = _run(service.get_person_detail("u1", as_model=True))
 
     assert isinstance(result, models.PersonDetail)
     assert result.uid == "u1"
@@ -319,8 +630,8 @@ def test_oopz_sdk_event_context_send_allows_explicit_channel_without_message():
     assert bot.message.calls == [{"text": "hello", "area": "area-1", "channel": "channel-1"}]
 
 
-def test_oopz_sdk_local_image_segment_preserves_upload_error(monkeypatch, tmp_path):
-    service = Message(_make_config())
+def test_oopz_sdk_local_image_segment_uses_injected_media(monkeypatch, tmp_path):
+    sender = OopzRESTClient(_make_config())
     sample = tmp_path / "sample.png"
     sample.write_bytes(b"not-an-image")
 
@@ -332,14 +643,51 @@ def test_oopz_sdk_local_image_segment_preserves_upload_error(monkeypatch, tmp_pa
         "oopz_sdk.services.media.get_image_info",
         lambda path: (32, 24, 128),
     )
-    monkeypatch.setattr(
-        service.transport,
-        "put",
-        lambda *args, **kwargs: (_ for _ in ()).throw(OopzApiError("upload failed")),
-    )
+
+    captured = {}
+
+    def _fail_upload(file_path, *, file_type, ext):
+        captured["file_path"] = file_path
+        captured["file_type"] = file_type
+        captured["ext"] = ext
+        raise OopzApiError("upload failed")
+
+    monkeypatch.setattr(sender.media, "upload_file", _fail_upload)
+
+    class _UnexpectedMedia:
+        def __init__(self, *args, **kwargs):
+            raise AssertionError("Message 不应在内部重新创建 Media")
+
+    monkeypatch.setattr("oopz_sdk.services.media.Media", _UnexpectedMedia)
 
     with pytest.raises(OopzApiError, match="upload failed"):
-        service.send_message(ImageSegment.from_file(str(sample)), auto_recall=False)
+        _run(sender.send_message(ImageSegment.from_file(str(sample)), auto_recall=False))
+
+    assert captured == {
+        "file_path": str(sample),
+        "file_type": "IMAGE",
+        "ext": ".png",
+    }
+
+
+def test_oopz_sdk_local_image_segment_requires_injected_media(monkeypatch, tmp_path):
+    service = Message(_make_config())
+    sample = tmp_path / "sample.png"
+    sample.write_bytes(b"not-an-image")
+
+    monkeypatch.setattr(
+        "oopz_sdk.services.message.get_image_info",
+        lambda path: (32, 24, 128),
+    )
+
+    class _UnexpectedMedia:
+        def __init__(self, *args, **kwargs):
+            raise AssertionError("Message 不应在内部重新创建 Media")
+
+    monkeypatch.setattr("oopz_sdk.services.media.Media", _UnexpectedMedia)
+
+    with pytest.raises(RuntimeError, match="media"):
+        _run(service.send_message(ImageSegment.from_file(str(sample)), auto_recall=False))
 
 
 def test_oopz_sdk_dispatcher_message_handler_receives_message_then_context():
@@ -366,6 +714,158 @@ def test_oopz_sdk_dispatcher_message_handler_receives_message_then_context():
     assert captured["ctx"] is ctx
 
 
+def test_oopz_sdk_dispatcher_sync_preserves_order_inside_running_loop():
+    registry = EventRegistry()
+    dispatcher = EventDispatcher(registry)
+    order = []
+
+    @registry.on("raw_event")
+    def _handle_raw(event, ctx):
+        order.append(("raw_event", event.name, ctx is not None))
+
+    @registry.on("message")
+    def _handle_message(message, ctx):
+        order.append(("message", message.message_id, ctx is not None))
+
+    ctx = EventContext(bot=None, config=_make_config())
+    event = MessageEvent(
+        name="message",
+        event_type=9,
+        message=models.Message(message_id="msg-1", content="hello", text="hello"),
+    )
+
+    async def _run():
+        dispatcher.dispatch_sync("raw_event", event, ctx)
+        dispatcher.dispatch_sync("message", event, ctx)
+        await asyncio.sleep(0)
+        assert order == [
+            ("raw_event", "message", True),
+            ("message", "msg-1", True),
+        ]
+
+    asyncio.run(_run())
+
+
+def test_oopz_sdk_event_registry_deduplicates_same_handler():
+    registry = EventRegistry()
+
+    def handler(ctx):
+        return ctx
+
+    registry.on("ready", handler)
+    registry.on("ready", handler)
+
+    assert registry.get_handlers("ready") == [handler]
+
+
+def test_oopz_sdk_bot_named_hooks_share_one_registration_path():
+    bot = OopzBot(_make_config())
+
+    def handler(ctx):
+        return ctx
+
+    bot.on("ready")(handler)
+    bot.on_ready(handler)
+
+    assert bot.registry.get_handlers("ready") == [handler]
+
+
+def test_oopz_sdk_bot_convenience_methods_allow_config_defaults():
+    bot = OopzBot(_make_config())
+    send_calls = []
+    recall_calls = []
+
+    class _Messages:
+        async def send_message(self, **kwargs):
+            send_calls.append(kwargs)
+            return kwargs
+
+        async def recall_message(self, message_id, area=None, channel=None, **kwargs):
+            payload = {
+                "message_id": message_id,
+                "area": area,
+                "channel": channel,
+                **kwargs,
+            }
+            recall_calls.append(payload)
+            return payload
+
+    bot.messages = _Messages()
+
+    send_result = _run(bot.send("hello"))
+    reply_result = _run(bot.reply("pong", reference_message_id="msg-1"))
+    recall_result = _run(bot.recall("msg-2"))
+
+    assert send_result["text"] == "hello"
+    assert send_calls[0]["area"] is None
+    assert send_calls[0]["channel"] is None
+
+    assert reply_result["referenceMessageId"] == "msg-1"
+    assert reply_result["area"] is None
+    assert reply_result["channel"] is None
+
+    assert recall_result["message_id"] == "msg-2"
+    assert recall_result["area"] is None
+    assert recall_result["channel"] is None
+    assert recall_calls[0]["area"] is None
+    assert recall_calls[0]["channel"] is None
+
+
+def test_oopz_sdk_event_context_has_single_send_definition():
+    source = Path("oopz_sdk/events/context.py").read_text(encoding="utf-8")
+
+    assert source.count("async def send(") == 1
+
+
+@pytest.mark.parametrize(
+    ("method_name", "message"),
+    [
+        ("send", None),
+        ("reply", models.Message.from_dict({"id": "msg-1", "area": "area-1", "channel": "channel-1"})),
+        ("recall", models.Message.from_dict({"id": "msg-1", "area": "area-1", "channel": "channel-1"})),
+    ],
+)
+def test_oopz_sdk_event_context_async_methods_do_not_block_event_loop(method_name, message):
+    order = []
+
+    class _Messages:
+        async def send_message(self, **kwargs):
+            await asyncio.sleep(0.05)
+            order.append("send_message")
+            return kwargs
+
+        async def recall_message(self, **kwargs):
+            await asyncio.sleep(0.05)
+            order.append("recall_message")
+            return kwargs
+
+    class _Bot:
+        def __init__(self):
+            self.messages = _Messages()
+
+    ctx = EventContext(bot=_Bot(), config=_make_config(), message=message)
+
+    async def _marker():
+        await asyncio.sleep(0.01)
+        order.append("tick")
+
+    async def _invoke():
+        if method_name == "send":
+            await ctx.send("hello", area="area-1", channel="channel-1")
+            return
+        if method_name == "reply":
+            await ctx.reply("hello")
+            return
+        await ctx.recall()
+
+    async def _run():
+        await asyncio.gather(_invoke(), _marker())
+
+    asyncio.run(_run())
+
+    assert order[0] == "tick"
+
+
 def test_oopz_sdk_message_from_dict_accepts_legacy_id_field():
     message = models.Message.from_dict(
         {
@@ -378,6 +878,20 @@ def test_oopz_sdk_message_from_dict_accepts_legacy_id_field():
 
     assert message.message_id == "msg-legacy"
     assert message.content == "hello"
+
+
+def test_oopz_sdk_chat_event_parser_rejects_invalid_body():
+    parser = EventParser()
+
+    with pytest.raises(OopzParseError):
+        parser.parse({"event": 9, "body": "not-json"})
+
+
+def test_oopz_sdk_chat_event_parser_rejects_invalid_message_data():
+    parser = EventParser()
+
+    with pytest.raises(OopzParseError):
+        parser.parse({"event": 9, "body": '{"data":"not-json"}'})
 
 
 def test_oopz_sdk_event_context_reply_uses_message_id_from_legacy_id():
@@ -410,8 +924,14 @@ def test_oopz_sdk_event_context_reply_uses_message_id_from_legacy_id():
     assert bot.messages.calls[0]["referenceMessageId"] == "msg-legacy"
 
 
+def test_oopz_sdk_message_service_has_single_upload_local_image_segment_definition():
+    source = Path("oopz_sdk/services/message.py").read_text(encoding="utf-8")
+
+    assert source.count("def _upload_local_image_segment(") == 1
+
+
 def test_oopz_sdk_sender_send_message_v2_builds_wrapped_payload(monkeypatch):
-    sender = OopzSender(_make_config())
+    sender = OopzRESTClient(_make_config())
     captured = {}
 
     monkeypatch.setattr(
@@ -423,7 +943,7 @@ def test_oopz_sdk_sender_send_message_v2_builds_wrapped_payload(monkeypatch):
         ),
     )
 
-    result = sender.send_message_v2("hello", mentionList=["user-1"], auto_recall=False)
+    result = _run(sender.send_message_v2("hello", mentionList=["user-1"], auto_recall=False))
 
     assert captured["url_path"] == "/im/session/v2/sendGimMessage"
     assert captured["body"]["message"]["channel"] == "channel"
@@ -435,7 +955,7 @@ def test_oopz_sdk_sender_send_message_v2_builds_wrapped_payload(monkeypatch):
 
 
 def test_oopz_sdk_sender_list_sessions_returns_dict_list(monkeypatch):
-    sender = OopzSender(_make_config())
+    sender = OopzRESTClient(_make_config())
     captured = {}
 
     monkeypatch.setattr(
@@ -447,7 +967,7 @@ def test_oopz_sdk_sender_list_sessions_returns_dict_list(monkeypatch):
         ),
     )
 
-    result = sender.list_sessions(last_time="123456")
+    result = _run(sender.list_sessions(last_time="123456"))
 
     assert captured["url_path"] == "/im/session/v1/sessions"
     assert captured["body"] == {"lastTime": "123456"}
@@ -455,7 +975,7 @@ def test_oopz_sdk_sender_list_sessions_returns_dict_list(monkeypatch):
 
 
 def test_oopz_sdk_sender_get_area_channels_returns_compat_models(monkeypatch):
-    sender = OopzSender(_make_config())
+    sender = OopzRESTClient(_make_config())
     monkeypatch.setattr(
         sender.channels,
         "_get",
@@ -474,7 +994,7 @@ def test_oopz_sdk_sender_get_area_channels_returns_compat_models(monkeypatch):
         ),
     )
 
-    result = sender.get_area_channels()
+    result = _run(sender.get_area_channels())
 
     assert isinstance(result, models.ChannelGroupsResult)
     assert result.groups[0]["id"] == "group-1"

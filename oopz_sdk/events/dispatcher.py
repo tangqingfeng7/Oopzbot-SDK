@@ -40,13 +40,14 @@ class EventDispatcher:
                 logger.exception("事件处理器执行失败: event=%s handler=%r", event_name, handler)
 
     def dispatch_sync(self, event_name: str, event: Any, context: EventContext) -> None:
+        coroutine = self.dispatch(event_name, event, context)
         try:
             loop = asyncio.get_running_loop()
         except RuntimeError:
-            asyncio.run(self.dispatch(event_name, event, context))
+            asyncio.run(coroutine)
             return
 
-        loop.create_task(self.dispatch(event_name, event, context))
+        loop.create_task(coroutine)
 
     @staticmethod
     def _invoke_handler(handler, event_name: str, event: Any, context: EventContext):

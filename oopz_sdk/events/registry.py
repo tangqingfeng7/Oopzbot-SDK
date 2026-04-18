@@ -11,14 +11,18 @@ class EventRegistry:
     def __init__(self):
         self._handlers: DefaultDict[str, list[EventHandler]] = defaultdict(list)
 
+    def _add_handler(self, event_name: str, handler: EventHandler) -> EventHandler:
+        handlers = self._handlers[event_name]
+        if handler not in handlers:
+            handlers.append(handler)
+        return handler
+
     def on(self, event_name: str, handler: EventHandler | None = None):
         if handler is not None:
-            self._handlers[event_name].append(handler)
-            return handler
+            return self._add_handler(event_name, handler)
 
         def decorator(fn: EventHandler):
-            self._handlers[event_name].append(fn)
-            return fn
+            return self._add_handler(event_name, fn)
 
         return decorator
 

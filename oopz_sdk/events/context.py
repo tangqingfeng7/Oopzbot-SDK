@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import inspect
 from typing import Any
 
 from oopz_sdk.config.settings import OopzConfig
@@ -14,9 +15,10 @@ class EventContext:
     事件上下文。
 
     目标：
-    - handler 中可以通过 ctx.bot 访问完整 Bot
-    - handler 中可以直接 ctx.reply(...)
+    - handler 里可以通过 ctx.bot 访问完整 Bot
+    - handler 里可以直接 ctx.reply(...)
     """
+
     bot: Any
     config: OopzConfig
     event: Any = None
@@ -29,9 +31,15 @@ class EventContext:
             return message.get(name, default)
         return getattr(message, name, default)
 
+    @staticmethod
+    async def _await_if_needed(value):
+        if inspect.isawaitable(value):
+            return await value
+        return value
+
     async def reply(self, *text: str, **kwargs):
         """
-        回复当前上下文中的消息
+        回复当前上下文中的消息。
         """
         if not isinstance(self.event, MessageEvent):
             raise RuntimeError("当前上下文中没有 message，无法 reply()")
@@ -44,7 +52,7 @@ class EventContext:
                 **kwargs,
             )
 
-        return self.bot.messages.send_message(
+        return await self.bot.messages.send_message(
             *text,
             area=self.event.message.area,
             channel=self.event.message.channel,
@@ -85,7 +93,7 @@ class EventContext:
         if self.event.is_private:
             # 撤回私信消息暂时未实现
             return None
-        return self.bot.messages.recall_message(
+        return await self.bot.messages.recall_message(
             message_id=self.event.message.message_id,
             area=self.event.message.area,
             channel=self.event.message.channel,
@@ -96,15 +104,39 @@ class EventContext:
     #     if texts and all(isinstance(part, str) for part in texts):
     #         text = "".join(texts)
     #         if self.message is None:
-    #             return self.bot.messages.send_message(text=text, **kwargs)
+    #             return await self._await_if_needed(
+    #                 self.bot.messages.send_message(
+    #                     text=text,
+    #                     **kwargs,
+    #                 )
+    #             )
     #
     #         area = kwargs.pop("area", self._get_message_field(self.message, "area"))
     #         channel = kwargs.pop("channel", self._get_message_field(self.message, "channel"))
-    #         return self.bot.messages.send_message(text=text, area=area, channel=channel, **kwargs)
+    #         return await self._await_if_needed(
+    #             self.bot.messages.send_message(
+    #                 text=text,
+    #                 area=area,
+    #                 channel=channel,
+    #                 **kwargs,
+    #             )
+    #         )
     #
     #     if self.message is None:
-    #         return self.bot.messages.send_message(*texts, **kwargs)
+    #         return await self._await_if_needed(
+    #             self.bot.messages.send_message(
+    #                 *texts,
+    #                 **kwargs,
+    #             )
+    #         )
     #
     #     area = kwargs.pop("area", self._get_message_field(self.message, "area"))
     #     channel = kwargs.pop("channel", self._get_message_field(self.message, "channel"))
-    #     return self.bot.messages.send_message(*texts, area=area, channel=channel, **kwargs)
+    #     return await self._await_if_needed(
+    #         self.bot.messages.send_message(
+    #             *texts,
+    #             area=area,
+    #             channel=channel,
+    #             **kwargs,
+    #         )
+    #     )
