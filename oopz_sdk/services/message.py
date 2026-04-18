@@ -576,6 +576,57 @@ class Message(BaseService):
         err = result.get("message") or result.get("error") or str(result)
         return models.OperationResult(ok=False, message=str(err), payload=result, response=resp)
 
+    def recall_private_message(
+        self,
+        message_id: str,
+        area: Optional[str] = None,
+        channel: Optional[str] = None,
+        timestamp: Optional[str] = None,
+        target: str = "",
+    ) -> models.OperationResult:
+        raise NotImplemented
+        area = self._resolve_area(area)
+        channel = self._resolve_channel(channel)
+        timestamp = timestamp or self.signer.timestamp_us()
+        message_id = str(message_id).strip() if message_id is not None else ""
+        url_path = "/im/session/v1/recallIm" # 根据group recall猜测的接口, 没实现
+        body = {
+            "area": area,
+            "channel": channel,
+            "messageId": message_id,
+            "timestamp": timestamp,
+            "target": target,
+        }
+
+        try:
+            resp = self._request("POST", url_path, body=body, params=dict(body))
+        except Exception as e:
+            logger.error("recall request error: %s", e)
+            return models.OperationResult(ok=False, message=str(e), payload=body)
+
+        raw_text = resp.text or ""
+        logger.info("recall POST %s -> HTTP %d", url_path, resp.status_code)
+
+        if resp.status_code != 200:
+            err = f"HTTP {resp.status_code}" + (f" | {raw_text[:200]}" if raw_text else "")
+            return models.OperationResult(ok=False, message=err, payload=body, response=resp)
+
+        result = self._safe_json(resp)
+        if result is None:
+            return models.OperationResult(
+                ok=False,
+                message=f"响应非 JSON: {raw_text[:200]}",
+                payload=body,
+                response=resp,
+            )
+
+        if result.get("status") is True or result.get("code") in (0, "0", "success", 200):
+            return self._build_operation_result(result, response=resp, message="撤回成功")
+
+        err = result.get("message") or result.get("error") or str(result)
+        return models.OperationResult(ok=False, message=str(err), payload=result, response=resp)
+
+
     def get_channel_messages(
         self,
         area: Optional[str] = None,

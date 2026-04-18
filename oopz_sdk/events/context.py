@@ -29,26 +29,26 @@ class EventContext:
             return message.get(name, default)
         return getattr(message, name, default)
 
-    async def reply(self, text: str, **kwargs):
+    async def reply(self, *text: str, **kwargs):
         """
         回复当前上下文中的消息
         """
         if not isinstance(self.event, MessageEvent):
-            raise RuntimeError("当前上下文中没有 message，无法 send()")
-
-        area = self._get_message_field(self.event.message, "area")
-        channel = self._get_message_field(self.event.message, "channel")
-        reference_message_id = (
-            self._get_message_field(self.event.message, "message_id")
-            or self._get_message_field(self.event.message, "messageId")
-            or self._get_message_field(self.event.message, "id")
-        )
+            raise RuntimeError("当前上下文中没有 message，无法 reply()")
+        if self.event.is_private:
+            return self.bot.messages.send_private_message(
+                *text,
+                channel=self.event.message.channel,
+                target=self.event.message.person,
+                reference_message_id=self.event.message.message_id,
+                **kwargs,
+            )
 
         return self.bot.messages.send_message(
-            text=text,
-            area=area,
-            channel=channel,
-            referenceMessageId=reference_message_id,
+            *text,
+            area=self.event.message.area,
+            channel=self.event.message.channel,
+            reference_message_id=self.event.message.message_id,
             **kwargs,
         )
 
@@ -81,23 +81,14 @@ class EventContext:
         撤回当前上下文中的消息。
         """
         if not isinstance(self.event, MessageEvent):
-            raise RuntimeError("当前上下文中没有 message，无法 send()")
-
-        message_id = (
-            self._get_message_field(self.event.message, "message_id")
-            or self._get_message_field(self.event.message, "messageId")
-            or self._get_message_field(self.event.message, "id")
-        )
-        if not message_id:
-            raise RuntimeError("当前 message 中没有可用的 message_id")
-
-        area = self._get_message_field(self.event.message, "area")
-        channel = self._get_message_field(self.event.message, "channel")
-
+            raise RuntimeError("当前上下文中没有 message，无法 recall()")
+        if self.event.is_private:
+            # 撤回私信消息暂时未实现
+            return None
         return self.bot.messages.recall_message(
-            message_id=message_id,
-            area=area,
-            channel=channel,
+            message_id=self.event.message.message_id,
+            area=self.event.message.area,
+            channel=self.event.message.channel,
             **kwargs,
         )
 
