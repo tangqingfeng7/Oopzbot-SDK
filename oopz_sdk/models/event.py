@@ -19,4 +19,3 @@ class Event(BaseModel):
 @dataclass(slots=True)
 class MessageEvent(Event):
     message: Message | None = None
-    is_private: bool = False

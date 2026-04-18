@@ -17,6 +17,7 @@ from oopz_sdk.transport.http import HttpTransport
 
 from . import BaseService
 from .message import Message
+from .privatemessage import PrivateMessage
 from ..models import ImageAttachment
 from ..models.attachment import AudioAttachment
 from ..utils.image import get_image_info

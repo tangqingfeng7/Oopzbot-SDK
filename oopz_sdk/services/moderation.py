@@ -166,21 +166,61 @@ class Moderation(BaseService):
             if resp.status_code != 200:
                 logger.debug("获取域封禁列表失败: HTTP %d", resp.status_code)
                 if as_model:
-                    return models.AreaBlocksResult(payload={"error": f"HTTP {resp.status_code}"}, response=resp)
+                    return self._model_error(
+                        models.AreaBlocksResult,
+                        f"HTTP {resp.status_code}",
+                        response=resp,
+                    )
                 return {"error": f"HTTP {resp.status_code}"}
 
             result = resp.json()
             if not result.get("status"):
-                msg = result.get("message") or result.get("error") or "未知错误"
+                msg = self._error_message(result)
                 logger.debug("获取域封禁列表失败: %s", msg)
                 if as_model:
-                    return models.AreaBlocksResult(payload={"error": msg}, response=resp)
+                    return self._model_error(
+                        models.AreaBlocksResult,
+                        msg,
+                        response=resp,
+                        payload=result,
+                    )
                 return {"error": msg}
 
             data = result.get("data", {})
+            if not isinstance(data, (dict, list)):
+                if as_model:
+                    return self._model_error(
+                        models.AreaBlocksResult,
+                        "area blocks响应格式异常",
+                        response=resp,
+                    )
+                logger.error("获取域封禁列表失败: 响应格式异常")
+                return {"error": "area blocks响应格式异常"}
             blocks = data if isinstance(data, list) else data.get("blocks", data.get("list", []))
             if not isinstance(blocks, list):
-                blocks = []
+                if as_model:
+                    return self._model_error(
+                        models.AreaBlocksResult,
+                        "area blocks响应格式异常",
+                        response=resp,
+                    )
+                logger.error("获取域封禁列表失败: blocks格式异常")
+                return {"error": "area blocks响应格式异常"}
+            invalid_payload = self._invalid_dict_item_payload(
+                blocks,
+                "area blocks响应格式异常",
+                list_key="blocks",
+                payload=result,
+            )
+            if invalid_payload:
+                if as_model:
+                    return self._model_error(
+                        models.AreaBlocksResult,
+                        "area blocks响应格式异常",
+                        response=resp,
+                        payload=invalid_payload,
+                    )
+                return invalid_payload
             logger.info("获取域封禁列表: %d 人", len(blocks))
             if as_model:
                 return models.AreaBlocksResult(
@@ -192,7 +232,6 @@ class Moderation(BaseService):
                             payload=dict(item),
                         )
                         for item in blocks
-                        if isinstance(item, dict)
                     ],
                     payload=result,
                     response=resp,
@@ -201,7 +240,7 @@ class Moderation(BaseService):
         except Exception as e:
             logger.error("获取域封禁列表异常: %s", e)
             if as_model:
-                return models.AreaBlocksResult(payload={"error": str(e)})
+                return self._model_error(models.AreaBlocksResult, str(e))
             return {"error": str(e)}
 
     async def unblock_user_in_area(self, uid: str, area: Optional[str] = None) -> models.OperationResult:
@@ -217,7 +256,7 @@ class Moderation(BaseService):
         full_path = url_path + query
         params = dict(parse_qsl(query.lstrip("?")))
         try:
-            resp = await self._request("PATCH", url_path, body=body, params=params)
+            resp = await self._await_if_needed(self._request("PATCH", url_path, body=body, params=params))
         except Exception as e:
             logger.error("%s请求异常: %s", action, e)
             return models.OperationResult(ok=False, message=str(e), payload=body)
