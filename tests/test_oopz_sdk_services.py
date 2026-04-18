@@ -2982,4 +2982,4 @@ def test_oopz_sdk_package_optional_dependency_message_uses_real_missing_module_n
 def test_oopz_sdk_version_matches_package_version():
     from oopz_sdk import __version__
 
-    assert __version__ == "0.4.3"
+    assert __version__ == "0.5.0"
