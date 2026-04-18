@@ -40,6 +40,7 @@ Issues = "https://github.com/tangqingfeng7/Oopzbot-SDK/issues"
 dev = [
   "build>=1.2,<2",
   "pytest>=8,<9",
+  "tomli>=2,<3; python_version < '3.11'",
   "twine>=6,<7",
 ]
 
