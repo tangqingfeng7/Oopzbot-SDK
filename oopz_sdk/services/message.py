@@ -1,8 +1,8 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
-import threading
 import time
 from typing import Optional
 
@@ -26,6 +26,8 @@ class Message(BaseService):
         config: OopzConfig | None = None,
         transport: HttpTransport | None = None,
         signer: Signer | None = None,
+        *,
+        media=None,
     ):
         if config is None:
             bot = None
@@ -35,6 +37,18 @@ class Message(BaseService):
         resolved_signer = signer or Signer(config)
         resolved_transport = transport or HttpTransport(config, resolved_signer)
         super().__init__(config, resolved_transport, resolved_signer, bot=bot)
+        self.media = media
+
+    def bind_media(self, media) -> None:
+        self.media = media
+
+    def _media_uploader(self):
+        uploader = self.media or getattr(self._bot, "media", None)
+        if uploader is None:
+            raise RuntimeError(
+                "Message service requires an injected media service for local image uploads"
+            )
+        return uploader
 
     @classmethod
     def _raise_api_error(cls, response, default_message: str) -> None:
@@ -124,7 +138,7 @@ class Message(BaseService):
     def segments_require_attachments(segments: list[Segment]) -> bool:
         return any(isinstance(seg, Image) for seg in segments)
 
-    def send_message(
+    async def send_message(
         self,
         *texts: str | Segment,
         text: str | None = None,
@@ -153,7 +167,7 @@ class Message(BaseService):
 
         if has_segment_parts:
             segments = normalize_message_parts(message_parts)
-            resolved_segments = self.resolve_segments(segments)
+            resolved_segments = await self.resolve_segments(segments)
             text, attachments = build_segments(resolved_segments)
         else:
             text = "".join(str(part) for part in message_parts)
@@ -186,7 +200,7 @@ class Message(BaseService):
         logger.info("send message %s%s", text[:80], "..." if len(text) > 80 else "")
 
         try:
-            resp = self._post(url_path, body)
+            resp = await self._await_if_needed(self._post(url_path, body))
             logger.info("response status %d", resp.status_code)
             if resp.text:
                 logger.debug("response body: %s", resp.text[:200])
@@ -216,16 +230,16 @@ class Message(BaseService):
                 timestamp=timestamp,
             )
             if auto_recall is not False and send_result.message_id:
-                self._schedule_auto_recall(send_result.message_id, area, channel)
+                await self._schedule_auto_recall(send_result.message_id, area, channel)
             return send_result
         except Exception as exc:
             logger.error("send failed: %s", exc)
             raise
 
-    def send_to_default(self, text: str, **kwargs) -> models.MessageSendResult:
-        return self.send_message(text, **kwargs)
+    async def send_to_default(self, text: str, **kwargs) -> models.MessageSendResult:
+        return await self.send_message(text, **kwargs)
 
-    def _schedule_auto_recall(self, message_id: str, area: str, channel: str) -> None:
+    async def _schedule_auto_recall(self, message_id: str, area: str, channel: str) -> None:
         if not self._config.auto_recall_enabled:
             return
         delay = self._config.auto_recall_delay
@@ -233,20 +247,21 @@ class Message(BaseService):
             return
 
         try:
-            timer = threading.Timer(
-                delay,
-                self._do_auto_recall,
-                args=[message_id, area, channel],
-            )
-            timer.daemon = True
-            timer.start()
+            loop = asyncio.get_running_loop()
+            loop.create_task(self._do_auto_recall(message_id, area, channel, delay))
             logger.debug("scheduled auto recall in %ds for %s...", delay, message_id[:16])
         except Exception as exc:
             logger.debug("failed to schedule auto recall: %s", exc)
+            raise RuntimeError(
+                "auto recall scheduling requires a running event loop"
+            ) from exc
 
-    def _do_auto_recall(self, message_id: str, area: str, channel: str) -> None:
+    async def _do_auto_recall(
+        self, message_id: str, area: str, channel: str, delay: int
+    ) -> None:
         try:
-            result = self.recall_message(message_id, area=area, channel=channel)
+            await asyncio.sleep(delay)
+            result = await self.recall_message(message_id, area=area, channel=channel)
             if not result.ok:
                 logger.warning(
                     "auto recall failed: %s (msgId=%s...)",
@@ -258,13 +273,13 @@ class Message(BaseService):
         except Exception as exc:
             logger.error("auto recall exception: %s", exc)
 
-    def send_multiple(
+    async def send_multiple(
         self, messages: list[str], interval: float = 1.0
     ) -> list[models.OperationResult]:
         results: list[models.OperationResult] = []
         for index, message in enumerate(messages, 1):
             try:
-                resp = self.send_to_default(message)
+                resp = await self.send_to_default(message)
                 results.append(
                     models.OperationResult(
                         ok=True,
@@ -273,7 +288,7 @@ class Message(BaseService):
                     )
                 )
                 if index < len(messages):
-                    time.sleep(interval)
+                    await asyncio.sleep(interval)
             except Exception as exc:
                 results.append(
                     models.OperationResult(
@@ -284,7 +299,7 @@ class Message(BaseService):
                 )
         return results
 
-    def recall_message(
+    async def recall_message(
         self,
         message_id: str,
         area: Optional[str] = None,
@@ -313,7 +328,9 @@ class Message(BaseService):
         }
 
         try:
-            resp = self._request("POST", url_path, body=body, params=dict(body))
+            resp = await self._await_if_needed(
+                self._request("POST", url_path, body=body, params=dict(body))
+            )
         except Exception as exc:
             logger.error("recall request exception: %s", exc)
             return models.OperationResult(ok=False, message=str(exc), payload=body)
@@ -366,7 +383,7 @@ class Message(BaseService):
             response=resp,
         )
 
-    def get_channel_messages(
+    async def get_channel_messages(
         self,
         area: Optional[str] = None,
         channel: Optional[str] = None,
@@ -380,7 +397,7 @@ class Message(BaseService):
         params = {"area": area, "channel": channel, "size": str(size)}
 
         try:
-            resp = self._get(url_path, params=params)
+            resp = await self._await_if_needed(self._get(url_path, params=params))
             if resp.status_code != 200:
                 logger.error("failed to get channel messages: HTTP %d", resp.status_code)
                 return []
@@ -410,7 +427,7 @@ class Message(BaseService):
             logger.error("get channel messages exception: %s", exc)
             return []
 
-    def resolve_segments(self, segments: list[Segment]) -> list[Segment]:
+    async def resolve_segments(self, segments: list[Segment]) -> list[Segment]:
         resolved: list[Segment] = []
 
         for seg in segments:
@@ -424,7 +441,7 @@ class Message(BaseService):
                     continue
 
                 if seg.has_local_file:
-                    resolved.append(self._upload_local_image_segment(seg))
+                    resolved.append(await self._upload_local_image_segment(seg))
                     continue
 
                 raise ValueError(
@@ -435,19 +452,19 @@ class Message(BaseService):
 
         return resolved
 
-    def find_message_timestamp(
+    async def find_message_timestamp(
         self,
         message_id: str,
         area: Optional[str] = None,
         channel: Optional[str] = None,
     ) -> Optional[str]:
-        messages = self.get_channel_messages(area=area, channel=channel)
+        messages = await self.get_channel_messages(area=area, channel=channel)
         for message in messages:
             if message.get("messageId") == message_id:
                 return message.get("timestamp")
         return None
 
-    def _upload_local_image_segment(self, seg: Image) -> Image:
+    async def _upload_local_image_segment(self, seg: Image) -> Image:
         source_path = seg.source_path
         if not source_path:
             raise ValueError("Image missing file path")
@@ -459,21 +476,15 @@ class Message(BaseService):
             width, height, file_size = get_image_info(source_path)
 
         ext = os.path.splitext(source_path)[1] or ".jpg"
-        uploader = getattr(self._bot, "media", None)
-        if uploader is None:
-            from oopz_sdk.services.media import Media
-
-            uploader = Media(
-                self._config,
-                transport=self.transport,
-                signer=self.signer,
-            )
+        uploader = self._media_uploader()
 
         try:
-            upload = uploader.upload_file(
-                source_path,
-                file_type="IMAGE",
-                ext=ext,
+            upload = await self._await_if_needed(
+                uploader.upload_file(
+                    source_path,
+                    file_type="IMAGE",
+                    ext=ext,
+                )
             )
         except OopzApiError:
             logger.error("failed to upload image: %s", source_path)

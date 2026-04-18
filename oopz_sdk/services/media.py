@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import hashlib
 import io
+import json
 import logging
 import os
 
+import aiohttp
 from PIL import Image
-import requests
 
 from oopz_sdk import models
 from oopz_sdk.auth.signer import Signer
@@ -25,7 +26,7 @@ logger = logging.getLogger("oopz_sdk.services.media")
 UPLOAD_PUT_TIMEOUT = (10, 60)
 
 
-def _safe_json(response: requests.Response) -> dict | None:
+def _safe_json(response) -> dict | None:
     try:
         payload = response.json()
     except ValueError:
@@ -55,7 +56,7 @@ def _is_explicit_failure_payload(payload: dict) -> bool:
     return code not in (0, "0", 200, "200", "success")
 
 
-def _raise_upload_error(response: requests.Response, default_message: str) -> Exception:
+def _raise_upload_error(response, default_message: str) -> Exception:
     payload = _safe_json(response)
     message = _error_message_from_payload(payload, default_message)
 
@@ -77,7 +78,7 @@ def _raise_upload_error(response: requests.Response, default_message: str) -> Ex
 
 
 def _require_upload_ticket(
-    response: requests.Response,
+    response,
     default_message: str,
 ) -> tuple[dict, str, str, str]:
     if response.status_code != 200:
@@ -138,42 +139,99 @@ class Media(BaseService):
         super().__init__(config, resolved_transport, resolved_signer, bot=bot)
 
     def _message_service(self) -> Message:
-        return Message(self._bot, self._config, self.transport, self.signer)
+        return Message(self._bot, self._config, self.transport, self.signer, media=self)
 
     def _private_message_service(self) -> PrivateMessage:
-        return PrivateMessage(self._bot, self._config, self.transport, self.signer)
+        return PrivateMessage(
+            self._bot,
+            self._config,
+            self.transport,
+            self.signer,
+            media=self,
+        )
 
-    def _download_external(
+    async def _download_external(
         self,
         url: str,
         *,
         timeout: int | tuple[int, int],
         stream: bool = False,
         headers: dict | None = None,
-    ) -> requests.Response:
+    ):
         request_headers = dict(headers or {})
-        request_kwargs = {
-            "headers": request_headers,
-            "timeout": timeout,
-            "stream": stream,
-        }
-        proxies = getattr(self.session, "proxies", None)
-        if proxies:
-            request_kwargs["proxies"] = proxies
-        return requests.get(url, **request_kwargs)
-
-    def _upload_to_signed_url(self, signed_url: str, data, *, default_message: str) -> requests.Response:
+        client_timeout = aiohttp.ClientTimeout(total=timeout) if isinstance(timeout, int) else aiohttp.ClientTimeout(
+            total=None,
+            sock_connect=timeout[0],
+            sock_read=timeout[1],
+        )
         try:
-            return self.session.put(
-                signed_url,
-                data=data,
-                headers={"Content-Type": "application/octet-stream"},
-                timeout=UPLOAD_PUT_TIMEOUT,
-            )
-        except requests.RequestException as exc:
+            async with aiohttp.ClientSession(timeout=client_timeout) as session:
+                async with session.get(url, headers=request_headers) as response:
+                    content = await response.read()
+                    try:
+                        text = content.decode(response.charset or "utf-8")
+                    except UnicodeDecodeError:
+                        text = content.decode("utf-8", errors="replace")
+                    return type(
+                        "ExternalResponse",
+                        (),
+                        {
+                            "status_code": response.status,
+                            "headers": dict(response.headers),
+                            "content": content,
+                            "text": text,
+                            "raise_for_status": lambda self: (
+                                None
+                                if self.status_code < 400
+                                else (_ for _ in ()).throw(
+                                    aiohttp.ClientResponseError(
+                                        response.request_info,
+                                        response.history,
+                                        status=response.status,
+                                        message=response.reason or "",
+                                        headers=response.headers,
+                                    )
+                                )
+                            ),
+                        },
+                    )()
+        except aiohttp.ClientError as exc:
+            raise OopzConnectionError(f"下载外部文件失败: {exc}") from exc
+
+    async def _upload_to_signed_url(self, signed_url: str, data, *, default_message: str):
+        try:
+            async with aiohttp.ClientSession(
+                timeout=aiohttp.ClientTimeout(
+                    total=None,
+                    sock_connect=UPLOAD_PUT_TIMEOUT[0],
+                    sock_read=UPLOAD_PUT_TIMEOUT[1],
+                )
+            ) as session:
+                async with session.put(
+                    signed_url,
+                    data=data,
+                    headers={"Content-Type": "application/octet-stream"},
+                ) as response:
+                    content = await response.read()
+                    try:
+                        text = content.decode(response.charset or "utf-8")
+                    except UnicodeDecodeError:
+                        text = content.decode("utf-8", errors="replace")
+                    return type(
+                        "UploadResponse",
+                        (),
+                        {
+                            "status_code": response.status,
+                            "headers": dict(response.headers),
+                            "content": content,
+                            "text": text,
+                            "json": lambda self: json.loads(self.text),
+                        },
+                    )()
+        except aiohttp.ClientError as exc:
             raise OopzConnectionError(f"{default_message}: {exc}") from exc
 
-    def upload_file(
+    async def upload_file(
         self,
         file_path: str,
         file_type: str = "IMAGE",
@@ -183,14 +241,14 @@ class Media(BaseService):
         url_path = "/rtc/v1/cos/v1/signedUploadUrl"
         body = {"type": file_type, "ext": ext}
 
-        resp = self._put(url_path, body)
+        resp = await self._await_if_needed(self._put(url_path, body))
         payload, upload_url, file_key, cdn_url = _require_upload_ticket(
             resp,
             "获取上传 URL 失败",
         )
 
         with open(file_path, "rb") as f:
-            put_resp = self._upload_to_signed_url(
+            put_resp = await self._upload_to_signed_url(
                 upload_url,
                 f,
                 default_message="文件上传失败",
@@ -210,10 +268,10 @@ class Media(BaseService):
         )
         return models.UploadResult(attachment=attachment, payload=payload, response=resp)
 
-    def upload_file_from_url(self, image_url: str) -> models.UploadResult:
+    async def upload_file_from_url(self, image_url: str) -> models.UploadResult:
         """从网络地址下载图片并上传到 Oopz。"""
         try:
-            resp = self._download_external(image_url, stream=True, timeout=15)
+            resp = await self._download_external(image_url, stream=True, timeout=15)
             resp.raise_for_status()
             image_bytes = resp.content
             img = Image.open(io.BytesIO(image_bytes))
@@ -224,13 +282,13 @@ class Media(BaseService):
 
             url_path = "/rtc/v1/cos/v1/signedUploadUrl"
             body = {"type": "IMAGE", "ext": ext}
-            resp2 = self._put(url_path, body)
+            resp2 = await self._await_if_needed(self._put(url_path, body))
             _, signed_url, file_key, cdn_url = _require_upload_ticket(
                 resp2,
                 "获取上传 URL 失败",
             )
 
-            put_resp = self._upload_to_signed_url(
+            put_resp = await self._upload_to_signed_url(
                 signed_url,
                 image_bytes,
                 default_message="从 URL 上传失败",
@@ -267,14 +325,14 @@ class Media(BaseService):
 
         except OopzApiError:
             raise
-        except requests.RequestException as e:
+        except aiohttp.ClientError as e:
             logger.error("从 URL 上传失败: %s", e)
             raise OopzApiError(f"从 URL 上传失败: {e}") from e
         except Exception as e:
             logger.error("从 URL 上传失败: %s", e)
             raise OopzApiError(f"从 URL 上传失败: {e}") from e
 
-    def upload_audio_from_url(
+    async def upload_audio_from_url(
         self,
         audio_url: str,
         filename: str = "music.mp3",
@@ -282,7 +340,7 @@ class Media(BaseService):
     ) -> models.UploadResult:
         """从网络地址下载音频并上传到 Oopz。"""
         try:
-            resp = self._download_external(
+            resp = await self._download_external(
                 audio_url,
                 timeout=30,
                 headers={"Referer": "https://music.163.com/"},
@@ -303,13 +361,13 @@ class Media(BaseService):
 
             url_path = "/rtc/v1/cos/v1/signedUploadUrl"
             body = {"type": "AUDIO", "ext": ext}
-            resp2 = self._put(url_path, body)
+            resp2 = await self._await_if_needed(self._put(url_path, body))
             _, signed_url, file_key, cdn_url = _require_upload_ticket(
                 resp2,
                 "获取上传 URL 失败",
             )
 
-            put_resp = self._upload_to_signed_url(
+            put_resp = await self._upload_to_signed_url(
                 signed_url,
                 audio_bytes,
                 default_message="音频上传失败",
@@ -347,14 +405,14 @@ class Media(BaseService):
 
         except OopzApiError:
             raise
-        except requests.RequestException as e:
+        except aiohttp.ClientError as e:
             logger.error("音频上传失败: %s", e)
             raise OopzApiError(f"音频上传失败: {e}") from e
         except Exception as e:
             logger.error("音频上传失败: %s", e)
             raise OopzApiError(f"音频上传失败: {e}") from e
 
-    def send_image(
+    async def send_image(
         self,
         file_path: str,
         text: str = "",
@@ -365,14 +423,14 @@ class Media(BaseService):
 
         url_path = "/rtc/v1/cos/v1/signedUploadUrl"
         body = {"type": "IMAGE", "ext": os.path.splitext(file_path)[1]}
-        resp = self._put(url_path, body)
+        resp = await self._await_if_needed(self._put(url_path, body))
         _, signed_url, file_key, cdn_url = _require_upload_ticket(
             resp,
             "获取上传 URL 失败",
         )
 
         with open(file_path, "rb") as f:
-            put_resp = self._upload_to_signed_url(
+            put_resp = await self._upload_to_signed_url(
                 signed_url,
                 f,
                 default_message="图片上传失败",
@@ -400,13 +458,11 @@ class Media(BaseService):
         if text:
             msg_text += f"\n{text}"
 
-        return self._message_service().send_message(
-            text=msg_text,
-            attachments=attachments,
-            **kwargs,
+        return await self._message_service().send_message(
+            text=msg_text, attachments=attachments, **kwargs
         )
 
-    def send_private_image(
+    async def send_private_image(
         self,
         target: str,
         file_path: str,
@@ -418,14 +474,14 @@ class Media(BaseService):
         url_path = "/rtc/v1/cos/v1/signedUploadUrl"
         body = {"type": "IMAGE", "ext": os.path.splitext(file_path)[1]}
         try:
-            resp = self._put(url_path, body)
+            resp = await self._await_if_needed(self._put(url_path, body))
             _, signed_url, file_key, cdn_url = _require_upload_ticket(
                 resp,
                 "获取上传 URL 失败",
             )
 
             with open(file_path, "rb") as f:
-                put_resp = self._upload_to_signed_url(
+                put_resp = await self._upload_to_signed_url(
                     signed_url,
                     f,
                     default_message="上传私信图片失败",
@@ -455,7 +511,7 @@ class Media(BaseService):
         msg_text = f"![IMAGEw{width}h{height}]({file_key})"
         if text:
             msg_text += f"\n{text}"
-        return self._private_message_service().send_private_message(
+        return await self._private_message_service().send_private_message(
             target,
             msg_text,
             attachments=[attachment],

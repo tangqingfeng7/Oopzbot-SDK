@@ -1,6 +1,6 @@
 """最小收消息并自动回复示例。"""
 
-from oopz_sdk import ChatMessageEvent, OopzClient, OopzConfig, OopzRESTClient
+from oopz_sdk import OopzBot, OopzConfig
 
 
 def main() -> None:
@@ -13,19 +13,15 @@ def main() -> None:
         default_channel="默认频道ID",
     )
 
-sender = OopzRESTClient(config)
+    bot = OopzBot(config)
 
-    def on_message(message: ChatMessageEvent) -> None:
-        content = message.content
+    @bot.on_message
+    async def on_message(message, ctx) -> None:
+        content = message.content or ""
         if content.strip().lower() == "ping":
-            sender.send_message(
-                "pong",
-                area=message.area,
-                channel=message.channel,
-            )
+            await ctx.reply("pong")
 
-    client = OopzClient(config, on_chat_message=on_message)
-    client.start()
+    bot.run()
 
 
 if __name__ == "__main__":

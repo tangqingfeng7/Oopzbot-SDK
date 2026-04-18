@@ -6,9 +6,31 @@ from typing import Any
 
 class BaseTransport(ABC):
     @abstractmethod
-    def request(self, method: str, url_path: str, body: dict | None = None, **kwargs: Any):
+    async def request(
+        self, method: str, url_path: str, body: dict | None = None, **kwargs: Any
+    ):
         raise NotImplementedError
 
     @abstractmethod
-    def close(self) -> None:
+    async def get(self, url_path: str, params: dict | None = None):
+        raise NotImplementedError
+
+    @abstractmethod
+    async def post(self, url_path: str, body: dict):
+        raise NotImplementedError
+
+    @abstractmethod
+    async def put(self, url_path: str, body: dict):
+        raise NotImplementedError
+
+    @abstractmethod
+    async def patch(self, url_path: str, body: dict):
+        raise NotImplementedError
+
+    @abstractmethod
+    async def delete(self, url_path: str, body: dict | None = None):
+        raise NotImplementedError
+
+    @abstractmethod
+    async def close(self) -> None:
         raise NotImplementedError

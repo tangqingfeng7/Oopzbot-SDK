@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import copy
 import logging
 import re
@@ -125,7 +126,7 @@ class Channel(BaseService):
             response=response,
         )
 
-    def get_area_channels(
+    async def get_area_channels(
         self,
         area: Optional[str] = None,
         quiet: bool = False,
@@ -138,7 +139,7 @@ class Channel(BaseService):
         params = {"area": area}
 
         try:
-            resp = self._get(url_path, params=params)
+            resp = await self._await_if_needed(self._get(url_path, params=params))
             if resp.status_code != 200:
                 logger.error("获取频道列表失败: HTTP %d", resp.status_code)
                 return []
@@ -167,7 +168,7 @@ class Channel(BaseService):
                 return models.ChannelGroupsResult(payload={"error": str(e)})
             return []
 
-    def get_channel_setting_info(self, channel: str, *, as_model: bool = False) -> dict | models.ChannelSetting:
+    async def get_channel_setting_info(self, channel: str, *, as_model: bool = False) -> dict | models.ChannelSetting:
         """获取频道设置详情（名称、访问权限等）。"""
         channel = str(channel or "").strip()
         if not channel:
@@ -176,7 +177,7 @@ class Channel(BaseService):
         url_path = "/area/v3/channel/setting/info"
         params = {"channel": channel}
         try:
-            resp = self._get(url_path, params=params)
+            resp = await self._await_if_needed(self._get(url_path, params=params))
             if resp.status_code != 200:
                 logger.error("获取频道设置失败: HTTP %d", resp.status_code)
                 return {"error": f"HTTP {resp.status_code}"}
@@ -195,13 +196,13 @@ class Channel(BaseService):
             logger.error("获取频道设置异常: %s", e)
             return {"error": str(e)}
 
-    def _pick_channel_group(
+    async def _pick_channel_group(
         self,
         area: str,
         preferred_channel: Optional[str] = None,
         preferred_group_name: Optional[str] = None,
     ) -> Optional[str]:
-        groups = self.get_area_channels(area=area, quiet=True) or []
+        groups = await self.get_area_channels(area=area, quiet=True) or []
         preferred_channel = str(preferred_channel or "").strip()
         preferred_group_name = str(preferred_group_name or "").strip().lower()
 
@@ -222,7 +223,7 @@ class Channel(BaseService):
             return None
         return fallback
 
-    def create_channel(
+    async def create_channel(
         self,
         area: Optional[str] = None,
         name: str = "",
@@ -236,7 +237,7 @@ class Channel(BaseService):
             return models.OperationResult(ok=False, message="频道名称不能为空")
 
         if not group_id:
-            group_id = self._pick_channel_group(area) or ""
+            group_id = await self._pick_channel_group(area) or ""
             if not group_id:
                 return models.OperationResult(ok=False, message="未找到可用频道分组")
 
@@ -254,7 +255,7 @@ class Channel(BaseService):
             body["isTemp"] = False
 
         try:
-            resp = self._post("/client/v1/area/v1/channel/v1/create", body)
+            resp = await self._await_if_needed(self._post("/client/v1/area/v1/channel/v1/create", body))
         except Exception as e:
             logger.error("创建频道异常: %s", e)
             return models.OperationResult(ok=False, message=str(e), payload=body)
@@ -289,7 +290,7 @@ class Channel(BaseService):
             response=resp,
         )
 
-    def update_channel(
+    async def update_channel(
         self,
         area: Optional[str] = None,
         channel_id: str = "",
@@ -303,7 +304,7 @@ class Channel(BaseService):
         if not channel_id:
             return models.OperationResult(ok=False, message="缺少 channel_id")
 
-        setting = self.get_channel_setting_info(channel_id)
+        setting = await self.get_channel_setting_info(channel_id)
         if isinstance(setting, dict) and "error" in setting:
             return models.OperationResult(ok=False, message=f"获取频道设置失败: {setting['error']}")
 
@@ -363,7 +364,7 @@ class Channel(BaseService):
                     edit_body["accessibleMembers"] = []
 
         try:
-            resp = self._post("/area/v3/channel/setting/edit", edit_body)
+            resp = await self._await_if_needed(self._post("/area/v3/channel/setting/edit", edit_body))
         except Exception as e:
             logger.error("更新频道异常: %s", e)
             return models.OperationResult(ok=False, message=str(e), payload=edit_body)
@@ -388,7 +389,7 @@ class Channel(BaseService):
 
         return self._ok_result(result, response=resp, message="频道已更新")
 
-    def create_restricted_text_channel(
+    async def create_restricted_text_channel(
         self,
         target_uid: str,
         area: Optional[str] = None,
@@ -401,7 +402,7 @@ class Channel(BaseService):
         if not target_uid:
             return {"error": "缺少 target_uid"}
 
-        group_id = self._pick_channel_group(area, preferred_channel=preferred_channel)
+        group_id = await self._pick_channel_group(area, preferred_channel=preferred_channel)
         if not group_id:
             return {"error": "未找到可用频道分组"}
 
@@ -417,7 +418,7 @@ class Channel(BaseService):
         }
 
         try:
-            resp = self._post(url_path, body)
+            resp = await self._await_if_needed(self._post(url_path, body))
         except Exception as e:
             logger.error("创建受限频道异常: %s", e)
             return {"error": str(e)}
@@ -441,7 +442,7 @@ class Channel(BaseService):
         if not channel_id:
             return {"error": "创建频道成功，但未能提取频道 ID"}
 
-        setting = self.get_channel_setting_info(channel_id)
+        setting = await self.get_channel_setting_info(channel_id)
         if isinstance(setting, dict) and "error" in setting:
             logger.warning("获取新频道设置失败，改用默认值: %s", setting["error"])
             setting = {}
@@ -473,26 +474,26 @@ class Channel(BaseService):
 
         edit_path = "/area/v3/channel/setting/edit"
         try:
-            edit_resp = self._post(edit_path, edit_body)
+            edit_resp = await self._await_if_needed(self._post(edit_path, edit_body))
         except Exception as e:
             logger.error("设置受限频道权限异常: %s", e)
-            self.delete_channel(channel_id, area=area)
+            await self.delete_channel(channel_id, area=area)
             return {"error": str(e)}
 
         edit_raw = edit_resp.text or ""
         logger.info("设置受限频道权限 POST %s -> HTTP %d, body: %s", edit_path, edit_resp.status_code, edit_raw[:300])
         if edit_resp.status_code != 200:
-            self.delete_channel(channel_id, area=area)
+            await self.delete_channel(channel_id, area=area)
             return {"error": f"HTTP {edit_resp.status_code}" + (f" | {edit_raw[:200]}" if edit_raw else "")}
 
         try:
             edit_result = edit_resp.json()
         except Exception:
-            self.delete_channel(channel_id, area=area)
+            await self.delete_channel(channel_id, area=area)
             return {"error": f"权限设置响应非 JSON: {edit_raw[:200]}"}
 
         if not edit_result.get("status"):
-            self.delete_channel(channel_id, area=area)
+            await self.delete_channel(channel_id, area=area)
             msg = edit_result.get("message") or edit_result.get("error") or "权限设置失败"
             return {"error": str(msg)}
 
@@ -504,7 +505,7 @@ class Channel(BaseService):
             "name": edit_body["name"],
         }
 
-    def delete_channel(self, channel: str, area: Optional[str] = None) -> models.OperationResult:
+    async def delete_channel(self, channel: str, area: Optional[str] = None) -> models.OperationResult:
         """删除频道。"""
         area = area or self._config.default_area
         channel = str(channel or "").strip()
@@ -514,7 +515,7 @@ class Channel(BaseService):
         url_path = f"/client/v1/area/v1/channel/v1/delete?channel={channel}&area={area}"
 
         try:
-            resp = self._delete(url_path)
+            resp = await self._await_if_needed(self._delete(url_path))
         except Exception as e:
             logger.error("删除频道异常: %s", e)
             return models.OperationResult(ok=False, message=str(e))
@@ -540,7 +541,7 @@ class Channel(BaseService):
         logger.error("删除频道失败: %s", err)
         return models.OperationResult(ok=False, message=str(err), payload=result, response=resp)
 
-    def enter_channel(self, channel: Optional[str] = None, area: Optional[str] = None,
+    async def enter_channel(self, channel: Optional[str] = None, area: Optional[str] = None,
                       channel_type: str = "TEXT", from_channel: str = "",
                       from_area: str = "", pid: str = "") -> dict:
         """进入指定频道。"""
@@ -559,7 +560,7 @@ class Channel(BaseService):
             })
 
         try:
-            resp = self._post(url_path, body)
+            resp = await self._await_if_needed(self._post(url_path, body))
             if resp.status_code != 200:
                 return {"error": f"HTTP {resp.status_code}"}
             result = resp.json()
@@ -570,7 +571,7 @@ class Channel(BaseService):
             logger.error("进入频道异常: %s", e)
             return {"error": str(e)}
 
-    def leave_voice_channel(self, channel: str, area: Optional[str] = None,
+    async def leave_voice_channel(self, channel: str, area: Optional[str] = None,
                             target: Optional[str] = None) -> dict:
         """退出语音频道。"""
         area = area or self._config.default_area
@@ -580,11 +581,11 @@ class Channel(BaseService):
         full_path = url_path + query
 
         try:
-            resp = self._request(
+            resp = await self._await_if_needed(self._request(
                 "DELETE",
                 url_path,
                 params={"area": area, "channel": channel, "target": target},
-            )
+            ))
         except Exception as e:
             logger.error("退出语音频道异常: %s", e)
             return {"error": str(e)}
@@ -608,12 +609,12 @@ class Channel(BaseService):
         logger.error("退出语音频道失败: %s", err)
         return {"error": err}
 
-    def _get_voice_channel_ids(self, area: str) -> list[str]:
+    async def _get_voice_channel_ids(self, area: str) -> list[str]:
         cache_store = self._get_voice_ids_cache_store()
         cached = cache_store.get(area)
         if cached and time.time() - cached["ts"] < 300:
             return cached["ids"]
-        groups = self.get_area_channels(area, quiet=True)
+        groups = await self.get_area_channels(area, quiet=True)
         ids = []
         for g in groups:
             for ch in g.get("channels") or []:
@@ -622,7 +623,7 @@ class Channel(BaseService):
         cache_store[area] = {"ids": ids, "ts": time.time()}
         return ids
 
-    def get_voice_channel_members(
+    async def get_voice_channel_members(
         self,
         area: Optional[str] = None,
         *,
@@ -630,7 +631,7 @@ class Channel(BaseService):
     ) -> dict | models.VoiceChannelMembersResult:
         """获取域内各语音频道的在线成员列表。"""
         area = self._resolve_area(area)
-        voice_ids = self._get_voice_channel_ids(area)
+        voice_ids = await self._get_voice_channel_ids(area)
         if not voice_ids:
             if as_model:
                 return models.VoiceChannelMembersResult()
@@ -641,11 +642,11 @@ class Channel(BaseService):
         max_retries = 3
         for attempt in range(max_retries):
             try:
-                resp = self._post(url_path, body)
+                resp = await self._await_if_needed(self._post(url_path, body))
                 if resp.status_code == 429:
                     wait = min(2 ** attempt, 4)
                     logger.warning("获取语音频道成员被限流 (429)，%ds 后重试 (%d/%d)", wait, attempt + 1, max_retries)
-                    time.sleep(wait)
+                    await asyncio.sleep(wait)
                     continue
                 if resp.status_code != 200:
                     logger.error("获取语音频道成员失败: HTTP %d", resp.status_code)
@@ -690,9 +691,9 @@ class Channel(BaseService):
             return models.VoiceChannelMembersResult(payload={"error": "重试次数用尽"})
         return {}
 
-    def get_voice_channel_for_user(self, user_uid: str, area: Optional[str] = None) -> Optional[str]:
+    async def get_voice_channel_for_user(self, user_uid: str, area: Optional[str] = None) -> Optional[str]:
         """获取用户当前所在的语音频道 ID，不在任何语音频道则返回 None。"""
-        members = self.get_voice_channel_members(area=area)
+        members = await self.get_voice_channel_members(area=area)
         for ch_id, ch_members in members.items():
             if not ch_members:
                 continue

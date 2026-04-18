@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+import asyncio
+import inspect
 import json
-import time
 from typing import Any, Optional
 
 from oopz_sdk import models
@@ -35,6 +36,8 @@ class OopzRESTClient:
         self.messages = Message(bot, config, self.transport, self.signer)
         self.private = PrivateMessage(bot, config, self.transport, self.signer)
         self.media = Media(bot, config, self.transport, self.signer)
+        self.messages.bind_media(self.media)
+        self.private.bind_media(self.media)
         self.areas = AreaService(bot, config, self.transport, self.signer)
         self.channels = Channel(bot, config, self.transport, self.signer)
         self.members = Member(bot, config, self.transport, self.signer)
@@ -44,38 +47,46 @@ class OopzRESTClient:
     def session(self):
         return self.transport.session
 
-    def close(self) -> None:
-        self.transport.close()
+    @staticmethod
+    async def _await_if_needed(value):
+        if inspect.isawaitable(value):
+            return await value
+        return value
 
-    def __enter__(self) -> "OopzRESTClient":
+    async def close(self) -> None:
+        await self.transport.close()
+
+    async def __aenter__(self) -> "OopzRESTClient":
         return self
 
-    def __exit__(self, exc_type, exc, tb) -> None:
-        self.close()
+    async def __aexit__(self, exc_type, exc, tb) -> None:
+        await self.close()
 
-    def _request(
+    async def _request(
         self,
         method: str,
         url_path: str,
         body: dict | None = None,
         params: dict | None = None,
     ):
-        return self.transport.request(method, url_path, body=body, params=params)
+        return await self._await_if_needed(
+            self.transport.request(method, url_path, body=body, params=params)
+        )
 
-    def _get(self, url_path: str, params: dict | None = None):
-        return self.transport.get(url_path, params=params)
+    async def _get(self, url_path: str, params: dict | None = None):
+        return await self._await_if_needed(self.transport.get(url_path, params=params))
 
-    def _post(self, url_path: str, body: dict):
-        return self.transport.post(url_path, body)
+    async def _post(self, url_path: str, body: dict):
+        return await self._await_if_needed(self.transport.post(url_path, body))
 
-    def _put(self, url_path: str, body: dict):
-        return self.transport.put(url_path, body)
+    async def _put(self, url_path: str, body: dict):
+        return await self._await_if_needed(self.transport.put(url_path, body))
 
-    def _patch(self, url_path: str, body: dict):
-        return self.transport.patch(url_path, body)
+    async def _patch(self, url_path: str, body: dict):
+        return await self._await_if_needed(self.transport.patch(url_path, body))
 
-    def _delete(self, url_path: str, body: dict | None = None):
-        return self.transport.delete(url_path, body)
+    async def _delete(self, url_path: str, body: dict | None = None):
+        return await self._await_if_needed(self.transport.delete(url_path, body))
 
     @staticmethod
     def _safe_json(response) -> dict[str, Any] | None:
@@ -246,7 +257,7 @@ class OopzRESTClient:
             response=response,
         )
 
-    def send_message(
+    async def send_message(
         self,
         text: str,
         area: Optional[str] = None,
@@ -254,7 +265,7 @@ class OopzRESTClient:
         auto_recall: Optional[bool] = None,
         **kwargs,
     ):
-        return self.messages.send_message(
+        return await self.messages.send_message(
             text,
             area=area,
             channel=channel,
@@ -262,10 +273,10 @@ class OopzRESTClient:
             **kwargs,
         )
 
-    def send_to_default(self, text: str, **kwargs):
-        return self.messages.send_to_default(text, **kwargs)
+    async def send_to_default(self, text: str, **kwargs):
+        return await self.messages.send_to_default(text, **kwargs)
 
-    def send_message_v2(
+    async def send_message_v2(
         self,
         text: str,
         area: Optional[str] = None,
@@ -299,7 +310,7 @@ class OopzRESTClient:
             "attachments": kwargs.get("attachments", []),
         }
         body = {"message": message}
-        resp = self._post("/im/session/v2/sendGimMessage", body)
+        resp = await self._await_if_needed(self._post("/im/session/v2/sendGimMessage", body))
         payload = self._ensure_success_payload(resp, "failed to send message")
         result = self.messages._build_send_result(
             payload,
@@ -311,14 +322,14 @@ class OopzRESTClient:
             timestamp=timestamp,
         )
         if auto_recall is not False and result.message_id:
-            self.messages._schedule_auto_recall(result.message_id, area, channel)
+            await self.messages._schedule_auto_recall(result.message_id, area, channel)
         return result
 
-    def open_private_session(self, target: str):
-        return self.private.open_private_session(target)
+    async def open_private_session(self, target: str):
+        return await self.private.open_private_session(target)
 
-    def send_private_message(self, target: str, text: str, **kwargs):
-        return self.private.send_private_message(
+    async def send_private_message(self, target: str, text: str, **kwargs):
+        return await self.private.send_private_message(
             target,
             text,
             attachments=kwargs.get("attachments"),
@@ -326,19 +337,19 @@ class OopzRESTClient:
             channel=kwargs.get("channel"),
         )
 
-    def list_sessions(self, last_time: str = "") -> list[dict[str, Any]]:
+    async def list_sessions(self, last_time: str = "") -> list[dict[str, Any]]:
         body = {"lastTime": str(last_time or "")}
-        resp = self._post("/im/session/v1/sessions", body)
+        resp = await self._await_if_needed(self._post("/im/session/v1/sessions", body))
         payload = self._ensure_success_payload(resp, "failed to list sessions")
         return self._require_list_data(payload, "failed to list sessions")
 
-    def get_private_messages(
+    async def get_private_messages(
         self, channel: str, size: int = 50, before_message_id: str = ""
     ) -> list[models.Message]:
         params = {"area": "", "channel": str(channel), "size": str(size)}
         if before_message_id:
             params["messageId"] = str(before_message_id)
-        resp = self._get("/im/session/v2/messageBefore", params=params)
+        resp = await self._await_if_needed(self._get("/im/session/v2/messageBefore", params=params))
         payload = self._ensure_success_payload(resp, "failed to get private messages")
         data = self._require_dict_data(payload, "failed to get private messages")
         messages = data.get("messages", [])
@@ -354,7 +365,7 @@ class OopzRESTClient:
             if isinstance(item, dict)
         ]
 
-    def save_read_status(self, channel: str, *, message_id: str) -> models.OperationResult:
+    async def save_read_status(self, channel: str, *, message_id: str) -> models.OperationResult:
         body = {
             "area": "",
             "status": [
@@ -365,21 +376,21 @@ class OopzRESTClient:
                 }
             ],
         }
-        resp = self._post("/im/session/v1/saveReadStatus", body)
+        resp = await self._await_if_needed(self._post("/im/session/v1/saveReadStatus", body))
         payload = self._ensure_success_payload(resp, "failed to save read status")
         return self._build_operation_result(
             payload, message="saved read status", response=resp
         )
 
-    def get_system_message_unread_count(self) -> int:
-        resp = self._get("/im/systemMessage/v1/unreadCount")
+    async def get_system_message_unread_count(self) -> int:
+        resp = await self._await_if_needed(self._get("/im/systemMessage/v1/unreadCount"))
         payload = self._ensure_success_payload(resp, "failed to get unread count")
         data = self._require_dict_data(payload, "failed to get unread count")
         return int(data.get("unreadCount") or 0)
 
-    def get_system_message_list(self, offset_time: str = "") -> list[dict[str, Any]]:
+    async def get_system_message_list(self, offset_time: str = "") -> list[dict[str, Any]]:
         params = {"offsetTime": str(offset_time)} if offset_time else None
-        resp = self._get("/im/systemMessage/v1/messageList", params=params)
+        resp = await self._await_if_needed(self._get("/im/systemMessage/v1/messageList", params=params))
         payload = self._ensure_success_payload(resp, "failed to get system messages")
         return self._extract_dict_list(
             payload,
@@ -387,14 +398,14 @@ class OopzRESTClient:
             default_message="failed to get system messages",
         )
 
-    def get_top_messages(
+    async def get_top_messages(
         self, area: Optional[str] = None, channel: Optional[str] = None
     ) -> list[dict[str, Any]]:
         params = {
             "area": self.messages._resolve_area(area),
             "channel": self.messages._resolve_channel(channel),
         }
-        resp = self._get("/im/session/v2/topMessages", params=params)
+        resp = await self._await_if_needed(self._get("/im/session/v2/topMessages", params=params))
         payload = self._ensure_success_payload(resp, "failed to get top messages")
         return self._extract_dict_list(
             payload,
@@ -402,82 +413,86 @@ class OopzRESTClient:
             default_message="failed to get top messages",
         )
 
-    def get_areas_unread(self, areas: list[str]) -> dict[str, Any]:
+    async def get_areas_unread(self, areas: list[str]) -> dict[str, Any]:
         body = {"areas": [str(area) for area in areas if str(area or "").strip()]}
-        resp = self._post("/im/session/v1/areasUnread", body)
+        resp = await self._await_if_needed(self._post("/im/session/v1/areasUnread", body))
         payload = self._ensure_success_payload(resp, "failed to get area unread counts")
         return self._require_dict_data(payload, "failed to get area unread counts")
 
-    def get_areas_mention_unread(self, areas: list[str]) -> dict[str, Any]:
+    async def get_areas_mention_unread(self, areas: list[str]) -> dict[str, Any]:
         body = {"areas": [str(area) for area in areas if str(area or "").strip()]}
-        resp = self._post("/im/session/v1/areasMentionUnread", body)
+        resp = await self._await_if_needed(self._post("/im/session/v1/areasMentionUnread", body))
         payload = self._ensure_success_payload(resp, "failed to get area mention counts")
         return self._require_dict_data(payload, "failed to get area mention counts")
 
-    def get_gim_reactions(self, items: list[dict[str, Any]]) -> dict[str, Any]:
-        resp = self._post("/im/session/v1/gimReactions", items)
+    async def get_gim_reactions(self, items: list[dict[str, Any]]) -> dict[str, Any]:
+        resp = await self._await_if_needed(self._post("/im/session/v1/gimReactions", items))
         return self._ensure_success_payload(resp, "failed to get reactions")
 
-    def get_gim_message_details(self, payload: dict[str, Any]) -> dict[str, Any]:
-        resp = self._post("/im/session/v1/gimMessageDetails", payload)
+    async def get_gim_message_details(self, payload: dict[str, Any]) -> dict[str, Any]:
+        resp = await self._await_if_needed(self._post("/im/session/v1/gimMessageDetails", payload))
         return self._ensure_success_payload(resp, "failed to get message details")
 
-    def upload_file(self, file_path: str, file_type: str = "IMAGE", ext: str = ".webp"):
-        return self.media.upload_file(file_path, file_type=file_type, ext=ext)
+    async def upload_file(
+        self, file_path: str, file_type: str = "IMAGE", ext: str = ".webp"
+    ):
+        return await self.media.upload_file(file_path, file_type=file_type, ext=ext)
 
-    def upload_file_from_url(self, image_url: str):
-        return self.media.upload_file_from_url(image_url)
+    async def upload_file_from_url(self, image_url: str):
+        return await self.media.upload_file_from_url(image_url)
 
-    def upload_audio_from_url(
+    async def upload_audio_from_url(
         self, audio_url: str, filename: str = "music.mp3", duration_ms: int = 0
     ):
-        return self.media.upload_audio_from_url(
+        return await self.media.upload_audio_from_url(
             audio_url, filename=filename, duration_ms=duration_ms
         )
 
-    def upload_and_send_image(self, file_path: str, text: str = "", **kwargs):
-        return self.media.send_image(file_path, text=text, **kwargs)
+    async def upload_and_send_image(self, file_path: str, text: str = "", **kwargs):
+        return await self.media.send_image(file_path, text=text, **kwargs)
 
-    def upload_and_send_private_image(self, target: str, file_path: str, text: str = ""):
-        return self.media.send_private_image(target, file_path, text=text)
+    async def upload_and_send_private_image(
+        self, target: str, file_path: str, text: str = ""
+    ):
+        return await self.media.send_private_image(target, file_path, text=text)
 
-    def get_area_members(
+    async def get_area_members(
         self,
         area: Optional[str] = None,
         offset_start: int = 0,
         offset_end: int = 49,
         quiet: bool = False,
     ):
-        return self.areas.get_area_members(
+        return await self.areas.get_area_members(
             area=area,
             offset_start=offset_start,
             offset_end=offset_end,
             quiet=quiet,
         )
 
-    def get_area_channels(
+    async def get_area_channels(
         self, area: Optional[str] = None, quiet: bool = False
     ) -> models.ChannelGroupsResult:
-        return self.channels.get_area_channels(area=area, quiet=quiet, as_model=True)
+        return await self.channels.get_area_channels(area=area, quiet=quiet, as_model=True)
 
-    def get_channel_setting_info(self, channel: str) -> models.ChannelSetting:
-        result = self.channels.get_channel_setting_info(channel, as_model=True)
+    async def get_channel_setting_info(self, channel: str) -> models.ChannelSetting:
+        result = await self.channels.get_channel_setting_info(channel, as_model=True)
         if isinstance(result, dict):
             raise OopzApiError(result.get("error") or "failed to get channel setting")
         return result
 
-    def create_channel(
+    async def create_channel(
         self,
         area: Optional[str] = None,
         name: str = "",
         channel_type: str = "text",
         group_id: str = "",
     ):
-        return self.channels.create_channel(
+        return await self.channels.create_channel(
             area=area, name=name, channel_type=channel_type, group_id=group_id
         )
 
-    def update_channel(
+    async def update_channel(
         self,
         area: Optional[str] = None,
         channel_id: str = "",
@@ -485,28 +500,28 @@ class OopzRESTClient:
         *,
         name: str = "",
     ):
-        return self.channels.update_channel(
+        return await self.channels.update_channel(
             area=area, channel_id=channel_id, overrides=overrides, name=name
         )
 
-    def create_restricted_text_channel(
+    async def create_restricted_text_channel(
         self,
         target_uid: str,
         area: Optional[str] = None,
         preferred_channel: Optional[str] = None,
         name: Optional[str] = None,
     ):
-        return self.channels.create_restricted_text_channel(
+        return await self.channels.create_restricted_text_channel(
             target_uid,
             area=area,
             preferred_channel=preferred_channel,
             name=name,
         )
 
-    def delete_channel(self, channel: str, area: Optional[str] = None):
-        return self.channels.delete_channel(channel, area=area)
+    async def delete_channel(self, channel: str, area: Optional[str] = None):
+        return await self.channels.delete_channel(channel, area=area)
 
-    def copy_channel(
+    async def copy_channel(
         self, channel: str, *, area: Optional[str] = None, name: str = ""
     ) -> models.OperationResult:
         area_value = self.channels._resolve_area(area)
@@ -516,7 +531,7 @@ class OopzRESTClient:
             "channel": channel_value,
             "name": str(name or "").strip(),
         }
-        resp = self._post("/area/v1/channel/v1/copy", body)
+        resp = await self._await_if_needed(self._post("/area/v1/channel/v1/copy", body))
         payload = self._ensure_success_payload(resp, "failed to copy channel")
         channel_id = self.channels._extract_channel_id(
             payload.get("data", {})
@@ -528,23 +543,23 @@ class OopzRESTClient:
             response=resp,
         )
 
-    def get_joined_areas(self, quiet: bool = False) -> models.JoinedAreasResult:
-        return self.areas.get_joined_areas(quiet=quiet, as_model=True)
+    async def get_joined_areas(self, quiet: bool = False) -> models.JoinedAreasResult:
+        return await self.areas.get_joined_areas(quiet=quiet, as_model=True)
 
-    def get_area_info(self, area: Optional[str] = None) -> dict | models.Area:
-        return self.areas.get_area_info(area=area, as_model=True)
+    async def get_area_info(self, area: Optional[str] = None) -> dict | models.Area:
+        return await self.areas.get_area_info(area=area, as_model=True)
 
-    def get_person_infos_batch(self, uids: list[str]) -> dict[str, dict]:
-        return self.members.get_person_infos_batch(uids)
+    async def get_person_infos_batch(self, uids: list[str]) -> dict[str, dict]:
+        return await self.members.get_person_infos_batch(uids)
 
-    def get_person_detail(self, uid: Optional[str] = None) -> models.PersonDetail:
-        result = self.members.get_person_detail(uid, as_model=True)
+    async def get_person_detail(self, uid: Optional[str] = None) -> models.PersonDetail:
+        result = await self.members.get_person_detail(uid, as_model=True)
         if isinstance(result, dict):
             raise OopzApiError(result.get("error") or "failed to get person detail")
         return result
 
-    def get_person_detail_full(self, uid: str) -> models.PersonDetail:
-        result = self.members.get_person_detail_full(uid)
+    async def get_person_detail_full(self, uid: str) -> models.PersonDetail:
+        result = await self.members.get_person_detail_full(uid)
         if isinstance(result, dict) and "error" in result:
             raise OopzApiError(result.get("error") or "failed to get person detail")
         if isinstance(result, models.PersonDetail):
@@ -559,29 +574,29 @@ class OopzRESTClient:
             payload=dict(payload),
         )
 
-    def get_self_detail(self) -> models.SelfDetail:
-        result = self.members.get_self_detail(as_model=True)
+    async def get_self_detail(self) -> models.SelfDetail:
+        result = await self.members.get_self_detail(as_model=True)
         if isinstance(result, dict):
             raise OopzApiError(result.get("error") or "failed to get self detail")
         return result
 
-    def get_level_info(self) -> dict:
-        return self.members.get_level_info()
+    async def get_level_info(self) -> dict:
+        return await self.members.get_level_info()
 
-    def get_novice_guide(self) -> dict[str, Any]:
-        resp = self._get("/client/v1/person/v1/noviceGuide")
+    async def get_novice_guide(self) -> dict[str, Any]:
+        resp = await self._await_if_needed(self._get("/client/v1/person/v1/noviceGuide"))
         payload = self._ensure_success_payload(resp, "failed to get novice guide")
         return self._require_dict_data(payload, "failed to get novice guide")
 
-    def get_notice_setting(self) -> dict[str, Any]:
-        resp = self._get("/person/v1/userNoticeSetting/noticeSetting")
+    async def get_notice_setting(self) -> dict[str, Any]:
+        resp = await self._await_if_needed(self._get("/person/v1/userNoticeSetting/noticeSetting"))
         payload = self._ensure_success_payload(resp, "failed to get notice settings")
         return self._require_dict_data(payload, "failed to get notice settings")
 
-    def get_user_remark_names(self, uid: str) -> list[dict[str, Any]]:
-        resp = self._get(
+    async def get_user_remark_names(self, uid: str) -> list[dict[str, Any]]:
+        resp = await self._await_if_needed(self._get(
             "/person/v1/remarkName/getUserRemarkNames", params={"uid": str(uid)}
-        )
+        ))
         payload = self._ensure_success_payload(resp, "failed to get remark names")
         return self._extract_dict_list(
             payload,
@@ -589,32 +604,32 @@ class OopzRESTClient:
             default_message="failed to get remark names",
         )
 
-    def check_block_status(self, target_uid: str) -> dict[str, Any]:
-        resp = self._get("/person/v1/blockCheck", params={"targetUid": str(target_uid)})
+    async def check_block_status(self, target_uid: str) -> dict[str, Any]:
+        resp = await self._await_if_needed(self._get("/person/v1/blockCheck", params={"targetUid": str(target_uid)}))
         payload = self._ensure_success_payload(resp, "failed to check block status")
         return self._require_dict_data(payload, "failed to check block status")
 
-    def get_privacy_settings(self) -> dict[str, Any]:
-        resp = self._get("/client/v1/person/v1/privacy/v1/query")
+    async def get_privacy_settings(self) -> dict[str, Any]:
+        resp = await self._await_if_needed(self._get("/client/v1/person/v1/privacy/v1/query"))
         payload = self._ensure_success_payload(resp, "failed to get privacy settings")
         return self._require_dict_data(payload, "failed to get privacy settings")
 
-    def get_notification_settings(self) -> dict[str, Any]:
-        resp = self._get("/client/v1/person/v1/notification/v1/query")
+    async def get_notification_settings(self) -> dict[str, Any]:
+        resp = await self._await_if_needed(self._get("/client/v1/person/v1/notification/v1/query"))
         payload = self._ensure_success_payload(
             resp, "failed to get notification settings"
         )
         return self._require_dict_data(payload, "failed to get notification settings")
 
-    def get_real_name_auth_status(self) -> dict[str, Any]:
-        resp = self._get("/client/v1/person/v2/realNameAuth")
+    async def get_real_name_auth_status(self) -> dict[str, Any]:
+        resp = await self._await_if_needed(self._get("/client/v1/person/v2/realNameAuth"))
         payload = self._ensure_success_payload(
             resp, "failed to get real-name auth status"
         )
         return self._require_dict_data(payload, "failed to get real-name auth status")
 
-    def get_friend_list(self) -> list[dict[str, Any]]:
-        resp = self._get("/client/v1/list/v1/friendship")
+    async def get_friend_list(self) -> list[dict[str, Any]]:
+        resp = await self._await_if_needed(self._get("/client/v1/list/v1/friendship"))
         payload = self._ensure_success_payload(resp, "failed to get friend list")
         return self._extract_dict_list(
             payload,
@@ -622,8 +637,8 @@ class OopzRESTClient:
             default_message="failed to get friend list",
         )
 
-    def get_blocked_list(self) -> list[dict[str, Any]]:
-        resp = self._get("/client/v1/list/v1/blocked")
+    async def get_blocked_list(self) -> list[dict[str, Any]]:
+        resp = await self._await_if_needed(self._get("/client/v1/list/v1/blocked"))
         payload = self._ensure_success_payload(resp, "failed to get blocked list")
         return self._extract_dict_list(
             payload,
@@ -631,8 +646,8 @@ class OopzRESTClient:
             default_message="failed to get blocked list",
         )
 
-    def get_friend_requests(self) -> list[dict[str, Any]]:
-        resp = self._get("/client/v1/friendship/v1/requests")
+    async def get_friend_requests(self) -> list[dict[str, Any]]:
+        resp = await self._await_if_needed(self._get("/client/v1/friendship/v1/requests"))
         payload = self._ensure_success_payload(resp, "failed to get friend requests")
         return self._extract_dict_list(
             payload,
@@ -640,38 +655,38 @@ class OopzRESTClient:
             default_message="failed to get friend requests",
         )
 
-    def get_diamond_remain(self) -> dict[str, Any]:
-        resp = self._get("/diamond/v1/remain")
+    async def get_diamond_remain(self) -> dict[str, Any]:
+        resp = await self._await_if_needed(self._get("/diamond/v1/remain"))
         payload = self._ensure_success_payload(resp, "failed to get diamond remain")
         return self._require_dict_data(payload, "failed to get diamond remain")
 
-    def get_mixer_settings(self) -> dict[str, Any]:
-        resp = self._get("/client/v1/settings/v1/mixer")
+    async def get_mixer_settings(self) -> dict[str, Any]:
+        resp = await self._await_if_needed(self._get("/client/v1/settings/v1/mixer"))
         payload = self._ensure_success_payload(resp, "failed to get mixer settings")
         return self._extract_json_dict_data(
             payload, default_message="failed to get mixer settings"
         )
 
-    def set_user_remark_name(
+    async def set_user_remark_name(
         self, remark_uid: str, remark_name: str
     ) -> models.OperationResult:
-        resp = self._post(
+        resp = await self._await_if_needed(self._post(
             "/person/v1/remarkName/setUserRemarkName",
             {"remarkUid": str(remark_uid), "remarkName": str(remark_name or "")},
-        )
+        ))
         payload = self._ensure_success_payload(resp, "failed to set remark name")
         return self._build_operation_result(
             payload, message="set remark name", response=resp
         )
 
-    def send_friend_request(self, target_uid: str) -> models.OperationResult:
-        resp = self._post("/friendship/v1/request", {"target": str(target_uid)})
+    async def send_friend_request(self, target_uid: str) -> models.OperationResult:
+        resp = await self._await_if_needed(self._post("/friendship/v1/request", {"target": str(target_uid)}))
         payload = self._ensure_success_payload(resp, "failed to send friend request")
         return self._build_operation_result(
             payload, message="sent friend request", response=resp
         )
 
-    def respond_friend_request(
+    async def respond_friend_request(
         self,
         target_uid: str,
         *,
@@ -681,17 +696,17 @@ class OopzRESTClient:
         body: dict[str, Any] = {"target": str(target_uid), "agree": bool(agree)}
         if friend_request_id:
             body["friendRequestId"] = str(friend_request_id)
-        resp = self._post("/friendship/v1/response", body)
+        resp = await self._await_if_needed(self._post("/friendship/v1/response", body))
         payload = self._ensure_success_payload(resp, "failed to respond friend request")
         message = "accepted friend request" if agree else "rejected friend request"
         return self._build_operation_result(payload, message=message, response=resp)
 
-    def remove_friend(self, target_uid: str) -> models.OperationResult:
-        resp = self._delete(f"/friendship/v1/remove?target={str(target_uid)}")
+    async def remove_friend(self, target_uid: str) -> models.OperationResult:
+        resp = await self._await_if_needed(self._delete(f"/friendship/v1/remove?target={str(target_uid)}"))
         payload = self._ensure_success_payload(resp, "failed to remove friend")
         return self._build_operation_result(payload, message="removed friend", response=resp)
 
-    def edit_privacy_settings(
+    async def edit_privacy_settings(
         self,
         *,
         everyone_add: bool,
@@ -707,7 +722,7 @@ class OopzRESTClient:
             "withFriendAdd": bool(with_friend_add),
             "uid": str(uid or self._config.person_uid),
         }
-        resp = self._patch("/person/v1/privacy/v1/edit", body)
+        resp = await self._await_if_needed(self._patch("/person/v1/privacy/v1/edit", body))
         payload = self._ensure_success_payload(
             resp, "failed to update privacy settings"
         )
@@ -715,7 +730,7 @@ class OopzRESTClient:
             payload, message="updated privacy settings", response=resp
         )
 
-    def edit_notification_settings(
+    async def edit_notification_settings(
         self, settings: dict[str, Any], *, mobile: bool = False
     ) -> models.OperationResult:
         path = (
@@ -723,7 +738,7 @@ class OopzRESTClient:
             if mobile
             else "/person/v1/notification/v1/edit"
         )
-        resp = self._patch(path, dict(settings))
+        resp = await self._await_if_needed(self._patch(path, dict(settings)))
         payload = self._ensure_success_payload(
             resp, "failed to update notification settings"
         )
@@ -731,21 +746,21 @@ class OopzRESTClient:
             payload, message="updated notification settings", response=resp
         )
 
-    def get_user_area_detail(self, target: str, area: Optional[str] = None) -> dict:
-        return self.members.get_user_area_detail(target, area=area)
+    async def get_user_area_detail(self, target: str, area: Optional[str] = None) -> dict:
+        return await self.members.get_user_area_detail(target, area=area)
 
-    def get_assignable_roles(self, target: str, area: Optional[str] = None) -> list:
-        return self.members.get_assignable_roles(target, area=area)
+    async def get_assignable_roles(self, target: str, area: Optional[str] = None) -> list:
+        return await self.members.get_assignable_roles(target, area=area)
 
-    def edit_user_role(
+    async def edit_user_role(
         self, target_uid: str, role_id: int, add: bool, area: Optional[str] = None
     ):
-        return self.members.edit_user_role(target_uid, role_id, add, area=area)
+        return await self.members.edit_user_role(target_uid, role_id, add, area=area)
 
-    def search_area_members(self, area: Optional[str] = None, keyword: str = "") -> list:
-        return self.members.search_area_members(area=area, keyword=keyword)
+    async def search_area_members(self, area: Optional[str] = None, keyword: str = "") -> list:
+        return await self.members.search_area_members(area=area, keyword=keyword)
 
-    def search_area_private_setting_members(
+    async def search_area_private_setting_members(
         self,
         *,
         area: Optional[str] = None,
@@ -757,7 +772,7 @@ class OopzRESTClient:
             "keyword": str(keyword or ""),
             "page": str(max(int(page), 1)),
         }
-        resp = self._get("/area/v3/search/areaPrivateSettingMembers", params=params)
+        resp = await self._await_if_needed(self._get("/area/v3/search/areaPrivateSettingMembers", params=params))
         payload = self._ensure_success_payload(
             resp, "failed to search private-setting members"
         )
@@ -773,25 +788,25 @@ class OopzRESTClient:
             )
         return [member for member in members if isinstance(member, dict)]
 
-    def get_voice_channel_members(
+    async def get_voice_channel_members(
         self, area: Optional[str] = None
     ) -> models.VoiceChannelMembersResult:
-        result = self.channels.get_voice_channel_members(area=area, as_model=True)
+        result = await self.channels.get_voice_channel_members(area=area, as_model=True)
         if isinstance(result, dict):
             raise OopzApiError(
                 result.get("error") or "failed to get voice channel members"
             )
         return result
 
-    def get_voice_channel_for_user(
+    async def get_voice_channel_for_user(
         self, user_uid: str, area: Optional[str] = None
     ) -> Optional[str]:
-        return self.channels.get_voice_channel_for_user(user_uid, area=area)
+        return await self.channels.get_voice_channel_for_user(user_uid, area=area)
 
-    def enter_area(self, area: Optional[str] = None, recover: bool = False) -> dict:
-        return self.areas.enter_area(area=area, recover=recover)
+    async def enter_area(self, area: Optional[str] = None, recover: bool = False) -> dict:
+        return await self.areas.enter_area(area=area, recover=recover)
 
-    def enter_channel(
+    async def enter_channel(
         self,
         channel: Optional[str] = None,
         area: Optional[str] = None,
@@ -800,7 +815,7 @@ class OopzRESTClient:
         from_area: str = "",
         pid: str = "",
     ) -> dict:
-        return self.channels.enter_channel(
+        return await self.channels.enter_channel(
             channel=channel,
             area=area,
             channel_type=channel_type,
@@ -809,13 +824,13 @@ class OopzRESTClient:
             pid=pid,
         )
 
-    def leave_voice_channel(
+    async def leave_voice_channel(
         self, channel: str, area: Optional[str] = None, target: Optional[str] = None
     ):
-        return self.channels.leave_voice_channel(channel, area=area, target=target)
+        return await self.channels.leave_voice_channel(channel, area=area, target=target)
 
-    def get_daily_speech(self) -> models.DailySpeechResult:
-        resp = self._get("/general/v1/speech")
+    async def get_daily_speech(self) -> models.DailySpeechResult:
+        resp = await self._await_if_needed(self._get("/general/v1/speech"))
         payload = self._ensure_success_payload(resp, "failed to get daily speech")
         data = self._require_dict_data(payload, "failed to get daily speech")
         return models.DailySpeechResult(
@@ -826,76 +841,76 @@ class OopzRESTClient:
             response=resp,
         )
 
-    def get_channel_messages(
+    async def get_channel_messages(
         self,
         area: Optional[str] = None,
         channel: Optional[str] = None,
         size: int = 50,
     ) -> list[models.Message]:
-        return self.messages.get_channel_messages(
+        return await self.messages.get_channel_messages(
             area=area, channel=channel, size=size, as_model=True
         )
 
-    def find_message_timestamp(
+    async def find_message_timestamp(
         self,
         message_id: str,
         area: Optional[str] = None,
         channel: Optional[str] = None,
     ) -> Optional[str]:
-        return self.messages.find_message_timestamp(
+        return await self.messages.find_message_timestamp(
             message_id, area=area, channel=channel
         )
 
-    def mute_user(
+    async def mute_user(
         self,
         uid: str,
         area: Optional[str] = None,
         channel: Optional[str] = None,
         duration: int = 10,
     ):
-        return self.moderation.mute_user(
+        return await self.moderation.mute_user(
             uid, area=area, channel=channel, duration=duration
         )
 
-    def unmute_user(
+    async def unmute_user(
         self, uid: str, area: Optional[str] = None, channel: Optional[str] = None
     ):
-        return self.moderation.unmute_user(uid, area=area, channel=channel)
+        return await self.moderation.unmute_user(uid, area=area, channel=channel)
 
-    def mute_mic(
+    async def mute_mic(
         self,
         uid: str,
         area: Optional[str] = None,
         channel: Optional[str] = None,
         duration: int = 10,
     ):
-        return self.moderation.mute_mic(
+        return await self.moderation.mute_mic(
             uid, area=area, channel=channel, duration=duration
         )
 
-    def unmute_mic(
+    async def unmute_mic(
         self, uid: str, area: Optional[str] = None, channel: Optional[str] = None
     ):
-        return self.moderation.unmute_mic(uid, area=area, channel=channel)
+        return await self.moderation.unmute_mic(uid, area=area, channel=channel)
 
-    def remove_from_area(self, uid: str, area: Optional[str] = None):
-        return self.moderation.remove_from_area(uid, area=area)
+    async def remove_from_area(self, uid: str, area: Optional[str] = None):
+        return await self.moderation.remove_from_area(uid, area=area)
 
-    def block_user_in_area(self, uid: str, area: Optional[str] = None):
-        return self.moderation.block_user_in_area(uid, area=area)
+    async def block_user_in_area(self, uid: str, area: Optional[str] = None):
+        return await self.moderation.block_user_in_area(uid, area=area)
 
-    def get_area_blocks(
+    async def get_area_blocks(
         self, area: Optional[str] = None, name: str = ""
     ) -> models.AreaBlocksResult:
-        result = self.moderation.get_area_blocks(area=area, name=name, as_model=True)
+        result = await self.moderation.get_area_blocks(area=area, name=name, as_model=True)
         if isinstance(result, dict):
             raise OopzApiError(result.get("error") or "failed to get area blocks")
         return result
 
-    def unblock_user_in_area(self, uid: str, area: Optional[str] = None):
-        return self.moderation.unblock_user_in_area(uid, area=area)
+    async def unblock_user_in_area(self, uid: str, area: Optional[str] = None):
+        return await self.moderation.unblock_user_in_area(uid, area=area)
 
-    def recall_message(
+    async def recall_message(
         self,
         message_id: str,
         area: Optional[str] = None,
@@ -903,7 +918,7 @@ class OopzRESTClient:
         timestamp: Optional[str] = None,
         target: str = "",
     ):
-        return self.messages.recall_message(
+        return await self.messages.recall_message(
             message_id,
             area=area,
             channel=channel,
@@ -911,20 +926,20 @@ class OopzRESTClient:
             target=target,
         )
 
-    def populate_names(self, *, set_area=None, set_channel=None) -> models.OperationResult:
-        payload = self.areas.populate_names(set_area=set_area, set_channel=set_channel)
+    async def populate_names(self, *, set_area=None, set_channel=None) -> models.OperationResult:
+        payload = await self.areas.populate_names(set_area=set_area, set_channel=set_channel)
         if isinstance(payload, dict):
             return models.OperationResult(
                 ok=True, message="populated names", payload=payload
             )
         return payload
 
-    def send_multiple(
+    async def send_multiple(
         self, messages: list[str], interval: float = 1.0
     ) -> list[models.MessageSendResult]:
         results: list[models.MessageSendResult] = []
         for index, message in enumerate(messages, 1):
-            results.append(self.send_to_default(message))
+            results.append(await self.send_to_default(message))
             if index < len(messages):
-                time.sleep(interval)
+                await asyncio.sleep(interval)
         return results

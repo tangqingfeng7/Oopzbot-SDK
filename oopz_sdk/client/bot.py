@@ -98,20 +98,32 @@ class OopzBot:
     def start_async(self):
         return self.ws.start_async()
 
-    def close(self) -> None:
+    async def close(self) -> None:
         self.ws.stop()
-        self.rest.close()
+        await self.rest.close()
 
     # -------------------------
     # 高层便捷方法
     # -------------------------
-    def send(self, text: str, area: str | None = None, channel: str | None = None, **kwargs):
-        return self.messages.send_message(text=text, area=area, channel=channel, **kwargs)
+    async def send(
+        self, text: str, area: str | None = None, channel: str | None = None, **kwargs
+    ):
+        return await self.messages.send_message(
+            text=text, area=area, channel=channel, **kwargs
+        )
 
-    def recall(self, message_id: str, area: str | None = None, channel: str | None = None, **kwargs):
-        return self.messages.recall_message(message_id, area=area, channel=channel, **kwargs)
+    async def recall(
+        self,
+        message_id: str,
+        area: str | None = None,
+        channel: str | None = None,
+        **kwargs,
+    ):
+        return await self.messages.recall_message(
+            message_id, area=area, channel=channel, **kwargs
+        )
 
-    def reply(
+    async def reply(
         self,
         text: str,
         area: str | None = None,
@@ -122,7 +134,7 @@ class OopzBot:
         """
         对某条消息进行回复
         """
-        return self.messages.send_message(
+        return await self.messages.send_message(
             text=text,
             area=area,
             channel=channel,

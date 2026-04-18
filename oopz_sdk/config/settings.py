@@ -120,4 +120,4 @@ class OopzConfig:
         self.auto_recall.delay = value
 
     def get_headers(self) -> dict[str, str]:
-        return self.headers if self.headers else dict(DEFAULT_HEADERS)
+        return {**DEFAULT_HEADERS, **self.headers}

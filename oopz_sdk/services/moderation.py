@@ -54,47 +54,47 @@ class Moderation(BaseService):
             response=response,
         )
 
-    def mute_user(self, uid: str, area: Optional[str] = None, channel: Optional[str] = None, duration: int = 10) -> models.OperationResult:
+    async def mute_user(self, uid: str, area: Optional[str] = None, channel: Optional[str] = None, duration: int = 10) -> models.OperationResult:
         """禁言用户。"""
         area = area or self._config.default_area
         interval_id = self._minutes_to_interval_id(duration, voice=False)
         url_path = "/client/v1/area/v1/member/v1/disableText"
         query = f"?area={area}&target={uid}&intervalId={interval_id}"
         body = {"area": area, "target": uid, "intervalId": interval_id}
-        return self._manage_patch("禁言", url_path, query, body)
+        return await self._manage_patch("禁言", url_path, query, body)
 
-    def unmute_user(self, uid: str, area: Optional[str] = None, channel: Optional[str] = None) -> models.OperationResult:
+    async def unmute_user(self, uid: str, area: Optional[str] = None, channel: Optional[str] = None) -> models.OperationResult:
         """解除禁言。"""
         area = area or self._config.default_area
         url_path = "/client/v1/area/v1/member/v1/recoverText"
         query = f"?area={area}&target={uid}"
         body = {"area": area, "target": uid}
-        return self._manage_patch("解除禁言", url_path, query, body)
+        return await self._manage_patch("解除禁言", url_path, query, body)
 
-    def mute_mic(self, uid: str, area: Optional[str] = None, channel: Optional[str] = None, duration: int = 10) -> models.OperationResult:
+    async def mute_mic(self, uid: str, area: Optional[str] = None, channel: Optional[str] = None, duration: int = 10) -> models.OperationResult:
         """禁麦用户。"""
         area = area or self._config.default_area
         interval_id = self._minutes_to_interval_id(duration, voice=True)
         url_path = "/client/v1/area/v1/member/v1/disableVoice"
         query = f"?area={area}&target={uid}&intervalId={interval_id}"
         body = {"area": area, "target": uid, "intervalId": interval_id}
-        return self._manage_patch("禁麦", url_path, query, body)
+        return await self._manage_patch("禁麦", url_path, query, body)
 
-    def unmute_mic(self, uid: str, area: Optional[str] = None, channel: Optional[str] = None) -> models.OperationResult:
+    async def unmute_mic(self, uid: str, area: Optional[str] = None, channel: Optional[str] = None) -> models.OperationResult:
         """解除禁麦。"""
         area = area or self._config.default_area
         url_path = "/client/v1/area/v1/member/v1/recoverVoice"
         query = f"?area={area}&target={uid}"
         body = {"area": area, "target": uid}
-        return self._manage_patch("解除禁麦", url_path, query, body)
+        return await self._manage_patch("解除禁麦", url_path, query, body)
 
-    def remove_from_area(self, uid: str, area: Optional[str] = None) -> models.OperationResult:
+    async def remove_from_area(self, uid: str, area: Optional[str] = None) -> models.OperationResult:
         """将用户移出当前域（踢出域）。"""
         area = area or self._config.default_area
         url_path = f"/area/v3/remove?area={area}&target={uid}"
         body = {"area": area, "target": uid}
         try:
-            resp = self._post(url_path, body)
+            resp = await self._await_if_needed(self._post(url_path, body))
         except Exception as e:
             logger.error("移出域请求异常: %s", e)
             return models.OperationResult(ok=False, message=str(e), payload=body)
@@ -119,12 +119,12 @@ class Moderation(BaseService):
         logger.error("移出域失败: %s", err)
         return models.OperationResult(ok=False, message=str(err), payload=result, response=resp)
 
-    def block_user_in_area(self, uid: str, area: Optional[str] = None) -> models.OperationResult:
+    async def block_user_in_area(self, uid: str, area: Optional[str] = None) -> models.OperationResult:
         """封禁用户。"""
         area = area or self._config.default_area
         url_path = f"/client/v1/area/v1/block?area={area}&target={uid}"
         try:
-            resp = self._delete(url_path)
+            resp = await self._await_if_needed(self._delete(url_path))
         except Exception as e:
             logger.error("封禁请求异常: %s", e)
             return models.OperationResult(ok=False, message=str(e))
@@ -149,7 +149,7 @@ class Moderation(BaseService):
         logger.error("封禁失败: %s", err)
         return models.OperationResult(ok=False, message=str(err), payload=result, response=resp)
 
-    def get_area_blocks(
+    async def get_area_blocks(
         self,
         area: Optional[str] = None,
         name: str = "",
@@ -162,7 +162,7 @@ class Moderation(BaseService):
         params = {"area": area, "name": name}
 
         try:
-            resp = self._get(url_path, params=params)
+            resp = await self._await_if_needed(self._get(url_path, params=params))
             if resp.status_code != 200:
                 logger.debug("获取域封禁列表失败: HTTP %d", resp.status_code)
                 if as_model:
@@ -204,20 +204,20 @@ class Moderation(BaseService):
                 return models.AreaBlocksResult(payload={"error": str(e)})
             return {"error": str(e)}
 
-    def unblock_user_in_area(self, uid: str, area: Optional[str] = None) -> models.OperationResult:
+    async def unblock_user_in_area(self, uid: str, area: Optional[str] = None) -> models.OperationResult:
         """解除域内封禁。"""
         area = area or self._config.default_area
         url_path = "/client/v1/area/v1/unblock"
         query = f"?area={area}&target={uid}"
         body = {"area": area, "target": uid}
-        return self._manage_patch("解除域内封禁", url_path, query, body)
+        return await self._manage_patch("解除域内封禁", url_path, query, body)
 
-    def _manage_patch(self, action: str, url_path: str, query: str, body: dict) -> models.OperationResult:
+    async def _manage_patch(self, action: str, url_path: str, query: str, body: dict) -> models.OperationResult:
         """通用 PATCH 管理操作（禁言/禁麦等）。"""
         full_path = url_path + query
         params = dict(parse_qsl(query.lstrip("?")))
         try:
-            resp = self._request("PATCH", url_path, body=body, params=params)
+            resp = await self._await_if_needed(self._request("PATCH", url_path, body=body, params=params))
         except Exception as e:
             logger.error("%s请求异常: %s", action, e)
             return models.OperationResult(ok=False, message=str(e), payload=body)

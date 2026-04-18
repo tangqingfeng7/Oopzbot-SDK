@@ -1,9 +1,11 @@
 """上传图片并通过私信发送示例。"""
 
+import asyncio
+
 from oopz_sdk import OopzConfig, OopzRESTClient
 
 
-def main() -> None:
+async def main() -> None:
     config = OopzConfig(
         device_id="你的设备ID",
         person_uid="你的用户UID",
@@ -11,8 +13,8 @@ def main() -> None:
         private_key="-----BEGIN RSA PRIVATE KEY-----\n...\n-----END RSA PRIVATE KEY-----",
     )
 
-with OopzRESTClient(config) as sender:
-        result = sender.upload_and_send_private_image(
+    async with OopzRESTClient(config) as sender:
+        result = await sender.upload_and_send_private_image(
             target="目标UID",
             file_path="demo.png",
             text="这是一张通过 SDK 上传的图片",
@@ -21,4 +23,4 @@ with OopzRESTClient(config) as sender:
 
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())

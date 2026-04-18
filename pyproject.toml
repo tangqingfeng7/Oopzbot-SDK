@@ -8,7 +8,8 @@ version = "0.4.3"
 description = "Oopz 平台 Python SDK，提供 HTTP API、文件上传与 WebSocket 事件能力。"
 readme = "README.md"
 requires-python = ">=3.10"
-license-files = []
+license = "MIT"
+license-files = ["LICENSE"]
 authors = [
   { name = "Oopzbot Contributors" },
 ]
@@ -16,7 +17,6 @@ keywords = ["oopz", "sdk", "bot", "websocket"]
 classifiers = [
   "Development Status :: 3 - Alpha",
   "Intended Audience :: Developers",
-  "License :: OSI Approved :: MIT License",
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3.10",
   "Programming Language :: Python :: 3.11",
@@ -24,6 +24,7 @@ classifiers = [
   "Topic :: Software Development :: Libraries :: Python Modules",
 ]
 dependencies = [
+  "aiohttp>=3.11,<4",
   "cryptography>=42,<48",
   "pillow>=10,<13",
   "requests>=2.32,<3",

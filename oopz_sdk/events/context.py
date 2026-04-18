@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import asyncio
 from dataclasses import dataclass
+import inspect
 from typing import Any
 
 from oopz_sdk.config.settings import OopzConfig
@@ -32,8 +32,10 @@ class EventContext:
         return getattr(message, name, default)
 
     @staticmethod
-    async def _call_blocking(func, /, *args, **kwargs):
-        return await asyncio.to_thread(func, *args, **kwargs)
+    async def _await_if_needed(value):
+        if inspect.isawaitable(value):
+            return await value
+        return value
 
     async def reply(self, text: str, **kwargs):
         """
@@ -50,13 +52,14 @@ class EventContext:
             or self._get_message_field(self.message, "id")
         )
 
-        return await self._call_blocking(
-            self.bot.messages.send_message,
-            text=text,
-            area=area,
-            channel=channel,
-            referenceMessageId=reference_message_id,
-            **kwargs,
+        return await self._await_if_needed(
+            self.bot.messages.send_message(
+                text=text,
+                area=area,
+                channel=channel,
+                referenceMessageId=reference_message_id,
+                **kwargs,
+            )
         )
 
     async def recall(self, **kwargs):
@@ -77,47 +80,52 @@ class EventContext:
         area = self._get_message_field(self.message, "area")
         channel = self._get_message_field(self.message, "channel")
 
-        return await self._call_blocking(
-            self.bot.messages.recall_message,
-            message_id=message_id,
-            area=area,
-            channel=channel,
-            **kwargs,
+        return await self._await_if_needed(
+            self.bot.messages.recall_message(
+                message_id=message_id,
+                area=area,
+                channel=channel,
+                **kwargs,
+            )
         )
 
     async def send(self, *texts: str | Segment, **kwargs):
         if texts and all(isinstance(part, str) for part in texts):
             text = "".join(texts)
             if self.message is None:
-                return await self._call_blocking(
-                    self.bot.messages.send_message,
-                    text=text,
-                    **kwargs,
+                return await self._await_if_needed(
+                    self.bot.messages.send_message(
+                        text=text,
+                        **kwargs,
+                    )
                 )
 
             area = kwargs.pop("area", self._get_message_field(self.message, "area"))
             channel = kwargs.pop("channel", self._get_message_field(self.message, "channel"))
-            return await self._call_blocking(
-                self.bot.messages.send_message,
-                text=text,
-                area=area,
-                channel=channel,
-                **kwargs,
+            return await self._await_if_needed(
+                self.bot.messages.send_message(
+                    text=text,
+                    area=area,
+                    channel=channel,
+                    **kwargs,
+                )
             )
 
         if self.message is None:
-            return await self._call_blocking(
-                self.bot.messages.send_message,
-                *texts,
-                **kwargs,
+            return await self._await_if_needed(
+                self.bot.messages.send_message(
+                    *texts,
+                    **kwargs,
+                )
             )
 
         area = kwargs.pop("area", self._get_message_field(self.message, "area"))
         channel = kwargs.pop("channel", self._get_message_field(self.message, "channel"))
-        return await self._call_blocking(
-            self.bot.messages.send_message,
-            *texts,
-            area=area,
-            channel=channel,
-            **kwargs,
+        return await self._await_if_needed(
+            self.bot.messages.send_message(
+                *texts,
+                area=area,
+                channel=channel,
+                **kwargs,
+            )
         )

@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import inspect
 import logging
-import threading
 from typing import Any
 
 from .context import EventContext
@@ -43,29 +42,12 @@ class EventDispatcher:
     def dispatch_sync(self, event_name: str, event: Any, context: EventContext) -> None:
         coroutine = self.dispatch(event_name, event, context)
         try:
-            asyncio.get_running_loop()
+            loop = asyncio.get_running_loop()
         except RuntimeError:
             asyncio.run(coroutine)
             return
 
-        self._run_coroutine_in_thread(coroutine)
-
-    @staticmethod
-    def _run_coroutine_in_thread(coroutine) -> None:
-        error: list[BaseException] = []
-
-        def runner() -> None:
-            try:
-                asyncio.run(coroutine)
-            except BaseException as exc:  # pragma: no cover - defensive propagation
-                error.append(exc)
-
-        thread = threading.Thread(target=runner)
-        thread.start()
-        thread.join()
-
-        if error:
-            raise error[0]
+        loop.create_task(coroutine)
 
     @staticmethod
     def _invoke_handler(handler, event_name: str, event: Any, context: EventContext):

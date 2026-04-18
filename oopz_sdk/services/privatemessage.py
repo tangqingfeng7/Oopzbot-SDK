@@ -117,7 +117,7 @@ class PrivateMessage(Message):
 
         return False, "HTTP 200 但响应未明确确认私信已发送"
 
-    def open_private_session(self, target: str) -> models.PrivateSessionResult:
+    async def open_private_session(self, target: str) -> models.PrivateSessionResult:
         """打开或创建与指定用户的私信会话。"""
         target = str(target or "").strip()
         if not target:
@@ -129,7 +129,9 @@ class PrivateMessage(Message):
         body = {"target": target}
 
         try:
-            resp = self._request("PATCH", url_path, body=body, params={"target": target})
+            resp = await self._await_if_needed(
+                self._request("PATCH", url_path, body=body, params={"target": target})
+            )
         except Exception as e:
             logger.error("打开私信会话异常: %s", e)
             return models.PrivateSessionResult(channel="", target=target, payload={"error": str(e)})
@@ -170,7 +172,7 @@ class PrivateMessage(Message):
             )
         return models.PrivateSessionResult(channel=channel, target=target, payload=result, response=resp)
 
-    def send_private_message(
+    async def send_private_message(
         self,
         target: str,
         text: str,
@@ -191,7 +193,7 @@ class PrivateMessage(Message):
             )
 
         if not channel:
-            opened = self.open_private_session(target)
+            opened = await self.open_private_session(target)
             if not opened.channel:
                 return models.MessageSendResult(
                     message_id="",
@@ -236,7 +238,7 @@ class PrivateMessage(Message):
         url_path = "/im/session/v2/sendImMessage"
 
         try:
-            resp = self._post(url_path, body)
+            resp = await self._await_if_needed(self._post(url_path, body))
         except Exception as e:
             logger.error("发送私信异常: %s", e)
             return models.MessageSendResult(
