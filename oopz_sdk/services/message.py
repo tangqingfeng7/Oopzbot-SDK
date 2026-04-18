@@ -37,35 +37,6 @@ class Message(BaseService):
         resolved_transport = transport or HttpTransport(config, resolved_signer)
         super().__init__(config, resolved_transport, resolved_signer, bot=bot)
 
-    @classmethod
-    def _raise_api_error(cls, response, default_message: str) -> None:
-        payload = cls._safe_json(response)
-        message = default_message
-
-        if response.status_code == 429:
-            try:
-                retry_after = int(response.headers.get("Retry-After", "0") or "0")
-            except Exception:
-                retry_after = 0
-
-            if payload:
-                message = str(payload.get("message") or payload.get("error") or message)
-            elif response.text:
-                message = f"{message}: {response.text[:200]}"
-
-            raise OopzRateLimitError(
-                message=message,
-                retry_after=retry_after,
-                response=payload,
-            )
-
-        if payload:
-            message = str(payload.get("message") or payload.get("error") or message)
-        elif response.text:
-            message = f"{message}: {response.text[:200]}"
-
-        raise OopzApiError(message, status_code=response.status_code, response=payload)
-
     @staticmethod
     def _extract_message_id(payload: dict) -> str:
         data = payload.get("data", {})
@@ -126,7 +97,7 @@ class Message(BaseService):
     def segments_require_attachments(segments: list[Segment]) -> bool:
         return any(isinstance(seg, Image) for seg in segments)
 
-    def _prepare_message_content(
+    async def _prepare_message_content(
         self,
         *parts: str | Segment,
         attachments: Optional[list] = None,
@@ -143,7 +114,7 @@ class Message(BaseService):
 
         if has_segment_parts:
             segments = normalize_message_parts(message_parts)
-            resolved_segments =await self._resolve_segments(segments)
+            resolved_segments = await self._resolve_segments(segments)
             built_text, built_attachments = build_segments(resolved_segments)
             return built_text, built_attachments
 
@@ -195,7 +166,7 @@ class Message(BaseService):
         raise ValueError(f"Unsupported message body version: {version}")
 
 
-    def _send_built_message(
+    async def _send_built_message(
         self,
         *,
         url_path: str,
@@ -214,7 +185,7 @@ class Message(BaseService):
             target[:12],
         )
 
-        resp = self._post(url_path, body)
+        resp = await self._post(url_path, body)
         logger.info("response status: %d", resp.status_code)
 
         if resp.text:
@@ -244,13 +215,13 @@ class Message(BaseService):
         )
 
         if auto_recall and send_result.message_id:
-            self._schedule_auto_recall(send_result.message_id, area, channel)
+            await self._schedule_auto_recall(send_result.message_id, area, channel)
 
         return send_result
 
-    def open_private_session(self, target: str) -> models.PrivateSessionResult:
+    async def open_private_session(self, target: str) -> models.PrivateSessionResult:
         """
-        打开或创建与指定用户的私信会话。
+        打开或创建与指定用户的私信会话。 todo 代码需要重构
         """
         target = str(target or "").strip()
         if not target:
@@ -264,7 +235,7 @@ class Message(BaseService):
         body = {"target": target}
 
         try:
-            resp = self._request("PATCH", url_path, body=body, params={"target": target})
+            resp = await self._request("PATCH", url_path, body=body, params={"target": target})
         except Exception as e:
             logger.error("open_private_session failed: %s", e)
             return models.PrivateSessionResult(
@@ -331,7 +302,7 @@ class Message(BaseService):
             response=resp,
         )
 
-    def send_message(
+    async def send_message(
         self,
         *texts: str | Segment,
         area: str = "",
@@ -341,7 +312,7 @@ class Message(BaseService):
         is_mention_all: bool = False,
         style_tags: Optional[list] = None,
         reference_message_id: Optional[str] = None,
-        auto_recall: Optional[bool] = None,
+        auto_recall = False,
         animated: bool = False,
         display_name: str = "",
         duration: int = 0,
@@ -350,7 +321,7 @@ class Message(BaseService):
         """
         频道消息发送。
         """
-        built_text, built_attachments = self._prepare_message_content(
+        built_text, built_attachments = await self._prepare_message_content(
             *texts,
             attachments=attachments,
         )
@@ -385,7 +356,7 @@ class Message(BaseService):
             built_text[:80] + ("..." if len(built_text) > 80 else ""),
         )
 
-        return self._send_built_message(
+        return await self._send_built_message(
             url_path=url_path,
             body=body,
             area=resolved_area,
@@ -393,10 +364,10 @@ class Message(BaseService):
             target="",
             client_message_id=client_message_id,
             timestamp=timestamp,
-            auto_recall=(auto_recall is not False),
+            auto_recall=auto_recall,
         )
 
-    def send_private_message(
+    async def send_private_message(
         self,
         *texts: str | Segment,
         target: str,
@@ -430,7 +401,7 @@ class Message(BaseService):
                 )
             resolved_channel = opened.channel
 
-        built_text, built_attachments = self._prepare_message_content(
+        built_text, built_attachments = await self._prepare_message_content(
             *texts,
             attachments=attachments,
         )
@@ -459,7 +430,7 @@ class Message(BaseService):
             built_text[:80] + ("..." if len(built_text) > 80 else ""),
         )
 
-        return self._send_built_message(
+        return await self._send_built_message(
             url_path=url_path,
             body=body,
             area="",
@@ -558,7 +529,7 @@ class Message(BaseService):
         }
 
         try:
-            resp = self._request("POST", url_path, body=body, params=dict(body))
+            resp = await self._request("POST", url_path, body=body, params=dict(body))
         except Exception as e:
             logger.error("recall request error: %s", e)
             return models.OperationResult(ok=False, message=str(e), payload=body)
@@ -585,7 +556,7 @@ class Message(BaseService):
         err = result.get("message") or result.get("error") or str(result)
         return models.OperationResult(ok=False, message=str(err), payload=result, response=resp)
 
-    def recall_private_message(
+    async def recall_private_message(
         self,
         message_id: str,
         area: Optional[str] = None,
@@ -608,7 +579,7 @@ class Message(BaseService):
         }
 
         try:
-            resp = self._request("POST", url_path, body=body, params=dict(body))
+            resp = await self._request("POST", url_path, body=body, params=dict(body))
         except Exception as e:
             logger.error("recall request error: %s", e)
             return models.OperationResult(ok=False, message=str(e), payload=body)
@@ -650,7 +621,7 @@ class Message(BaseService):
         params = {"area": area, "channel": channel, "size": str(size)}
 
         try:
-            resp = await self._await_if_needed(self._get(url_path, params=params))
+            resp = await self._get(url_path, params=params)
             if resp.status_code != 200:
                 logger.error("failed to get channel messages: HTTP %d", resp.status_code)
                 return []
@@ -719,7 +690,7 @@ class Message(BaseService):
             preview_file_key=getattr(attachment, "preview_file_key", ""),
         )
 
-    def _resolve_segments(self, segments: list[Segment]) -> list[Segment]:
+    async def _resolve_segments(self, segments: list[Segment]) -> list[Segment]:
         resolved: list[Segment] = []
 
         for seg in segments:

@@ -122,14 +122,16 @@ class OopzBot:
     # -------------------------
     # 生命周期
     # -------------------------
-    def run(self) -> None:
-        self.ws.start()
 
-    def start_async(self):
-        return self.ws.start_async()
+    async def start(self):
+        await self.rest.start()
+        await self.ws.start()
 
-    async def close(self) -> None:
-        self.ws.stop()
+    async def run(self):
+        await self.start()
+
+    async def stop(self):
+        await self.ws.stop()
         await self.rest.close()
 
     # -------------------------
@@ -193,15 +195,13 @@ class OopzBot:
     # -------------------------
     # WS 回调入口
     # -------------------------
-    def _handle_ws_message(self, raw: str) -> None:
+    async def _handle_ws_message(self, raw: str) -> None:
         try:
             event = self.parser.parse(raw)
-            # if event.to_dict()["name"] != "heartbeat":
-            #     print(json.dumps(event.to_dict(), ensure_ascii=False, indent=2))
         except Exception as exc:
             logger.exception("解析 WebSocket 消息失败: %s", exc)
             ctx = self._make_context(event=exc)
-            self.dispatcher.dispatch_sync("error", exc, ctx)
+            await self.dispatcher.dispatch("error", exc, ctx)
             return
 
         ctx = self._make_context(event=event)
@@ -209,28 +209,25 @@ class OopzBot:
         if isinstance(event, MessageEvent) and self._should_ignore_self_message(event.message):
             return
 
-        # 先派发 raw_event，便于做底层调试 / 适配
-        self.dispatcher.dispatch_sync("raw_event", event, ctx)
+        await self.dispatcher.dispatch("raw_event", event, ctx)
+        await self.dispatcher.dispatch(event.name, event, ctx)
 
-        # 再派发语义事件
-        self.dispatcher.dispatch_sync(event.name, event, ctx)
-
-    def _handle_open(self) -> None:
+    async def _handle_open(self) -> None:
         ctx = self._make_context()
-        self.dispatcher.dispatch_sync("ready", None, ctx)
+        await self.dispatcher.dispatch("ready", None, ctx)
 
-    def _handle_error(self, error) -> None:
+    async def _handle_error(self, error) -> None:
         ctx = self._make_context(event=error)
-        self.dispatcher.dispatch_sync("error", error, ctx)
+        await self.dispatcher.dispatch("error", error, ctx)
 
-    def _handle_close(self, code, reason) -> None:
+    async def _handle_close(self, code, reason) -> None:
         payload = {"code": code, "reason": reason}
         ctx = self._make_context(event=payload)
-        self.dispatcher.dispatch_sync("close", payload, ctx)
+        await self.dispatcher.dispatch("close", payload, ctx)
 
-    def _handle_reconnect(self) -> None:
+    async def _handle_reconnect(self) -> None:
         ctx = self._make_context()
-        self.dispatcher.dispatch_sync("reconnect", None, ctx)
+        await self.dispatcher.dispatch("reconnect", None, ctx)
 
     def _should_ignore_self_message(self, message: Message) -> bool:
         """

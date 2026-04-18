@@ -23,20 +23,6 @@ class EventContext:
     config: OopzConfig
     event: Any = None
 
-    @staticmethod
-    def _get_message_field(message: Any, name: str, default=None):
-        if message is None:
-            return default
-        if isinstance(message, dict):
-            return message.get(name, default)
-        return getattr(message, name, default)
-
-    @staticmethod
-    async def _await_if_needed(value):
-        if inspect.isawaitable(value):
-            return await value
-        return value
-
     async def reply(self, *text: str, **kwargs):
         """
         回复当前上下文中的消息。
@@ -44,7 +30,7 @@ class EventContext:
         if not isinstance(self.event, MessageEvent):
             raise RuntimeError("当前上下文中没有 message，无法 reply()")
         if self.event.is_private:
-            return self.bot.messages.send_private_message(
+            return await self.bot.messages.send_private_message(
                 *text,
                 channel=self.event.message.channel,
                 target=self.event.message.person,
@@ -67,14 +53,14 @@ class EventContext:
         if not isinstance(self.event, MessageEvent):
             raise RuntimeError("当前上下文中没有 message，无法 send()")
         if self.event.is_private:
-            return self.bot.messages.send_private_message(
+            return await self.bot.messages.send_private_message(
                 *texts,
                 channel=self.event.message.channel,
                 target=self.event.message.person,
                 **kwargs,
             )
 
-        return self.bot.messages.send_message(
+        return await self.bot.messages.send_message(
             *texts,
             area=self.event.message.area,
             channel=self.event.message.channel,

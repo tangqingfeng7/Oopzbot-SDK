@@ -21,20 +21,11 @@ class BaseService:
         self._config = config
         self.transport = transport
         self.signer = signer
-        self.session = transport.session
         self._area_members_cache: dict[tuple[str, int, int], dict] = {}
 
-    @staticmethod
-    async def _await_if_needed(value):
-        if inspect.isawaitable(value):
-            return await value
-        return value
-
-    def _throttle(self) -> None:
-        self.transport.throttle()
 
     async def _get(self, url_path: str, params: dict | None = None):
-        return await self._await_if_needed(self.transport.get(url_path, params=params))
+        return await self.transport.get(url_path, params=params)
 
     async def _request(
         self,
@@ -43,21 +34,19 @@ class BaseService:
         body: dict | None = None,
         params: dict | None = None,
     ):
-        return await self._await_if_needed(
-            self.transport.request(method, url_path, body=body, params=params)
-        )
+        return await self.transport.request(method, url_path, body=body, params=params)
 
     async def _post(self, url_path: str, body: dict):
-        return await self._await_if_needed(self.transport.post(url_path, body))
+        return await self.transport.post(url_path, body)
 
     async def _put(self, url_path: str, body: dict):
-        return await self._await_if_needed(self.transport.put(url_path, body))
+        return self.transport.put(url_path, body)
 
     async def _delete(self, url_path: str, body: dict | None = None):
-        return await self._await_if_needed(self.transport.delete(url_path, body))
+        return await self.transport.delete(url_path, body)
 
     async def _patch(self, url_path: str, body: dict):
-        return await self._await_if_needed(self.transport.patch(url_path, body))
+        return await self.transport.patch(url_path, body)
 
     def _resolve_area(self, area: str | None) -> str:
         value = str(area or self._config.default_area).strip()
@@ -87,6 +76,36 @@ class BaseService:
 
     async def __aexit__(self, exc_type, exc, tb) -> None:
         await self.close()
+
+    @classmethod
+    def _raise_api_error(cls, response, default_message: str) -> None:
+        from oopz_sdk import OopzRateLimitError, OopzApiError
+        payload = cls._safe_json(response)
+        message = default_message
+
+        if response.status_code == 429:
+            try:
+                retry_after = int(response.headers.get("Retry-After", "0") or "0")
+            except Exception:
+                retry_after = 0
+
+            if payload:
+                message = str(payload.get("message") or payload.get("error") or message)
+            elif response.text:
+                message = f"{message}: {response.text[:200]}"
+
+            raise OopzRateLimitError(
+                message=message,
+                retry_after=retry_after,
+                response=payload,
+            )
+
+        if payload:
+            message = str(payload.get("message") or payload.get("error") or message)
+        elif response.text:
+            message = f"{message}: {response.text[:200]}"
+
+        raise OopzApiError(message, status_code=response.status_code, response=payload)
 
 
 __all__ = ["BaseService"]

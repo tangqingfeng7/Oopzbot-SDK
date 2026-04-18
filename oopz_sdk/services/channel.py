@@ -581,11 +581,11 @@ class Channel(BaseService):
         full_path = url_path + query
 
         try:
-            resp = await self._await_if_needed(self._request(
+            resp = await self._request(
                 "DELETE",
                 url_path,
                 params={"area": area, "channel": channel, "target": target},
-            ))
+            )
         except Exception as e:
             logger.error("退出语音频道异常: %s", e)
             return {"error": str(e)}
@@ -642,7 +642,7 @@ class Channel(BaseService):
         max_retries = 3
         for attempt in range(max_retries):
             try:
-                resp = await self._await_if_needed(self._post(url_path, body))
+                resp = await self._post(url_path, body)
                 if resp.status_code == 429:
                     wait = min(2 ** attempt, 4)
                     logger.warning("获取语音频道成员被限流 (429)，%ds 后重试 (%d/%d)", wait, attempt + 1, max_retries)

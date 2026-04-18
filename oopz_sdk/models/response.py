@@ -11,6 +11,7 @@ from .channel import Channel, ChannelGroup
 from .base import BaseModel
 from .member import Member
 from .message import Message
+from ..transport.http import HttpResponse
 
 
 @dataclass(slots=True)
@@ -53,7 +54,7 @@ class PrivateSessionResult(BaseModel):
     channel: str
     target: str = ""
     payload: dict[str, Any] = field(default_factory=dict)
-    response: requests.Response | None = field(default=None, repr=False)
+    response: HttpResponse | None = field(default=None, repr=False)
 
 
 @dataclass(slots=True)
