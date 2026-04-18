@@ -7,7 +7,7 @@ from typing import Any
 from oopz_sdk.config.constants import (
     EVENT_CHAT_MESSAGE,
     EVENT_HEARTBEAT,
-    EVENT_SERVER_ID,
+    EVENT_SERVER_ID, EVENT_DELETE_MESSAGE, EVENT_PRIVATE_MESSAGE,
 )
 from oopz_sdk.exceptions.parse import OopzParseError
 from oopz_sdk.models.event import Event, MessageEvent
@@ -69,6 +69,17 @@ class EventParser:
                 raw=data,
                 message=message,
             )
+        elif event_type == EVENT_PRIVATE_MESSAGE:
+            msg_data = self.safe_json_parse(body.get("data", {}), fallback={})
+            message = Message.from_dict(msg_data)
+            return MessageEvent(
+                name="message.private",
+                event_type=event_type,
+                body=body,
+                raw=data,
+                message=message,
+                is_private=True,
+            )
         elif event_type == EVENT_HEARTBEAT:
             return Event(
                 name="heartbeat",
@@ -79,6 +90,13 @@ class EventParser:
         elif event_type == EVENT_SERVER_ID:
             return Event(
                 name="server_id",
+                event_type=event_type,
+                body=body,
+                raw=data,
+            )
+        elif event_type == EVENT_DELETE_MESSAGE:
+            return Event(
+                name="delete_message",
                 event_type=event_type,
                 body=body,
                 raw=data,

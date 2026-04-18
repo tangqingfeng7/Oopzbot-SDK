@@ -28,20 +28,28 @@ class OopzBot:
     - 为 handler 提供可直接使用的上下文（ctx.bot / ctx.reply）
     """
 
-    def __init__(self, config: OopzConfig):
+    def __init__(
+        self,
+        config,
+        *,
+        on_message=None,
+        on_ready=None,
+        on_error=None,
+        on_close=None,
+        on_reconnect=None,
+        on_raw_event=None,
+    ):
         self.config = config
         self.registry = EventRegistry()
         self.dispatcher = EventDispatcher(self.registry)
         self.parser = EventParser()
         self.rest = OopzRESTClient(self, config)
         self.messages = self.rest.messages
-        self.private = self.rest.private
         self.media = self.rest.media
         self.areas = self.rest.areas
         self.channels = self.rest.channels
         self.members = self.rest.members
         self.moderation = self.rest.moderation
-
 
         # WS 客户端只负责底层连接和回调
         self.ws = OopzWSClient(
@@ -52,6 +60,20 @@ class OopzBot:
             on_close=self._handle_close,
             on_reconnect=self._handle_reconnect,
         )
+
+        # 函数式事件注册
+        if on_message is not None:
+            self.registry.on("message", on_message)
+        if on_ready is not None:
+            self.registry.on("ready", on_ready)
+        if on_error is not None:
+            self.registry.on("error", on_error)
+        if on_close is not None:
+            self.registry.on("close", on_close)
+        if on_reconnect is not None:
+            self.registry.on("reconnect", on_reconnect)
+        if on_raw_event is not None:
+            self.registry.on("raw_event", on_raw_event)
 
     # -------------------------
     # 事件注册 API
@@ -74,6 +96,14 @@ class OopzBot:
         return self.on("message")
 
     @property
+    def on_private_message(self):
+        return self.registry.on("message.private")
+
+    @property
+    def on_recall(self):
+        return self.registry.on("recall")
+
+    @property
     def on_error(self):
         return self.on("error")
 
@@ -92,14 +122,16 @@ class OopzBot:
     # -------------------------
     # 生命周期
     # -------------------------
-    def run(self) -> None:
-        self.ws.start()
 
-    def start_async(self):
-        return self.ws.start_async()
+    async def start(self):
+        await self.rest.start()
+        await self.ws.start()
 
-    async def close(self) -> None:
-        self.ws.stop()
+    async def run(self):
+        await self.start()
+
+    async def stop(self):
+        await self.ws.stop()
         await self.rest.close()
 
     # -------------------------
@@ -153,54 +185,49 @@ class OopzBot:
             return message.get(name, default)
         return getattr(message, name, default)
 
-    def _make_context(self, *, event=None, message=None, trace_id: str = "") -> EventContext:
+    def _make_context(self, *, event=None, trace_id: str = "") -> EventContext:
         return EventContext(
             bot=self,
             config=self.config,
-            event=event,
-            message=message,
+            event=event
         )
 
     # -------------------------
     # WS 回调入口
     # -------------------------
-    def _handle_ws_message(self, raw: str) -> None:
+    async def _handle_ws_message(self, raw: str) -> None:
         try:
             event = self.parser.parse(raw)
         except Exception as exc:
             logger.exception("解析 WebSocket 消息失败: %s", exc)
-            ctx = self._make_context(event=exc, message=None)
-            self.dispatcher.dispatch_sync("error", exc, ctx)
+            ctx = self._make_context(event=exc)
+            await self.dispatcher.dispatch("error", exc, ctx)
             return
 
-        message = getattr(event, "message", None)
-        ctx = self._make_context(event=event, message=message)
+        ctx = self._make_context(event=event)
 
         if isinstance(event, MessageEvent) and self._should_ignore_self_message(event.message):
             return
 
-        # 先派发 raw_event，便于做底层调试 / 适配
-        self.dispatcher.dispatch_sync("raw_event", event, ctx)
+        await self.dispatcher.dispatch("raw_event", event, ctx)
+        await self.dispatcher.dispatch(event.name, event, ctx)
 
-        # 再派发语义事件
-        self.dispatcher.dispatch_sync(event.name, event, ctx)
-
-    def _handle_open(self) -> None:
+    async def _handle_open(self) -> None:
         ctx = self._make_context()
-        self.dispatcher.dispatch_sync("ready", None, ctx)
+        await self.dispatcher.dispatch("ready", None, ctx)
 
-    def _handle_error(self, error) -> None:
+    async def _handle_error(self, error) -> None:
         ctx = self._make_context(event=error)
-        self.dispatcher.dispatch_sync("error", error, ctx)
+        await self.dispatcher.dispatch("error", error, ctx)
 
-    def _handle_close(self, code, reason) -> None:
+    async def _handle_close(self, code, reason) -> None:
         payload = {"code": code, "reason": reason}
         ctx = self._make_context(event=payload)
-        self.dispatcher.dispatch_sync("close", payload, ctx)
+        await self.dispatcher.dispatch("close", payload, ctx)
 
-    def _handle_reconnect(self) -> None:
+    async def _handle_reconnect(self) -> None:
         ctx = self._make_context()
-        self.dispatcher.dispatch_sync("reconnect", None, ctx)
+        await self.dispatcher.dispatch("reconnect", None, ctx)
 
     def _should_ignore_self_message(self, message: Message) -> bool:
         """

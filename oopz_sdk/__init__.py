@@ -11,7 +11,7 @@ except ModuleNotFoundError:  # pragma: no cover - optional runtime dependency
 
 from .api import OopzApiMixin
 from .auth import Signer
-from .client import OopzClient, OopzRESTClient
+from .client import  OopzRESTClient
 from .config import (
     DEFAULT_HEADERS,
     EVENT_AUTH,

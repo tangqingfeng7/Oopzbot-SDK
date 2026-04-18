@@ -2,139 +2,67 @@ from __future__ import annotations
 
 import json
 import logging
-import threading
-import time
-from typing import Callable, Optional
+import aiohttp
 
-import websocket
-
-from oopz_sdk.config.constants import EVENT_AUTH, EVENT_HEARTBEAT
-from oopz_sdk.config.settings import HeartbeatConfig, OopzConfig, ProxyConfig
-
-from .proxy import build_websocket_proxy
+from oopz_sdk.config.settings import OopzConfig, ProxyConfig
+from .proxy import build_aiohttp_proxy
 
 logger = logging.getLogger("oopz_sdk.transport.websocket")
 
 
 class WebSocketTransport:
-    def __init__(
-        self,
-        config: OopzConfig,
-        *,
-        on_message: Optional[Callable[[str], None]] = None,
-        on_open: Optional[Callable[[], None]] = None,
-        on_close: Optional[Callable[[object, object], None]] = None,
-        on_error: Optional[Callable[[object], None]] = None,
-    ):
+    def __init__(self, config: OopzConfig):
         self.config = config
-        self.on_message = on_message
-        self.on_open = on_open
-        self.on_close = on_close
-        self.on_error = on_error
-        self._ws: Optional[websocket.WebSocketApp] = None
-        self._running = False
-        self._thread: Optional[threading.Thread] = None
-        self._hb_body = json.dumps({"person": config.person_uid})
+        self._session: aiohttp.ClientSession | None = None
+        self._ws: aiohttp.ClientWebSocketResponse | None = None
 
-    def connect_forever(self) -> None:
-        self._running = True
-        headers = self.config.get_headers()
-        ws_headers = {
-            "User-Agent": headers.get("User-Agent", ""),
-            "Origin": headers.get("Origin", ""),
-            "Cache-Control": headers.get("Cache-Control", ""),
-            "Accept-Language": headers.get("Accept-Language", ""),
-            "Accept-Encoding": headers.get("Accept-Encoding", ""),
-        }
-        self._ws = websocket.WebSocketApp(
+    async def connect(self) -> None:
+        if self._session is None or self._session.closed:
+            self._session = aiohttp.ClientSession(headers=self.config.get_headers())
+
+        proxy = build_aiohttp_proxy(self.config.ws_url, getattr(self.config, "proxy", ProxyConfig()))
+
+        self._ws = await self._session.ws_connect(
             self.config.ws_url,
-            header=ws_headers,
-            on_open=self._handle_open,
-            on_message=self._handle_message,
-            on_error=self._handle_error,
-            on_close=self._handle_close,
+            proxy=proxy,
+            heartbeat=None,
+            autoping=True,
         )
-        proxy = build_websocket_proxy(getattr(self.config, "proxy", ProxyConfig()))
-        kwargs = {}
-        if proxy and "://" in proxy:
-            try:
-                scheme, target = proxy.split("://", 1)
-                host_port = target.rsplit("@", 1)[-1]
-                host, port = host_port.split(":", 1)
-                kwargs["http_proxy_host"] = host
-                kwargs["http_proxy_port"] = int(port)
-                kwargs["proxy_type"] = scheme
-            except Exception:
-                logger.debug("Ignore unsupported websocket proxy format: %s", proxy)
-        self._ws.run_forever(ping_interval=0, ping_timeout=None, **kwargs)
 
-    def start_async(self) -> threading.Thread:
-        self._thread = threading.Thread(target=self.connect_forever, daemon=True)
-        self._thread.start()
-        return self._thread
-
-    def close(self) -> None:
-        self._running = False
-        if self._ws:
-            self._ws.close()
-
-    def send_auth(self) -> None:
+    async def recv(self) -> str:
         if self._ws is None:
-            return
-        auth_body = {
-            "person": self.config.person_uid,
-            "deviceId": self.config.device_id,
-            "signature": self.config.jwt_token,
-            "deviceName": self.config.device_id,
-            "platformName": "web",
-            "reconnect": 0,
-        }
-        self._ws.send(
-            json.dumps(
-                {
-                    "time": str(int(time.time() * 1000)),
-                    "body": json.dumps(auth_body),
-                    "event": EVENT_AUTH,
-                }
-            )
-        )
+            raise RuntimeError("WebSocket 未连接")
 
-    def send_heartbeat(self) -> None:
+        msg = await self._ws.receive()
+
+        if msg.type == aiohttp.WSMsgType.TEXT:
+            return msg.data
+
+        if msg.type == aiohttp.WSMsgType.BINARY:
+            return msg.data.decode("utf-8")
+
+        if msg.type == aiohttp.WSMsgType.ERROR:
+            raise RuntimeError(f"WebSocket error: {self._ws.exception()}")
+
+        if msg.type in (aiohttp.WSMsgType.CLOSE, aiohttp.WSMsgType.CLOSED):
+            raise ConnectionError("WebSocket 已关闭")
+
+        raise RuntimeError(f"未知 WebSocket 消息类型: {msg.type}")
+
+    async def send_json(self, data: dict) -> None:
         if self._ws is None:
-            return
-        self._ws.send(
-            json.dumps(
-                {
-                    "time": str(int(time.time() * 1000)),
-                    "body": self._hb_body,
-                    "event": EVENT_HEARTBEAT,
-                }
-            )
-        )
+            raise RuntimeError("WebSocket 未连接")
+        await self._ws.send_str(json.dumps(data, ensure_ascii=False))
 
-    def _heartbeat_loop(self) -> None:
-        while self._running:
-            heartbeat = getattr(self.config, "heartbeat", HeartbeatConfig())
-            time.sleep(heartbeat.interval)
-            if self._ws and self._ws.sock and self._ws.sock.connected:
-                self.send_heartbeat()
-            else:
-                break
+    async def close(self) -> None:
+        if self._ws is not None and not self._ws.closed:
+            await self._ws.close()
+        self._ws = None
 
-    def _handle_open(self, ws) -> None:
-        self.send_auth()
-        threading.Thread(target=self._heartbeat_loop, daemon=True).start()
-        if self.on_open:
-            self.on_open()
+        if self._session is not None and not self._session.closed:
+            await self._session.close()
+        self._session = None
 
-    def _handle_message(self, ws, message: str) -> None:
-        if self.on_message:
-            self.on_message(message)
-
-    def _handle_error(self, ws, error) -> None:
-        if self.on_error:
-            self.on_error(error)
-
-    def _handle_close(self, ws, code, reason) -> None:
-        if self.on_close:
-            self.on_close(code, reason)
+    @property
+    def closed(self) -> bool:
+        return self._ws is None or self._ws.closed

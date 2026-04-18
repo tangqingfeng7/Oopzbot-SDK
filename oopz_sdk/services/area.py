@@ -150,9 +150,7 @@ class AreaService(BaseService):
         try:
             resp = None
             for attempt in range(1, max_attempts + 1):
-                resp = await self._await_if_needed(self._get(url_path, params=params))
-                if resp is None:
-                    break
+                resp = await self._get(url_path, params=params)
                 if resp.status_code != 429:
                     break
 
@@ -361,7 +359,7 @@ class AreaService(BaseService):
         """获取当前用户已加入（订阅）的域列表。"""
         url_path = "/userSubscribeArea/v1/list"
         try:
-            resp = await self._await_if_needed(self._get(url_path))
+            resp = await self._get(url_path)
             if resp.status_code != 200:
                 logger.error("获取已加入域列表失败: HTTP %d", resp.status_code)
                 if as_model:
@@ -431,7 +429,7 @@ class AreaService(BaseService):
         url_path = "/area/v3/info"
         params = {"area": area}
         try:
-            resp = await self._await_if_needed(self._get(url_path, params=params))
+            resp = await self._get(url_path, params=params)
             if resp.status_code != 200:
                 logger.error("获取域详情失败: HTTP %d", resp.status_code)
                 if as_model:
@@ -474,7 +472,7 @@ class AreaService(BaseService):
         url_path = f"/client/v1/area/v1/enter?area={area}&recover={str(recover).lower()}"
         body = {"area": area, "recover": recover}
         try:
-            resp = await self._await_if_needed(self._post(url_path, body))
+            resp = await self._post(url_path, body)
             if resp.status_code != 200:
                 return {"error": f"HTTP {resp.status_code}"}
             result = resp.json()
@@ -492,7 +490,7 @@ class AreaService(BaseService):
         params = {"area": area}
 
         try:
-            resp = await self._await_if_needed(self._get(url_path, params=params))
+            resp = await self._get(url_path, params=params)
             if resp.status_code != 200:
                 logger.error("get_area_channels failed: HTTP %d", resp.status_code)
                 return self._error_payload(f"HTTP {resp.status_code}")

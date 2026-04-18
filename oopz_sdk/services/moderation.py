@@ -256,7 +256,7 @@ class Moderation(BaseService):
         full_path = url_path + query
         params = dict(parse_qsl(query.lstrip("?")))
         try:
-            resp = await self._await_if_needed(self._request("PATCH", url_path, body=body, params=params))
+            resp = await self._request("PATCH", url_path, body=body, params=params)
         except Exception as e:
             logger.error("%s请求异常: %s", action, e)
             return models.OperationResult(ok=False, message=str(e), payload=body)
