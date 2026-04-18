@@ -79,23 +79,48 @@ class Channel(BaseService):
 
     @classmethod
     def _to_channel_group_model(cls, payload: dict, *, area: str = "") -> models.ChannelGroup:
-        channels = payload.get("channels") or []
+        channels = payload.get("channels", [])
+        if channels is None:
+            channels = []
+        if not isinstance(channels, list):
+            raise ValueError("channel groups响应格式异常")
+        for channel in channels:
+            if not isinstance(channel, dict):
+                raise ValueError("channel groups响应格式异常")
         return models.ChannelGroup(
             id=str(payload.get("id") or ""),
             name=str(payload.get("name") or ""),
             channels=[
                 cls._to_channel_model(ch, area=area)
                 for ch in channels
-                if isinstance(ch, dict)
             ],
             payload=dict(payload),
         )
 
     @staticmethod
     def _to_channel_setting_model(payload: dict) -> models.ChannelSetting:
-        accessible_members = [
-            str(item) for item in payload.get("accessibleMembers", []) if str(item).strip()
-        ] if isinstance(payload.get("accessibleMembers"), list) else []
+        def _normalize_list_field(field_name: str, *, stringify: bool = False) -> list:
+            value = payload.get(field_name)
+            if value is None:
+                return []
+            if not isinstance(value, list):
+                raise ValueError("频道设置响应格式异常")
+            normalized = []
+            for item in value:
+                if item is None or isinstance(item, (dict, list, tuple, set)):
+                    raise ValueError("频道设置响应格式异常")
+                if stringify:
+                    text = str(item).strip()
+                    if text:
+                        normalized.append(text)
+                    continue
+                normalized.append(item)
+            return normalized
+
+        text_roles = _normalize_list_field("textRoles")
+        voice_roles = _normalize_list_field("voiceRoles")
+        accessible = _normalize_list_field("accessible")
+        accessible_members = _normalize_list_field("accessibleMembers", stringify=True)
         return models.ChannelSetting(
             channel=str(payload.get("channel") or payload.get("id") or ""),
             area=str(payload.get("area") or ""),
@@ -106,10 +131,10 @@ class Channel(BaseService):
             max_member=int(payload.get("maxMember", 30000) or 30000),
             voice_control_enabled=bool(payload.get("voiceControlEnabled")),
             text_control_enabled=bool(payload.get("textControlEnabled")),
-            text_roles=list(payload.get("textRoles") or []),
-            voice_roles=list(payload.get("voiceRoles") or []),
+            text_roles=text_roles,
+            voice_roles=voice_roles,
             access_control_enabled=bool(payload.get("accessControlEnabled")),
-            accessible=list(payload.get("accessible") or []),
+            accessible=accessible,
             accessible_members=accessible_members,
             secret=bool(payload.get("secret")),
             has_password=bool(payload.get("hasPassword")),
@@ -132,7 +157,7 @@ class Channel(BaseService):
         quiet: bool = False,
         *,
         as_model: bool = False,
-    ) -> list | models.ChannelGroupsResult:
+    ) -> list | dict | models.ChannelGroupsResult:
         """获取域内完整频道列表（含分组）。"""
         area = self._resolve_area(area)
         url_path = "/client/v1/area/v1/detail/v1/channels"
@@ -142,12 +167,69 @@ class Channel(BaseService):
             resp = await self._await_if_needed(self._get(url_path, params=params))
             if resp.status_code != 200:
                 logger.error("获取频道列表失败: HTTP %d", resp.status_code)
-                return []
+                if as_model:
+                    return self._model_error(
+                        models.ChannelGroupsResult,
+                        f"HTTP {resp.status_code}",
+                        response=resp,
+                    )
+                return {"error": f"HTTP {resp.status_code}"}
             result = resp.json()
             if not result.get("status"):
-                logger.error("获取频道列表失败: %s", result.get("message") or result.get("error"))
-                return []
-            groups = result.get("data") or []
+                msg = self._error_message(result)
+                logger.error("获取频道列表失败: %s", msg)
+                if as_model:
+                    return self._model_error(
+                        models.ChannelGroupsResult,
+                        msg,
+                        response=resp,
+                        payload=result,
+                    )
+                return {"error": msg}
+            groups = result.get("data", [])
+            if not isinstance(groups, list):
+                logger.error("获取频道列表失败: 响应格式异常")
+                if as_model:
+                    return self._model_error(
+                        models.ChannelGroupsResult,
+                        "channel groups响应格式异常",
+                        response=resp,
+                    )
+                return {"error": "channel groups响应格式异常"}
+            invalid_payload = self._invalid_dict_item_payload(
+                groups,
+                "channel groups响应格式异常",
+                list_key="groups",
+                payload={"groups": groups},
+            )
+            if invalid_payload:
+                if as_model:
+                    return self._model_error(
+                        models.ChannelGroupsResult,
+                        "channel groups响应格式异常",
+                        response=resp,
+                        payload=invalid_payload,
+                    )
+                return invalid_payload
+            for group in groups:
+                channels = group.get("channels", [])
+                if channels is None:
+                    channels = []
+                invalid_channels_payload = self._invalid_dict_item_payload(
+                    channels,
+                    "channel groups响应格式异常",
+                    list_key="channels",
+                    payload={"groups": groups},
+                )
+                if invalid_channels_payload:
+                    if as_model:
+                        return self._model_error(
+                            models.ChannelGroupsResult,
+                            "channel groups响应格式异常",
+                            response=resp,
+                            payload=invalid_channels_payload,
+                        )
+                    return invalid_channels_payload
             if not quiet:
                 total = sum(len(g.get("channels") or []) for g in groups)
                 logger.info("获取频道列表: %d 个频道, %d 个分组", total, len(groups))
@@ -156,7 +238,6 @@ class Channel(BaseService):
                     groups=[
                         self._to_channel_group_model(group, area=str(area))
                         for group in groups
-                        if isinstance(group, dict)
                     ],
                     payload={"groups": groups},
                     response=resp,
@@ -165,13 +246,19 @@ class Channel(BaseService):
         except Exception as e:
             logger.error("获取频道列表异常: %s", e)
             if as_model:
-                return models.ChannelGroupsResult(payload={"error": str(e)})
-            return []
+                return self._model_error(models.ChannelGroupsResult, str(e))
+            return {"error": str(e)}
 
     async def get_channel_setting_info(self, channel: str, *, as_model: bool = False) -> dict | models.ChannelSetting:
         """获取频道设置详情（名称、访问权限等）。"""
         channel = str(channel or "").strip()
         if not channel:
+            if as_model:
+                return self._model_error(
+                    models.ChannelSetting,
+                    "缺少 channel",
+                    channel="",
+                )
             return {"error": "缺少 channel"}
 
         url_path = "/area/v3/channel/setting/info"
@@ -180,20 +267,59 @@ class Channel(BaseService):
             resp = await self._await_if_needed(self._get(url_path, params=params))
             if resp.status_code != 200:
                 logger.error("获取频道设置失败: HTTP %d", resp.status_code)
+                if as_model:
+                    return self._model_error(
+                        models.ChannelSetting,
+                        f"HTTP {resp.status_code}",
+                        response=resp,
+                        channel=channel,
+                    )
                 return {"error": f"HTTP {resp.status_code}"}
             result = resp.json()
             if not result.get("status"):
-                msg = result.get("message") or result.get("error") or "未知错误"
+                msg = self._error_message(result)
                 logger.error("获取频道设置失败: %s", msg)
+                if as_model:
+                    return self._model_error(
+                        models.ChannelSetting,
+                        msg,
+                        response=resp,
+                        payload=result,
+                        channel=channel,
+                    )
                 return {"error": msg}
             data = result.get("data", {})
             if not isinstance(data, dict):
+                if as_model:
+                    return self._model_error(
+                        models.ChannelSetting,
+                        "频道设置响应格式异常",
+                        response=resp,
+                        channel=channel,
+                    )
+                return {"error": "频道设置响应格式异常"}
+            try:
+                model = self._to_channel_setting_model(data)
+            except ValueError:
+                if as_model:
+                    return self._model_error(
+                        models.ChannelSetting,
+                        "频道设置响应格式异常",
+                        response=resp,
+                        channel=channel,
+                )
                 return {"error": "频道设置响应格式异常"}
             if as_model:
-                return self._to_channel_setting_model(data)
+                return model
             return data
         except Exception as e:
             logger.error("获取频道设置异常: %s", e)
+            if as_model:
+                return self._model_error(
+                    models.ChannelSetting,
+                    str(e),
+                    channel=channel,
+                )
             return {"error": str(e)}
 
     async def _pick_channel_group(
@@ -201,8 +327,12 @@ class Channel(BaseService):
         area: str,
         preferred_channel: Optional[str] = None,
         preferred_group_name: Optional[str] = None,
-    ) -> Optional[str]:
-        groups = await self.get_area_channels(area=area, quiet=True) or []
+    ) -> Optional[str] | dict[str, str]:
+        groups = await self.get_area_channels(area=area, quiet=True)
+        if isinstance(groups, dict) and groups.get("error"):
+            return {"error": str(groups["error"])}
+        if not isinstance(groups, list):
+            return {"error": "channel groups响应格式异常"}
         preferred_channel = str(preferred_channel or "").strip()
         preferred_group_name = str(preferred_group_name or "").strip().lower()
 
@@ -223,6 +353,39 @@ class Channel(BaseService):
             return None
         return fallback
 
+    async def _rollback_created_channel(
+        self,
+        channel_id: str,
+        area: str,
+        message: str,
+    ) -> dict[str, str]:
+        cleanup_error = ""
+        try:
+            rollback_result = await self.delete_channel(channel_id, area=area)
+        except Exception as exc:
+            cleanup_error = str(exc)
+        else:
+            if isinstance(rollback_result, models.OperationResult):
+                if rollback_result.ok:
+                    return {"error": message}
+                cleanup_error = str(rollback_result.message or "删除新建频道失败")
+            elif isinstance(rollback_result, dict):
+                cleanup_error = str(
+                    rollback_result.get("error")
+                    or rollback_result.get("message")
+                    or "删除新建频道失败"
+                )
+            elif rollback_result:
+                return {"error": message}
+            else:
+                cleanup_error = "删除新建频道失败"
+
+        logger.error("回滚新建频道失败: channel=%s reason=%s", channel_id[:24], cleanup_error)
+        return {
+            "error": f"{message}；删除新建频道失败: {cleanup_error}",
+            "cleanup_error": cleanup_error,
+        }
+
     async def create_channel(
         self,
         area: Optional[str] = None,
@@ -237,7 +400,13 @@ class Channel(BaseService):
             return models.OperationResult(ok=False, message="频道名称不能为空")
 
         if not group_id:
-            group_id = await self._pick_channel_group(area) or ""
+            picked_group = await self._pick_channel_group(area)
+            if isinstance(picked_group, dict) and picked_group.get("error"):
+                return models.OperationResult(
+                    ok=False,
+                    message=f"获取频道分组失败: {picked_group['error']}",
+                )
+            group_id = str(picked_group or "")
             if not group_id:
                 return models.OperationResult(ok=False, message="未找到可用频道分组")
 
@@ -299,39 +468,27 @@ class Channel(BaseService):
         name: str = "",
     ) -> models.OperationResult:
         """修改频道设置。"""
-        area = area or self._config.default_area
+        area = self._resolve_area(area)
         channel_id = str(channel_id or "").strip()
         if not channel_id:
             return models.OperationResult(ok=False, message="缺少 channel_id")
 
-        setting = await self.get_channel_setting_info(channel_id)
-        if isinstance(setting, dict) and "error" in setting:
-            return models.OperationResult(ok=False, message=f"获取频道设置失败: {setting['error']}")
+        setting = await self.get_channel_setting_info(channel_id, as_model=True)
+        if isinstance(setting, dict):
+            if setting.get("error"):
+                return models.OperationResult(ok=False, message=f"获取频道设置失败: {setting['error']}")
+            return models.OperationResult(ok=False, message="获取频道设置失败: 频道设置响应格式异常")
+        if setting.payload.get("error"):
+            return models.OperationResult(ok=False, message=f"获取频道设置失败: {setting.payload['error']}")
 
         _BOOL_FIELDS = ("secret", "hasPassword", "voiceControlEnabled",
                         "textControlEnabled", "accessControlEnabled")
         _INT_FIELDS = ("textGapSecond", "maxMember")
         _STR_FIELDS = ("name", "voiceQuality", "voiceDelay", "password")
+        _LIST_FIELDS = ("textRoles", "voiceRoles", "accessible")
 
-        edit_body = {
-            "channel": channel_id,
-            "area": area,
-            "name": str(setting.get("name") or ""),
-            "textGapSecond": int(setting.get("textGapSecond", 0) or 0),
-            "voiceQuality": str(setting.get("voiceQuality") or "64k"),
-            "voiceDelay": str(setting.get("voiceDelay") or "LOW"),
-            "maxMember": int(setting.get("maxMember", 30000) or 30000),
-            "voiceControlEnabled": bool(setting.get("voiceControlEnabled")),
-            "textControlEnabled": bool(setting.get("textControlEnabled")),
-            "textRoles": list(setting.get("textRoles") or []),
-            "voiceRoles": list(setting.get("voiceRoles") or []),
-            "accessControlEnabled": bool(setting.get("accessControlEnabled")),
-            "accessible": list(setting.get("accessible") or []),
-            "accessibleMembers": list(setting.get("accessibleMembers") or []),
-            "secret": bool(setting.get("secret")),
-            "hasPassword": bool(setting.get("hasPassword")),
-            "password": str(setting.get("password") or ""),
-        }
+        edit_body = setting.to_edit_body(area=area)
+        edit_body["channel"] = channel_id
 
         if name:
             edit_body["name"] = name
@@ -343,6 +500,23 @@ class Channel(BaseService):
                     edit_body[k] = bool(v)
                 elif k in _STR_FIELDS:
                     edit_body[k] = str(v or "")
+                elif k in _LIST_FIELDS:
+                    if not isinstance(v, list):
+                        return models.OperationResult(ok=False, message="频道设置响应格式异常")
+                    if any(item is None or isinstance(item, (dict, list, tuple, set)) for item in v):
+                        return models.OperationResult(ok=False, message="频道设置响应格式异常")
+                    edit_body[k] = list(v)
+                elif k == "accessibleMembers":
+                    if not isinstance(v, list):
+                        return models.OperationResult(ok=False, message="频道设置响应格式异常")
+                    members = []
+                    for item in v:
+                        if item is None or isinstance(item, (dict, list, tuple, set)):
+                            return models.OperationResult(ok=False, message="频道设置响应格式异常")
+                        text = str(item).strip()
+                        if text:
+                            members.append(text)
+                    edit_body[k] = members
                 elif k in edit_body:
                     edit_body[k] = v
 
@@ -402,7 +576,10 @@ class Channel(BaseService):
         if not target_uid:
             return {"error": "缺少 target_uid"}
 
-        group_id = await self._pick_channel_group(area, preferred_channel=preferred_channel)
+        picked_group = await self._pick_channel_group(area, preferred_channel=preferred_channel)
+        if isinstance(picked_group, dict) and picked_group.get("error"):
+            return {"error": f"获取频道分组失败: {picked_group['error']}"}
+        group_id = str(picked_group or "")
         if not group_id:
             return {"error": "未找到可用频道分组"}
 
@@ -442,60 +619,72 @@ class Channel(BaseService):
         if not channel_id:
             return {"error": "创建频道成功，但未能提取频道 ID"}
 
-        setting = await self.get_channel_setting_info(channel_id)
-        if isinstance(setting, dict) and "error" in setting:
-            logger.warning("获取新频道设置失败，改用默认值: %s", setting["error"])
-            setting = {}
+        setting = await self.get_channel_setting_info(channel_id, as_model=True)
+        if isinstance(setting, dict):
+            if setting.get("error"):
+                logger.warning("获取新频道设置失败，回滚新建频道: %s", setting["error"])
+                return await self._rollback_created_channel(
+                    channel_id,
+                    area,
+                    f"获取频道设置失败: {setting['error']}",
+                )
+            logger.warning("获取新频道设置失败，回滚新建频道: 频道设置响应格式异常")
+            return await self._rollback_created_channel(
+                channel_id,
+                area,
+                "获取频道设置失败: 频道设置响应格式异常",
+            )
+        if setting.payload.get("error"):
+            logger.warning("获取新频道设置失败，回滚新建频道: %s", setting.payload["error"])
+            return await self._rollback_created_channel(
+                channel_id,
+                area,
+                f"获取频道设置失败: {setting.payload['error']}",
+            )
 
-        edit_body = {
-            "channel": channel_id,
-            "name": str(setting.get("name") or channel_name),
-            "textGapSecond": int(setting.get("textGapSecond", 0) or 0),
-            "area": area,
-            "voiceQuality": str(setting.get("voiceQuality") or "64k"),
-            "voiceDelay": str(setting.get("voiceDelay") or "LOW"),
-            "maxMember": int(setting.get("maxMember", 30000) or 30000),
-            "voiceControlEnabled": bool(setting.get("voiceControlEnabled", False)),
-            "textControlEnabled": bool(setting.get("textControlEnabled", False)),
-            "textRoles": list(setting.get("textRoles") or []),
-            "voiceRoles": list(setting.get("voiceRoles") or []),
-            "accessControlEnabled": True,
-            "accessible": [],
-            "accessibleMembers": [
-                uid for uid in dict.fromkeys([
-                    str(target_uid),
-                    str(self._config.person_uid or ""),
-                ]) if uid
-            ],
-            "secret": bool(setting.get("secret", True)),
-            "hasPassword": bool(setting.get("hasPassword", False)),
-            "password": str(setting.get("password") or ""),
-        }
+        edit_body = setting.to_edit_body(area=area)
+        edit_body["channel"] = channel_id
+        edit_body["name"] = str(setting.name or channel_name)
+        edit_body["accessControlEnabled"] = True
+        edit_body["accessible"] = []
+        edit_body["accessibleMembers"] = [
+            uid for uid in dict.fromkeys([
+                str(target_uid),
+                str(self._config.person_uid or ""),
+            ]) if uid
+        ]
+        edit_body["secret"] = True
+        edit_body["hasPassword"] = bool(setting.has_password)
+        edit_body["password"] = str(setting.password or "")
 
         edit_path = "/area/v3/channel/setting/edit"
         try:
             edit_resp = await self._await_if_needed(self._post(edit_path, edit_body))
         except Exception as e:
             logger.error("设置受限频道权限异常: %s", e)
-            await self.delete_channel(channel_id, area=area)
-            return {"error": str(e)}
+            return await self._rollback_created_channel(channel_id, area, str(e))
 
         edit_raw = edit_resp.text or ""
         logger.info("设置受限频道权限 POST %s -> HTTP %d, body: %s", edit_path, edit_resp.status_code, edit_raw[:300])
         if edit_resp.status_code != 200:
-            await self.delete_channel(channel_id, area=area)
-            return {"error": f"HTTP {edit_resp.status_code}" + (f" | {edit_raw[:200]}" if edit_raw else "")}
+            return await self._rollback_created_channel(
+                channel_id,
+                area,
+                f"HTTP {edit_resp.status_code}" + (f" | {edit_raw[:200]}" if edit_raw else ""),
+            )
 
         try:
             edit_result = edit_resp.json()
         except Exception:
-            await self.delete_channel(channel_id, area=area)
-            return {"error": f"权限设置响应非 JSON: {edit_raw[:200]}"}
+            return await self._rollback_created_channel(
+                channel_id,
+                area,
+                f"权限设置响应非 JSON: {edit_raw[:200]}",
+            )
 
         if not edit_result.get("status"):
-            await self.delete_channel(channel_id, area=area)
             msg = edit_result.get("message") or edit_result.get("error") or "权限设置失败"
-            return {"error": str(msg)}
+            return await self._rollback_created_channel(channel_id, area, str(msg))
 
         logger.info("创建受限频道成功: channel=%s target=%s", channel_id[:24], target_uid[:12])
         return {
@@ -609,12 +798,16 @@ class Channel(BaseService):
         logger.error("退出语音频道失败: %s", err)
         return {"error": err}
 
-    async def _get_voice_channel_ids(self, area: str) -> list[str]:
+    async def _get_voice_channel_ids(self, area: str) -> list[str] | dict[str, str]:
         cache_store = self._get_voice_ids_cache_store()
         cached = cache_store.get(area)
         if cached and time.time() - cached["ts"] < 300:
             return cached["ids"]
         groups = await self.get_area_channels(area, quiet=True)
+        if isinstance(groups, dict) and groups.get("error"):
+            return {"error": str(groups["error"])}
+        if not isinstance(groups, list):
+            return {"error": "channel groups响应格式异常"}
         ids = []
         for g in groups:
             for ch in g.get("channels") or []:
@@ -632,6 +825,14 @@ class Channel(BaseService):
         """获取域内各语音频道的在线成员列表。"""
         area = self._resolve_area(area)
         voice_ids = await self._get_voice_channel_ids(area)
+        if isinstance(voice_ids, dict) and voice_ids.get("error"):
+            if as_model:
+                return self._model_error(
+                    models.VoiceChannelMembersResult,
+                    str(voice_ids["error"]),
+                    payload=voice_ids,
+                )
+            return voice_ids
         if not voice_ids:
             if as_model:
                 return models.VoiceChannelMembersResult()
@@ -651,14 +852,58 @@ class Channel(BaseService):
                 if resp.status_code != 200:
                     logger.error("获取语音频道成员失败: HTTP %d", resp.status_code)
                     if as_model:
-                        return models.VoiceChannelMembersResult(payload={"error": f"HTTP {resp.status_code}"}, response=resp)
-                    return {}
+                        return self._model_error(
+                            models.VoiceChannelMembersResult,
+                            f"HTTP {resp.status_code}",
+                            response=resp,
+                        )
+                    return {"error": f"HTTP {resp.status_code}"}
                 result = resp.json()
                 if not result.get("status"):
                     if as_model:
-                        return models.VoiceChannelMembersResult(payload=result, response=resp)
-                    return {}
-                data = result.get("data", {}).get("channelMembers", {})
+                        return self._model_error(
+                            models.VoiceChannelMembersResult,
+                            self._error_message(result),
+                            response=resp,
+                            payload=result,
+                        )
+                    return {"error": self._error_message(result)}
+                payload_data = result.get("data", {})
+                if not isinstance(payload_data, dict):
+                    if as_model:
+                        return self._model_error(
+                            models.VoiceChannelMembersResult,
+                            "voice channel members响应格式异常",
+                            response=resp,
+                        )
+                    logger.error("获取语音频道成员失败: 响应格式异常")
+                    return {"error": "voice channel members响应格式异常"}
+                data = payload_data.get("channelMembers", {})
+                if not isinstance(data, dict):
+                    if as_model:
+                        return self._model_error(
+                            models.VoiceChannelMembersResult,
+                            "voice channel members响应格式异常",
+                            response=resp,
+                        )
+                    logger.error("获取语音频道成员失败: channelMembers格式异常")
+                    return {"error": "voice channel members响应格式异常"}
+                for channel_id, members in data.items():
+                    invalid_members_payload = self._invalid_dict_item_payload(
+                        members,
+                        "voice channel members响应格式异常",
+                        list_key=f"channelMembers.{channel_id}",
+                        payload=result,
+                    )
+                    if invalid_members_payload:
+                        if as_model:
+                            return self._model_error(
+                                models.VoiceChannelMembersResult,
+                                "voice channel members响应格式异常",
+                                response=resp,
+                                payload=invalid_members_payload,
+                            )
+                        return invalid_members_payload
                 if as_model:
                     return models.VoiceChannelMembersResult(
                         channels={
@@ -672,10 +917,8 @@ class Channel(BaseService):
                                     payload=dict(member),
                                 )
                                 for member in members
-                                if isinstance(member, dict)
                             ]
                             for channel_id, members in data.items()
-                            if isinstance(members, list)
                         },
                         payload=result,
                         response=resp,
@@ -684,16 +927,18 @@ class Channel(BaseService):
             except Exception as e:
                 logger.error("获取语音频道成员异常: %s", e)
                 if as_model:
-                    return models.VoiceChannelMembersResult(payload={"error": str(e)})
-                return {}
+                    return self._model_error(models.VoiceChannelMembersResult, str(e))
+                return {"error": str(e)}
         logger.error("获取语音频道成员失败: 重试次数用尽")
         if as_model:
-            return models.VoiceChannelMembersResult(payload={"error": "重试次数用尽"})
-        return {}
+            return self._model_error(models.VoiceChannelMembersResult, "重试次数用尽")
+        return {"error": "重试次数用尽"}
 
     async def get_voice_channel_for_user(self, user_uid: str, area: Optional[str] = None) -> Optional[str]:
         """获取用户当前所在的语音频道 ID，不在任何语音频道则返回 None。"""
         members = await self.get_voice_channel_members(area=area)
+        if not isinstance(members, dict) or members.get("error"):
+            return None
         for ch_id, ch_members in members.items():
             if not ch_members:
                 continue

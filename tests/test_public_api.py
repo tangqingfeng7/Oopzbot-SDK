@@ -1,9 +1,11 @@
 import asyncio
 import json
+from pathlib import Path
 
 import aiohttp
 import oopz_sdk.api as sdk_api_module
 import oopz_sdk.client as sdk_client_module
+import oopz_sdk.client.rest as rest_client_module
 import oopz_sdk.config as sdk_config_module
 import oopz_sdk.models as sdk_models_module
 import oopz_sdk.response as sdk_response_module
@@ -176,6 +178,88 @@ def test_send_message_v2_builds_wrapped_payload(monkeypatch) -> None:
     ]
     assert "(met)user-1(met)" in captured["body"]["message"]["content"]
     assert result.message_id == "msg-v2"
+
+
+def test_list_sessions_uses_shared_response_helpers(monkeypatch) -> None:
+    sender = OopzRESTClient(_make_config())
+    calls: list[tuple[str, object, str]] = []
+
+    monkeypatch.setattr(
+        sender,
+        "_post",
+        lambda url_path, body: _FakeResponse(
+            200,
+            payload={"status": True, "data": [{"channel": "DM123"}]},
+        ),
+    )
+
+    def _fake_ensure_success_payload(response, default_message: str):
+        calls.append(("ensure", response, default_message))
+        return {"data": [{"channel": "DM123"}]}
+
+    def _fake_require_list_data(payload, default_message: str):
+        calls.append(("list", payload, default_message))
+        return [{"channel": "DM123"}]
+
+    monkeypatch.setattr(
+        rest_client_module,
+        "ensure_success_payload",
+        _fake_ensure_success_payload,
+    )
+    monkeypatch.setattr(
+        rest_client_module,
+        "require_list_data",
+        _fake_require_list_data,
+    )
+
+    result = _run(sender.list_sessions("123456"))
+
+    assert result == [{"channel": "DM123"}]
+    assert len(calls) == 2
+    assert calls[0][0] == "ensure"
+    assert calls[0][2] == "failed to list sessions"
+    assert calls[1] == (
+        "list",
+        {"data": [{"channel": "DM123"}]},
+        "failed to list sessions",
+    )
+
+
+def test_rest_client_does_not_keep_response_helper_wrappers() -> None:
+    source = Path("oopz_sdk/client/rest.py").read_text(encoding="utf-8")
+
+    assert "def _ensure_success_payload(" not in source
+    assert "def _require_dict_data(" not in source
+    assert "def _require_list_data(" not in source
+
+
+def test_get_system_message_list_raises_api_error_when_entry_is_invalid(
+    monkeypatch,
+) -> None:
+    sender = OopzRESTClient(_make_config())
+
+    monkeypatch.setattr(
+        sender,
+        "_get",
+        lambda url_path, params=None: _FakeResponse(
+            200,
+            payload={
+                "status": True,
+                "data": {
+                    "list": [
+                        {"id": "sys-1"},
+                        "broken-system-message",
+                    ]
+                },
+            },
+        ),
+    )
+
+    with pytest.raises(OopzApiError) as exc_info:
+        _run(sender.get_system_message_list())
+
+    assert str(exc_info.value) == "failed to get system messages"
+    assert exc_info.value.response["invalid_index"] == 1
 
 
 def test_send_message_raises_rate_limit_error(monkeypatch) -> None:
@@ -361,6 +445,713 @@ def test_get_voice_channel_members_returns_model(monkeypatch) -> None:
     assert result.channels["voice-1"][0]["uid"] == "u1"
 
 
+def test_get_voice_channel_members_raises_api_error_when_model_payload_contains_error(
+    monkeypatch,
+) -> None:
+    sender = OopzRESTClient(_make_config())
+
+    async def _fake_get_voice_channel_members(*args, **kwargs):
+        return VoiceChannelMembersResult(payload={"error": "voice members unavailable"})
+
+    monkeypatch.setattr(
+        sender.channels,
+        "get_voice_channel_members",
+        _fake_get_voice_channel_members,
+    )
+
+    with pytest.raises(OopzApiError) as exc_info:
+        _run(sender.get_voice_channel_members())
+
+    assert str(exc_info.value) == "voice members unavailable"
+    assert exc_info.value.response == {"error": "voice members unavailable"}
+
+
+def test_get_voice_channel_members_raises_api_error_when_model_payload_contains_failed_status(
+    monkeypatch,
+) -> None:
+    sender = OopzRESTClient(_make_config())
+
+    async def _fake_get_voice_channel_members(*args, **kwargs):
+        return VoiceChannelMembersResult(
+            payload={"status": False, "message": "voice members rejected"}
+        )
+
+    monkeypatch.setattr(
+        sender.channels,
+        "get_voice_channel_members",
+        _fake_get_voice_channel_members,
+    )
+
+    with pytest.raises(OopzApiError) as exc_info:
+        _run(sender.get_voice_channel_members())
+
+    assert str(exc_info.value) == "voice members rejected"
+    assert exc_info.value.response == {
+        "status": False,
+        "message": "voice members rejected",
+    }
+
+
+def test_get_voice_channel_members_raises_api_error_when_model_payload_reports_invalid_member(
+    monkeypatch,
+) -> None:
+    sender = OopzRESTClient(_make_config())
+
+    async def _get_voice_channel_ids(area):
+        return ["voice-1"]
+
+    monkeypatch.setattr(sender.channels, "_get_voice_channel_ids", _get_voice_channel_ids)
+    monkeypatch.setattr(
+        sender.channels,
+        "_post",
+        lambda url_path, body: _FakeResponse(
+            200,
+            payload={
+                "status": True,
+                "data": {"channelMembers": {"voice-1": [{"uid": "u1"}, "broken-member"]}},
+            },
+        ),
+    )
+
+    with pytest.raises(OopzApiError) as exc_info:
+        _run(sender.get_voice_channel_members())
+
+    assert str(exc_info.value) == "voice channel members响应格式异常"
+    assert exc_info.value.response["list_key"] == "channelMembers.voice-1"
+    assert exc_info.value.response["invalid_index"] == 1
+
+
+def test_get_area_channels_raises_api_error_when_model_payload_contains_error(
+    monkeypatch,
+) -> None:
+    sender = OopzRESTClient(_make_config())
+
+    async def _fake_get_area_channels(*args, **kwargs):
+        return sdk_models_module.ChannelGroupsResult(payload={"error": "area channels unavailable"})
+
+    monkeypatch.setattr(
+        sender.channels,
+        "get_area_channels",
+        _fake_get_area_channels,
+    )
+
+    with pytest.raises(OopzApiError) as exc_info:
+        _run(sender.get_area_channels())
+
+    assert str(exc_info.value) == "area channels unavailable"
+    assert exc_info.value.response == {"error": "area channels unavailable"}
+
+
+def test_get_area_channels_raises_api_error_when_model_payload_reports_invalid_group(
+    monkeypatch,
+) -> None:
+    sender = OopzRESTClient(_make_config())
+
+    monkeypatch.setattr(
+        sender.channels,
+        "_get",
+        lambda url_path, params=None: _FakeResponse(
+            200,
+            payload={"status": True, "data": [{"id": "group-1"}, "broken-group"]},
+        ),
+    )
+
+    with pytest.raises(OopzApiError) as exc_info:
+        _run(sender.get_area_channels())
+
+    assert str(exc_info.value) == "channel groups响应格式异常"
+    assert exc_info.value.response["invalid_index"] == 1
+
+
+def test_get_area_channels_raises_api_error_when_model_payload_reports_invalid_channel(
+    monkeypatch,
+) -> None:
+    sender = OopzRESTClient(_make_config())
+
+    monkeypatch.setattr(
+        sender.channels,
+        "_get",
+        lambda url_path, params=None: _FakeResponse(
+            200,
+            payload={
+                "status": True,
+                "data": [
+                    {
+                        "id": "group-1",
+                        "channels": [{"id": "channel-1"}, "broken-channel"],
+                    }
+                ],
+            },
+        ),
+    )
+
+    with pytest.raises(OopzApiError) as exc_info:
+        _run(sender.get_area_channels())
+
+    assert str(exc_info.value) == "channel groups响应格式异常"
+    assert exc_info.value.response["list_key"] == "channels"
+    assert exc_info.value.response["invalid_index"] == 1
+
+
+def test_get_area_channels_raises_api_error_when_model_payload_reports_falsey_data(
+    monkeypatch,
+) -> None:
+    sender = OopzRESTClient(_make_config())
+
+    monkeypatch.setattr(
+        sender.channels,
+        "_get",
+        lambda url_path, params=None: _FakeResponse(
+            200,
+            payload={"status": True, "data": ""},
+        ),
+    )
+
+    with pytest.raises(OopzApiError) as exc_info:
+        _run(sender.get_area_channels())
+
+    assert str(exc_info.value) == "channel groups响应格式异常"
+    assert exc_info.value.response == {"error": "channel groups响应格式异常"}
+
+
+def test_get_channel_setting_info_raises_api_error_when_model_payload_contains_error(
+    monkeypatch,
+) -> None:
+    sender = OopzRESTClient(_make_config())
+
+    async def _fake_get_channel_setting_info(*args, **kwargs):
+        return sdk_models_module.ChannelSetting(
+            channel="channel-1",
+            payload={"error": "channel setting unavailable"},
+        )
+
+    monkeypatch.setattr(
+        sender.channels,
+        "get_channel_setting_info",
+        _fake_get_channel_setting_info,
+    )
+
+    with pytest.raises(OopzApiError) as exc_info:
+        _run(sender.get_channel_setting_info("channel-1"))
+
+    assert str(exc_info.value) == "channel setting unavailable"
+    assert exc_info.value.response == {"error": "channel setting unavailable"}
+
+
+def test_get_channel_setting_info_raises_api_error_when_channel_missing() -> None:
+    sender = OopzRESTClient(_make_config())
+
+    with pytest.raises(OopzApiError) as exc_info:
+        _run(sender.get_channel_setting_info(""))
+
+    assert str(exc_info.value) == "缺少 channel"
+    assert exc_info.value.response == {"error": "缺少 channel"}
+
+
+def test_get_channel_setting_info_raises_api_error_when_model_payload_reports_malformed_roles(
+    monkeypatch,
+) -> None:
+    sender = OopzRESTClient(_make_config())
+
+    monkeypatch.setattr(
+        sender.channels,
+        "_get",
+        lambda url_path, params=None: _FakeResponse(
+            200,
+            payload={
+                "status": True,
+                "data": {
+                    "channel": "channel-1",
+                    "textRoles": "broken-roles",
+                },
+            },
+        ),
+    )
+
+    with pytest.raises(OopzApiError) as exc_info:
+        _run(sender.get_channel_setting_info("channel-1"))
+
+    assert str(exc_info.value) == "频道设置响应格式异常"
+    assert exc_info.value.response == {"error": "频道设置响应格式异常"}
+
+
+def test_get_channel_setting_info_raises_runtime_error_when_service_breaks_model_contract(
+    monkeypatch,
+) -> None:
+    sender = OopzRESTClient(_make_config())
+
+    async def _fake_get_channel_setting_info(*args, **kwargs):
+        return {"error": "旧式字典返回"}
+
+    monkeypatch.setattr(
+        sender.channels,
+        "get_channel_setting_info",
+        _fake_get_channel_setting_info,
+    )
+
+    with pytest.raises(RuntimeError, match="模型接口返回了字典"):
+        _run(sender.get_channel_setting_info("channel-1"))
+
+
+def test_get_area_blocks_raises_api_error_when_model_payload_contains_error(
+    monkeypatch,
+) -> None:
+    sender = OopzRESTClient(_make_config())
+
+    async def _fake_get_area_blocks(*args, **kwargs):
+        return sdk_models_module.AreaBlocksResult(payload={"error": "area blocks unavailable"})
+
+    monkeypatch.setattr(
+        sender.moderation,
+        "get_area_blocks",
+        _fake_get_area_blocks,
+    )
+
+    with pytest.raises(OopzApiError) as exc_info:
+        _run(sender.get_area_blocks())
+
+    assert str(exc_info.value) == "area blocks unavailable"
+    assert exc_info.value.response == {"error": "area blocks unavailable"}
+
+
+def test_get_area_blocks_raises_api_error_when_model_payload_reports_invalid_block(
+    monkeypatch,
+) -> None:
+    sender = OopzRESTClient(_make_config())
+
+    monkeypatch.setattr(
+        sender.moderation,
+        "_get",
+        lambda url_path, params=None: _FakeResponse(
+            200,
+            payload={"status": True, "data": {"blocks": [{"uid": "u1"}, "broken-block"]}},
+        ),
+    )
+
+    with pytest.raises(OopzApiError) as exc_info:
+        _run(sender.get_area_blocks())
+
+    assert str(exc_info.value) == "area blocks响应格式异常"
+    assert exc_info.value.response["invalid_index"] == 1
+
+
+def test_get_area_info_raises_api_error_when_model_payload_contains_error(
+    monkeypatch,
+) -> None:
+    sender = OopzRESTClient(_make_config())
+
+    async def _fake_get_area_info(*args, **kwargs):
+        return sdk_models_module.Area(payload={"error": "area info unavailable"})
+
+    monkeypatch.setattr(
+        sender.areas,
+        "get_area_info",
+        _fake_get_area_info,
+    )
+
+    with pytest.raises(OopzApiError) as exc_info:
+        _run(sender.get_area_info())
+
+    assert str(exc_info.value) == "area info unavailable"
+    assert exc_info.value.response == {"error": "area info unavailable"}
+
+
+def test_get_area_info_preserves_status_code_when_model_http_error_occurs(
+    monkeypatch,
+) -> None:
+    sender = OopzRESTClient(_make_config())
+
+    monkeypatch.setattr(
+        sender.areas,
+        "_get",
+        lambda url_path, params=None: _FakeResponse(503, text="gateway error"),
+    )
+
+    with pytest.raises(OopzApiError) as exc_info:
+        _run(sender.get_area_info("area-1"))
+
+    assert str(exc_info.value) == "HTTP 503"
+    assert exc_info.value.status_code == 503
+    assert exc_info.value.response == {"error": "HTTP 503"}
+
+
+def test_get_joined_areas_raises_api_error_when_model_payload_contains_error(
+    monkeypatch,
+) -> None:
+    sender = OopzRESTClient(_make_config())
+
+    async def _fake_get_joined_areas(*args, **kwargs):
+        return sdk_models_module.JoinedAreasResult(payload={"error": "joined areas unavailable"})
+
+    monkeypatch.setattr(
+        sender.areas,
+        "get_joined_areas",
+        _fake_get_joined_areas,
+    )
+
+    with pytest.raises(OopzApiError) as exc_info:
+        _run(sender.get_joined_areas())
+
+    assert str(exc_info.value) == "joined areas unavailable"
+    assert exc_info.value.response == {"error": "joined areas unavailable"}
+
+
+def test_get_joined_areas_raises_api_error_when_model_payload_reports_invalid_area(
+    monkeypatch,
+) -> None:
+    sender = OopzRESTClient(_make_config())
+
+    monkeypatch.setattr(
+        sender.areas,
+        "_get",
+        lambda url_path, params=None: _FakeResponse(
+            200,
+            payload={"status": True, "data": [{"id": "area-1"}, "broken-area"]},
+        ),
+    )
+
+    with pytest.raises(OopzApiError) as exc_info:
+        _run(sender.get_joined_areas())
+
+    assert str(exc_info.value) == "joined areas响应格式异常"
+    assert exc_info.value.response["invalid_index"] == 1
+
+
+def test_populate_names_returns_failed_operation_result_when_service_reports_error(
+    monkeypatch,
+) -> None:
+    sender = OopzRESTClient(_make_config())
+
+    async def _fake_populate_names(*args, **kwargs):
+        return {"error": "joined areas unavailable"}
+
+    monkeypatch.setattr(
+        sender.areas,
+        "populate_names",
+        _fake_populate_names,
+    )
+
+    result = _run(sender.populate_names())
+
+    assert result.ok is False
+    assert result.message == "joined areas unavailable"
+    assert result.payload == {"error": "joined areas unavailable"}
+
+
+def test_get_person_infos_batch_raises_api_error_when_service_reports_error(
+    monkeypatch,
+) -> None:
+    sender = OopzRESTClient(_make_config())
+
+    async def _fake_get_person_infos_batch(*args, **kwargs):
+        return {"error": "批量获取用户信息失败: HTTP 503"}
+
+    monkeypatch.setattr(
+        sender.members,
+        "get_person_infos_batch",
+        _fake_get_person_infos_batch,
+    )
+
+    with pytest.raises(OopzApiError) as exc_info:
+        _run(sender.get_person_infos_batch(["u1"]))
+
+    assert str(exc_info.value) == "批量获取用户信息失败: HTTP 503"
+    assert exc_info.value.response == {"error": "批量获取用户信息失败: HTTP 503"}
+
+
+def test_get_person_infos_batch_raises_api_error_when_service_returns_invalid_entry(
+    monkeypatch,
+) -> None:
+    sender = OopzRESTClient(_make_config())
+
+    async def _fake_get_person_infos_batch(*args, **kwargs):
+        return {"u1": {"uid": "u1"}, "u2": "broken-person"}
+
+    monkeypatch.setattr(
+        sender.members,
+        "get_person_infos_batch",
+        _fake_get_person_infos_batch,
+    )
+
+    with pytest.raises(OopzApiError) as exc_info:
+        _run(sender.get_person_infos_batch(["u1", "u2"]))
+
+    assert str(exc_info.value) == "failed to get person infos batch"
+    assert exc_info.value.response["invalid_uid"] == "u2"
+
+
+def test_get_person_infos_batch_raises_api_error_with_partial_result_when_service_reports_later_batch_failure(
+    monkeypatch,
+) -> None:
+    sender = OopzRESTClient(_make_config())
+
+    async def _fake_get_person_infos_batch(*args, **kwargs):
+        return {
+            "error": "批量获取用户信息失败: HTTP 503",
+            "partial_results": {"u1": {"uid": "u1", "name": "Alice"}},
+        }
+
+    monkeypatch.setattr(
+        sender.members,
+        "get_person_infos_batch",
+        _fake_get_person_infos_batch,
+    )
+
+    with pytest.raises(OopzApiError) as exc_info:
+        _run(sender.get_person_infos_batch(["u1", "u2"]))
+
+    assert str(exc_info.value) == "批量获取用户信息失败: HTTP 503"
+    assert exc_info.value.response["partial_results"] == {
+        "u1": {"uid": "u1", "name": "Alice"}
+    }
+
+
+def test_get_person_infos_batch_raises_rate_limit_error_with_partial_result_when_service_reports_later_batch_rate_limit(
+    monkeypatch,
+) -> None:
+    sender = OopzRESTClient(_make_config())
+
+    async def _fake_get_person_infos_batch(*args, **kwargs):
+        return {
+            "error": "批量获取用户信息失败: HTTP 429",
+            "status_code": 429,
+            "retry_after": 7,
+            "partial_results": {"u1": {"uid": "u1", "name": "Alice"}},
+        }
+
+    monkeypatch.setattr(
+        sender.members,
+        "get_person_infos_batch",
+        _fake_get_person_infos_batch,
+    )
+
+    with pytest.raises(OopzRateLimitError) as exc_info:
+        _run(sender.get_person_infos_batch(["u1", "u2"]))
+
+    assert str(exc_info.value) == "批量获取用户信息失败: HTTP 429"
+    assert exc_info.value.status_code == 429
+    assert exc_info.value.retry_after == 7
+    assert exc_info.value.response["partial_results"] == {
+        "u1": {"uid": "u1", "name": "Alice"}
+    }
+
+
+def test_get_assignable_roles_raises_api_error_when_service_reports_error(
+    monkeypatch,
+) -> None:
+    sender = OopzRESTClient(_make_config())
+
+    async def _fake_get_assignable_roles(*args, **kwargs):
+        return {"error": "role list unavailable"}
+
+    monkeypatch.setattr(
+        sender.members,
+        "get_assignable_roles",
+        _fake_get_assignable_roles,
+    )
+
+    with pytest.raises(OopzApiError) as exc_info:
+        _run(sender.get_assignable_roles("target-1"))
+
+    assert str(exc_info.value) == "role list unavailable"
+    assert exc_info.value.response == {"error": "role list unavailable"}
+
+
+def test_get_assignable_roles_raises_rate_limit_error_on_http_429(
+    monkeypatch,
+) -> None:
+    sender = OopzRESTClient(_make_config())
+
+    monkeypatch.setattr(
+        sender.members,
+        "_get",
+        lambda *args, **kwargs: _FakeResponse(
+            429,
+            payload={"message": "too fast"},
+            headers={"Retry-After": "7"},
+        ),
+    )
+
+    with pytest.raises(OopzRateLimitError) as exc_info:
+        _run(sender.get_assignable_roles("target-1"))
+
+    assert str(exc_info.value) == "HTTP 429"
+    assert exc_info.value.status_code == 429
+    assert exc_info.value.retry_after == 7
+    assert exc_info.value.response == {
+        "error": "HTTP 429",
+        "status_code": 429,
+        "retry_after": 7,
+    }
+
+
+def test_get_assignable_roles_raises_api_error_when_service_returns_invalid_entry(
+    monkeypatch,
+) -> None:
+    sender = OopzRESTClient(_make_config())
+
+    async def _fake_get_assignable_roles(*args, **kwargs):
+        return [{"roleID": 1}, "broken-role"]
+
+    monkeypatch.setattr(
+        sender.members,
+        "get_assignable_roles",
+        _fake_get_assignable_roles,
+    )
+
+    with pytest.raises(OopzApiError) as exc_info:
+        _run(sender.get_assignable_roles("target-1"))
+
+    assert str(exc_info.value) == "failed to get assignable roles"
+    assert exc_info.value.response["invalid_index"] == 1
+
+
+def test_search_area_members_raises_api_error_when_service_reports_error(
+    monkeypatch,
+) -> None:
+    sender = OopzRESTClient(_make_config())
+
+    async def _fake_search_area_members(*args, **kwargs):
+        return {"error": "search members unavailable"}
+
+    monkeypatch.setattr(
+        sender.members,
+        "search_area_members",
+        _fake_search_area_members,
+    )
+
+    with pytest.raises(OopzApiError) as exc_info:
+        _run(sender.search_area_members(keyword="alice"))
+
+    assert str(exc_info.value) == "search members unavailable"
+    assert exc_info.value.response == {"error": "search members unavailable"}
+
+
+def test_search_area_members_raises_rate_limit_error_on_http_429(
+    monkeypatch,
+) -> None:
+    sender = OopzRESTClient(_make_config())
+
+    monkeypatch.setattr(
+        sender.members,
+        "_post",
+        lambda *args, **kwargs: _FakeResponse(
+            429,
+            payload={"message": "too fast"},
+            headers={"Retry-After": "5"},
+        ),
+    )
+
+    with pytest.raises(OopzRateLimitError) as exc_info:
+        _run(sender.search_area_members(keyword="alice"))
+
+    assert str(exc_info.value) == "HTTP 429"
+    assert exc_info.value.status_code == 429
+    assert exc_info.value.retry_after == 5
+    assert exc_info.value.response == {
+        "error": "HTTP 429",
+        "status_code": 429,
+        "retry_after": 5,
+    }
+
+
+def test_get_person_detail_raises_api_error_when_model_payload_contains_error(
+    monkeypatch,
+) -> None:
+    sender = OopzRESTClient(_make_config())
+
+    async def _fake_get_person_detail(*args, **kwargs):
+        return sdk_models_module.PersonDetail(payload={"error": "person detail unavailable"})
+
+    monkeypatch.setattr(
+        sender.members,
+        "get_person_detail",
+        _fake_get_person_detail,
+    )
+
+    with pytest.raises(OopzApiError) as exc_info:
+        _run(sender.get_person_detail("u1"))
+
+    assert str(exc_info.value) == "person detail unavailable"
+    assert exc_info.value.response == {"error": "person detail unavailable"}
+
+
+def test_get_self_detail_raises_api_error_when_model_payload_contains_error(
+    monkeypatch,
+) -> None:
+    sender = OopzRESTClient(_make_config())
+
+    async def _fake_get_self_detail(*args, **kwargs):
+        return sdk_models_module.SelfDetail(payload={"error": "self detail unavailable"})
+
+    monkeypatch.setattr(
+        sender.members,
+        "get_self_detail",
+        _fake_get_self_detail,
+    )
+
+    with pytest.raises(OopzApiError) as exc_info:
+        _run(sender.get_self_detail())
+
+    assert str(exc_info.value) == "self detail unavailable"
+    assert exc_info.value.response == {"error": "self detail unavailable"}
+
+
+def test_get_self_detail_preserves_status_code_when_model_payload_contains_http_error(
+    monkeypatch,
+) -> None:
+    sender = OopzRESTClient(_make_config())
+
+    async def _fake_get_self_detail(*args, **kwargs):
+        return sdk_models_module.SelfDetail(
+            payload={"error": "HTTP 503"},
+            response=_FakeResponse(503, text="gateway error"),
+        )
+
+    monkeypatch.setattr(
+        sender.members,
+        "get_self_detail",
+        _fake_get_self_detail,
+    )
+
+    with pytest.raises(OopzApiError) as exc_info:
+        _run(sender.get_self_detail())
+
+    assert str(exc_info.value) == "HTTP 503"
+    assert exc_info.value.status_code == 503
+    assert exc_info.value.response == {"error": "HTTP 503"}
+
+
+def test_get_self_detail_raises_rate_limit_error_when_model_response_is_429(
+    monkeypatch,
+) -> None:
+    sender = OopzRESTClient(_make_config())
+
+    async def _fake_get_self_detail(*args, **kwargs):
+        return sdk_models_module.SelfDetail(
+            payload={"error": "HTTP 429"},
+            response=_FakeResponse(
+                429,
+                payload={"message": "too fast"},
+                headers={"Retry-After": "7"},
+            ),
+        )
+
+    monkeypatch.setattr(
+        sender.members,
+        "get_self_detail",
+        _fake_get_self_detail,
+    )
+
+    with pytest.raises(OopzRateLimitError) as exc_info:
+        _run(sender.get_self_detail())
+
+    assert str(exc_info.value) == "HTTP 429"
+    assert exc_info.value.status_code == 429
+    assert exc_info.value.retry_after == 7
+    assert exc_info.value.response == {"error": "HTTP 429"}
+
+
 def test_get_channel_messages_returns_models(monkeypatch) -> None:
     sender = OopzRESTClient(_make_config())
 
@@ -392,6 +1183,145 @@ def test_get_channel_messages_returns_models(monkeypatch) -> None:
     assert isinstance(result[0], ChannelMessage)
     assert result[0].message_id == "msg-1"
     assert result[0].content == "hello"
+
+
+def test_get_private_messages_raises_api_error_when_message_item_is_invalid(
+    monkeypatch,
+) -> None:
+    sender = OopzRESTClient(_make_config())
+
+    monkeypatch.setattr(
+        sender,
+        "_get",
+        lambda url_path, params=None: _FakeResponse(
+            200,
+            payload={
+                "status": True,
+                "data": {
+                    "messages": [
+                        {"messageId": "msg-1", "content": "hello"},
+                        "broken-private-message",
+                    ]
+                },
+            },
+        ),
+    )
+
+    with pytest.raises(OopzApiError) as exc_info:
+        _run(sender.get_private_messages("DM123"))
+
+    assert str(exc_info.value) == "failed to get private messages"
+    assert exc_info.value.response["invalid_index"] == 1
+
+
+def test_get_channel_messages_raises_api_error_with_debug_payload_on_http_failure(
+    monkeypatch,
+) -> None:
+    sender = OopzRESTClient(_make_config())
+
+    monkeypatch.setattr(
+        sender.messages,
+        "_get",
+        lambda url_path, params=None: _FakeResponse(503, text="upstream timeout"),
+    )
+
+    with pytest.raises(OopzApiError) as exc_info:
+        _run(sender.get_channel_messages())
+
+    assert exc_info.value.status_code == 503
+    assert exc_info.value.response == {
+        "error": "HTTP 503",
+        "debug_reason": "get_channel_messages_http_error",
+        "area": "area",
+        "channel": "channel",
+        "size": 50,
+        "response_preview": "upstream timeout",
+    }
+
+
+def test_get_channel_messages_raises_rate_limit_error_on_http_429(
+    monkeypatch,
+) -> None:
+    sender = OopzRESTClient(_make_config())
+
+    monkeypatch.setattr(
+        sender.messages,
+        "_get",
+        lambda url_path, params=None: _FakeResponse(
+            429,
+            payload={"message": "too fast"},
+            headers={"Retry-After": "9"},
+        ),
+    )
+
+    with pytest.raises(OopzRateLimitError) as exc_info:
+        _run(sender.get_channel_messages())
+
+    assert str(exc_info.value) == "HTTP 429"
+    assert exc_info.value.status_code == 429
+    assert exc_info.value.retry_after == 9
+    assert exc_info.value.response == {
+        "error": "HTTP 429",
+        "debug_reason": "get_channel_messages_http_error",
+        "area": "area",
+        "channel": "channel",
+        "size": 50,
+        "response_preview": "",
+    }
+
+
+def test_get_channel_messages_raises_api_error_when_message_item_is_invalid(
+    monkeypatch,
+) -> None:
+    sender = OopzRESTClient(_make_config())
+
+    monkeypatch.setattr(
+        sender.messages,
+        "_get",
+        lambda url_path, params=None: _FakeResponse(
+            200,
+            payload={
+                "status": True,
+                "data": {
+                    "messages": [
+                        {"messageId": "msg-1", "content": "hello"},
+                        "broken-message-item",
+                    ]
+                },
+            },
+        ),
+    )
+
+    with pytest.raises(OopzApiError) as exc_info:
+        _run(sender.get_channel_messages())
+
+    assert str(exc_info.value) == "channel messages响应格式异常"
+    assert exc_info.value.response["debug_reason"] == "get_channel_messages_malformed_message_item"
+
+
+def test_get_channel_messages_raises_api_error_when_root_payload_is_invalid(
+    monkeypatch,
+) -> None:
+    sender = OopzRESTClient(_make_config())
+
+    monkeypatch.setattr(
+        sender.messages,
+        "_get",
+        lambda url_path, params=None: _FakeResponse(200, payload=["bad-root"]),
+    )
+
+    with pytest.raises(OopzApiError) as exc_info:
+        _run(sender.get_channel_messages())
+
+    assert str(exc_info.value) == "channel messages响应格式异常"
+    assert exc_info.value.response == {
+        "error": "channel messages响应格式异常",
+        "debug_reason": "get_channel_messages_malformed_root",
+        "area": "area",
+        "channel": "channel",
+        "size": 50,
+        "payload": ["bad-root"],
+    }
 
 
 def test_client_emits_typed_chat_event_and_auth_lifecycle() -> None:

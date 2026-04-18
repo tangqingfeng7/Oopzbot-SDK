@@ -9,6 +9,12 @@ from oopz_sdk import models
 from oopz_sdk.auth.signer import Signer
 from oopz_sdk.config.settings import OopzConfig
 from oopz_sdk.exceptions import OopzApiError, OopzRateLimitError
+from oopz_sdk.response import (
+    ensure_success_payload,
+    error_message_from_payload,
+    require_dict_data,
+    require_list_data,
+)
 from oopz_sdk.services.area import AreaService
 from oopz_sdk.services.channel import Channel
 from oopz_sdk.services.media import Media
@@ -17,8 +23,6 @@ from oopz_sdk.services.message import Message
 from oopz_sdk.services.moderation import Moderation
 from oopz_sdk.services.privatemessage import PrivateMessage
 from oopz_sdk.transport.http import HttpTransport
-
-_SUCCESS_CODES = (0, "0", 200, "200", "success")
 
 
 class OopzRESTClient:
@@ -88,94 +92,145 @@ class OopzRESTClient:
     async def _delete(self, url_path: str, body: dict | None = None):
         return await self._await_if_needed(self.transport.delete(url_path, body))
 
-    @staticmethod
-    def _safe_json(response) -> dict[str, Any] | None:
-        try:
-            payload = response.json()
-        except ValueError:
-            return None
-        return payload if isinstance(payload, dict) else None
-
-    @staticmethod
-    def _error_message_from_payload(
-        payload: dict[str, Any] | None, default_message: str
-    ) -> str:
-        if not payload:
-            return default_message
-        for key in ("message", "error", "msg", "reason"):
-            value = payload.get(key)
-            if isinstance(value, str) and value.strip():
-                return value.strip()
-        return default_message
-
-    @staticmethod
-    def _is_success_payload(payload: dict[str, Any]) -> bool:
-        status = payload.get("status")
-        code = payload.get("code")
-        if status is True:
-            return True
-        if status is False:
-            return code in _SUCCESS_CODES
-        if payload.get("success") is True:
-            return True
-        if payload.get("success") is False:
-            return False
-        if code in _SUCCESS_CODES:
-            return True
-        return False
-
-    def _raise_api_error(self, response, default_message: str) -> None:
-        payload = self._safe_json(response)
-        message = self._error_message_from_payload(payload, default_message)
-        if not payload and response.text:
-            message = f"{message}: {response.text[:200]}"
-        if response.status_code == 429:
-            retry_after = 0
-            try:
-                retry_after = int(response.headers.get("Retry-After", "0") or "0")
-            except Exception:
+    def _raise_model_payload_error(
+        self,
+        result: object,
+        default_message: str,
+    ) -> None:
+        payload = getattr(result, "payload", None)
+        if not isinstance(payload, dict):
+            return
+        response = getattr(result, "response", None)
+        status_code = getattr(response, "status_code", None)
+        message = error_message_from_payload(payload, default_message)
+        if payload.get("error"):
+            if status_code == 429:
                 retry_after = 0
-            raise OopzRateLimitError(
-                message=message, retry_after=retry_after, response=payload
-            )
-        raise OopzApiError(message, status_code=response.status_code, response=payload)
-
-    def _ensure_success_payload(
-        self, response, default_message: str
-    ) -> dict[str, Any]:
-        if response.status_code != 200:
-            self._raise_api_error(response, default_message)
-        payload = self._safe_json(response)
-        if payload is None:
+                try:
+                    retry_after = int(response.headers.get("Retry-After", "0") or "0")
+                except Exception:
+                    retry_after = 0
+                raise OopzRateLimitError(
+                    message=message,
+                    retry_after=retry_after,
+                    response=payload,
+                )
             raise OopzApiError(
-                f"{default_message}: response is not JSON",
-                status_code=response.status_code,
-            )
-        if not self._is_success_payload(payload):
-            raise OopzApiError(
-                self._error_message_from_payload(payload, default_message),
-                status_code=response.status_code,
+                message,
+                status_code=status_code,
                 response=payload,
             )
-        return payload
+        if payload.get("status") is False or payload.get("success") is False:
+            if status_code == 429:
+                retry_after = 0
+                try:
+                    retry_after = int(response.headers.get("Retry-After", "0") or "0")
+                except Exception:
+                    retry_after = 0
+                raise OopzRateLimitError(
+                    message=message,
+                    retry_after=retry_after,
+                    response=payload,
+                )
+            raise OopzApiError(
+                message,
+                status_code=status_code,
+                response=payload,
+            )
+
+    def _require_model_success(self, result, default_message: str):
+        if isinstance(result, dict):
+            raise RuntimeError(
+                f"模型接口返回了字典，请检查服务层约定: {default_message}"
+            )
+        self._raise_model_payload_error(result, default_message)
+        return result
 
     @staticmethod
-    def _require_dict_data(
-        payload: dict[str, Any], default_message: str
+    def _coerce_optional_int(value: object) -> int | None:
+        if value is None or isinstance(value, bool):
+            return None
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return None
+
+    @staticmethod
+    def _raise_service_payload_error(
+        result: dict[str, Any],
+        default_message: str,
+    ) -> None:
+        message = error_message_from_payload(result, default_message)
+        status_code = OopzRESTClient._coerce_optional_int(result.get("status_code"))
+        retry_after = OopzRESTClient._coerce_optional_int(result.get("retry_after")) or 0
+        if status_code == 429 or message == "HTTP 429":
+            raise OopzRateLimitError(
+                message=message,
+                retry_after=retry_after,
+                response=result,
+            )
+        raise OopzApiError(
+            message,
+            status_code=status_code,
+            response=result,
+        )
+
+    @staticmethod
+    def _require_service_list_result(
+        result: object,
+        default_message: str,
+    ) -> list[dict[str, Any]]:
+        if isinstance(result, dict):
+            OopzRESTClient._raise_service_payload_error(result, default_message)
+        if not isinstance(result, list):
+            raise OopzApiError(default_message, response={"error": default_message})
+        for index, item in enumerate(result):
+            if not isinstance(item, dict):
+                raise OopzApiError(
+                    default_message,
+                    response={
+                        "error": default_message,
+                        "invalid_index": index,
+                        "invalid_type": type(item).__name__,
+                    },
+                )
+        return result
+
+    @staticmethod
+    def _require_service_dict_result(
+        result: object,
+        default_message: str,
     ) -> dict[str, Any]:
-        data = payload.get("data", {})
-        if not isinstance(data, dict):
-            raise OopzApiError(default_message, status_code=200, response=payload)
-        return data
+        if isinstance(result, dict):
+            if result.get("error"):
+                OopzRESTClient._raise_service_payload_error(result, default_message)
+            return result
+        raise OopzApiError(default_message, response={"error": default_message})
 
     @staticmethod
-    def _require_list_data(
-        payload: dict[str, Any], default_message: str
-    ) -> list[Any]:
-        data = payload.get("data", [])
-        if not isinstance(data, list):
-            raise OopzApiError(default_message, status_code=200, response=payload)
-        return data
+    def _require_dict_items(
+        values: object,
+        *,
+        default_message: str,
+        list_key: str,
+        response: dict[str, Any],
+    ) -> list[dict[str, Any]]:
+        if not isinstance(values, list):
+            raise OopzApiError(default_message, status_code=200, response=response)
+        for index, item in enumerate(values):
+            if not isinstance(item, dict):
+                raise OopzApiError(
+                    default_message,
+                    status_code=200,
+                    response={
+                        "error": default_message,
+                        "list_key": list_key,
+                        "invalid_index": index,
+                        "invalid_type": type(item).__name__,
+                        "payload": response,
+                    },
+                )
+        return values
 
     @staticmethod
     def _extract_dict_list(
@@ -189,7 +244,12 @@ class OopzRESTClient:
             for key in keys:
                 value = data.get(key)
                 if isinstance(value, list):
-                    return [item for item in value if isinstance(item, dict)]
+                    return OopzRESTClient._require_dict_items(
+                        value,
+                        default_message=default_message,
+                        list_key=key,
+                        response=payload,
+                    )
         raise OopzApiError(default_message, status_code=200, response=payload)
 
     @staticmethod
@@ -311,7 +371,7 @@ class OopzRESTClient:
         }
         body = {"message": message}
         resp = await self._await_if_needed(self._post("/im/session/v2/sendGimMessage", body))
-        payload = self._ensure_success_payload(resp, "failed to send message")
+        payload = ensure_success_payload(resp, "failed to send message")
         result = self.messages._build_send_result(
             payload,
             response=resp,
@@ -340,8 +400,8 @@ class OopzRESTClient:
     async def list_sessions(self, last_time: str = "") -> list[dict[str, Any]]:
         body = {"lastTime": str(last_time or "")}
         resp = await self._await_if_needed(self._post("/im/session/v1/sessions", body))
-        payload = self._ensure_success_payload(resp, "failed to list sessions")
-        return self._require_list_data(payload, "failed to list sessions")
+        payload = ensure_success_payload(resp, "failed to list sessions")
+        return require_list_data(payload, "failed to list sessions")
 
     async def get_private_messages(
         self, channel: str, size: int = 50, before_message_id: str = ""
@@ -350,20 +410,16 @@ class OopzRESTClient:
         if before_message_id:
             params["messageId"] = str(before_message_id)
         resp = await self._await_if_needed(self._get("/im/session/v2/messageBefore", params=params))
-        payload = self._ensure_success_payload(resp, "failed to get private messages")
-        data = self._require_dict_data(payload, "failed to get private messages")
+        payload = ensure_success_payload(resp, "failed to get private messages")
+        data = require_dict_data(payload, "failed to get private messages")
         messages = data.get("messages", [])
-        if not isinstance(messages, list):
-            raise OopzApiError(
-                "failed to get private messages",
-                status_code=resp.status_code,
-                response=payload,
-            )
-        return [
-            models.Message.from_dict(item)
-            for item in messages
-            if isinstance(item, dict)
-        ]
+        messages = self._require_dict_items(
+            messages,
+            default_message="failed to get private messages",
+            list_key="messages",
+            response=payload,
+        )
+        return [models.Message.from_dict(item) for item in messages]
 
     async def save_read_status(self, channel: str, *, message_id: str) -> models.OperationResult:
         body = {
@@ -377,21 +433,21 @@ class OopzRESTClient:
             ],
         }
         resp = await self._await_if_needed(self._post("/im/session/v1/saveReadStatus", body))
-        payload = self._ensure_success_payload(resp, "failed to save read status")
+        payload = ensure_success_payload(resp, "failed to save read status")
         return self._build_operation_result(
             payload, message="saved read status", response=resp
         )
 
     async def get_system_message_unread_count(self) -> int:
         resp = await self._await_if_needed(self._get("/im/systemMessage/v1/unreadCount"))
-        payload = self._ensure_success_payload(resp, "failed to get unread count")
-        data = self._require_dict_data(payload, "failed to get unread count")
+        payload = ensure_success_payload(resp, "failed to get unread count")
+        data = require_dict_data(payload, "failed to get unread count")
         return int(data.get("unreadCount") or 0)
 
     async def get_system_message_list(self, offset_time: str = "") -> list[dict[str, Any]]:
         params = {"offsetTime": str(offset_time)} if offset_time else None
         resp = await self._await_if_needed(self._get("/im/systemMessage/v1/messageList", params=params))
-        payload = self._ensure_success_payload(resp, "failed to get system messages")
+        payload = ensure_success_payload(resp, "failed to get system messages")
         return self._extract_dict_list(
             payload,
             keys=("list", "messages"),
@@ -406,7 +462,7 @@ class OopzRESTClient:
             "channel": self.messages._resolve_channel(channel),
         }
         resp = await self._await_if_needed(self._get("/im/session/v2/topMessages", params=params))
-        payload = self._ensure_success_payload(resp, "failed to get top messages")
+        payload = ensure_success_payload(resp, "failed to get top messages")
         return self._extract_dict_list(
             payload,
             keys=("topMessages", "messages", "list"),
@@ -416,22 +472,22 @@ class OopzRESTClient:
     async def get_areas_unread(self, areas: list[str]) -> dict[str, Any]:
         body = {"areas": [str(area) for area in areas if str(area or "").strip()]}
         resp = await self._await_if_needed(self._post("/im/session/v1/areasUnread", body))
-        payload = self._ensure_success_payload(resp, "failed to get area unread counts")
-        return self._require_dict_data(payload, "failed to get area unread counts")
+        payload = ensure_success_payload(resp, "failed to get area unread counts")
+        return require_dict_data(payload, "failed to get area unread counts")
 
     async def get_areas_mention_unread(self, areas: list[str]) -> dict[str, Any]:
         body = {"areas": [str(area) for area in areas if str(area or "").strip()]}
         resp = await self._await_if_needed(self._post("/im/session/v1/areasMentionUnread", body))
-        payload = self._ensure_success_payload(resp, "failed to get area mention counts")
-        return self._require_dict_data(payload, "failed to get area mention counts")
+        payload = ensure_success_payload(resp, "failed to get area mention counts")
+        return require_dict_data(payload, "failed to get area mention counts")
 
     async def get_gim_reactions(self, items: list[dict[str, Any]]) -> dict[str, Any]:
         resp = await self._await_if_needed(self._post("/im/session/v1/gimReactions", items))
-        return self._ensure_success_payload(resp, "failed to get reactions")
+        return ensure_success_payload(resp, "failed to get reactions")
 
     async def get_gim_message_details(self, payload: dict[str, Any]) -> dict[str, Any]:
         resp = await self._await_if_needed(self._post("/im/session/v1/gimMessageDetails", payload))
-        return self._ensure_success_payload(resp, "failed to get message details")
+        return ensure_success_payload(resp, "failed to get message details")
 
     async def upload_file(
         self, file_path: str, file_type: str = "IMAGE", ext: str = ".webp"
@@ -473,13 +529,16 @@ class OopzRESTClient:
     async def get_area_channels(
         self, area: Optional[str] = None, quiet: bool = False
     ) -> models.ChannelGroupsResult:
-        return await self.channels.get_area_channels(area=area, quiet=quiet, as_model=True)
+        return self._require_model_success(
+            await self.channels.get_area_channels(area=area, quiet=quiet, as_model=True),
+            "failed to get area channels",
+        )
 
     async def get_channel_setting_info(self, channel: str) -> models.ChannelSetting:
-        result = await self.channels.get_channel_setting_info(channel, as_model=True)
-        if isinstance(result, dict):
-            raise OopzApiError(result.get("error") or "failed to get channel setting")
-        return result
+        return self._require_model_success(
+            await self.channels.get_channel_setting_info(channel, as_model=True),
+            "failed to get channel setting",
+        )
 
     async def create_channel(
         self,
@@ -532,7 +591,7 @@ class OopzRESTClient:
             "name": str(name or "").strip(),
         }
         resp = await self._await_if_needed(self._post("/area/v1/channel/v1/copy", body))
-        payload = self._ensure_success_payload(resp, "failed to copy channel")
+        payload = ensure_success_payload(resp, "failed to copy channel")
         channel_id = self.channels._extract_channel_id(
             payload.get("data", {})
         ) or self.channels._extract_channel_id(payload)
@@ -544,19 +603,41 @@ class OopzRESTClient:
         )
 
     async def get_joined_areas(self, quiet: bool = False) -> models.JoinedAreasResult:
-        return await self.areas.get_joined_areas(quiet=quiet, as_model=True)
+        return self._require_model_success(
+            await self.areas.get_joined_areas(quiet=quiet, as_model=True),
+            "failed to get joined areas",
+        )
 
-    async def get_area_info(self, area: Optional[str] = None) -> dict | models.Area:
-        return await self.areas.get_area_info(area=area, as_model=True)
+    async def get_area_info(self, area: Optional[str] = None) -> models.Area:
+        return self._require_model_success(
+            await self.areas.get_area_info(area=area, as_model=True),
+            "failed to get area info",
+        )
 
     async def get_person_infos_batch(self, uids: list[str]) -> dict[str, dict]:
-        return await self.members.get_person_infos_batch(uids)
+        result = self._require_service_dict_result(
+            await self.members.get_person_infos_batch(uids),
+            "failed to get person infos batch",
+        )
+        normalized: dict[str, dict] = {}
+        for uid, person in result.items():
+            if not isinstance(uid, str) or not isinstance(person, dict):
+                raise OopzApiError(
+                    "failed to get person infos batch",
+                    response={
+                        "error": "failed to get person infos batch",
+                        "invalid_uid": str(uid),
+                        "invalid_value_type": type(person).__name__,
+                    },
+                )
+            normalized[uid] = person
+        return normalized
 
     async def get_person_detail(self, uid: Optional[str] = None) -> models.PersonDetail:
-        result = await self.members.get_person_detail(uid, as_model=True)
-        if isinstance(result, dict):
-            raise OopzApiError(result.get("error") or "failed to get person detail")
-        return result
+        return self._require_model_success(
+            await self.members.get_person_detail(uid, as_model=True),
+            "failed to get person detail",
+        )
 
     async def get_person_detail_full(self, uid: str) -> models.PersonDetail:
         result = await self.members.get_person_detail_full(uid)
@@ -575,29 +656,29 @@ class OopzRESTClient:
         )
 
     async def get_self_detail(self) -> models.SelfDetail:
-        result = await self.members.get_self_detail(as_model=True)
-        if isinstance(result, dict):
-            raise OopzApiError(result.get("error") or "failed to get self detail")
-        return result
+        return self._require_model_success(
+            await self.members.get_self_detail(as_model=True),
+            "failed to get self detail",
+        )
 
     async def get_level_info(self) -> dict:
         return await self.members.get_level_info()
 
     async def get_novice_guide(self) -> dict[str, Any]:
         resp = await self._await_if_needed(self._get("/client/v1/person/v1/noviceGuide"))
-        payload = self._ensure_success_payload(resp, "failed to get novice guide")
-        return self._require_dict_data(payload, "failed to get novice guide")
+        payload = ensure_success_payload(resp, "failed to get novice guide")
+        return require_dict_data(payload, "failed to get novice guide")
 
     async def get_notice_setting(self) -> dict[str, Any]:
         resp = await self._await_if_needed(self._get("/person/v1/userNoticeSetting/noticeSetting"))
-        payload = self._ensure_success_payload(resp, "failed to get notice settings")
-        return self._require_dict_data(payload, "failed to get notice settings")
+        payload = ensure_success_payload(resp, "failed to get notice settings")
+        return require_dict_data(payload, "failed to get notice settings")
 
     async def get_user_remark_names(self, uid: str) -> list[dict[str, Any]]:
         resp = await self._await_if_needed(self._get(
             "/person/v1/remarkName/getUserRemarkNames", params={"uid": str(uid)}
         ))
-        payload = self._ensure_success_payload(resp, "failed to get remark names")
+        payload = ensure_success_payload(resp, "failed to get remark names")
         return self._extract_dict_list(
             payload,
             keys=("userRemarkNames", "list"),
@@ -606,31 +687,31 @@ class OopzRESTClient:
 
     async def check_block_status(self, target_uid: str) -> dict[str, Any]:
         resp = await self._await_if_needed(self._get("/person/v1/blockCheck", params={"targetUid": str(target_uid)}))
-        payload = self._ensure_success_payload(resp, "failed to check block status")
-        return self._require_dict_data(payload, "failed to check block status")
+        payload = ensure_success_payload(resp, "failed to check block status")
+        return require_dict_data(payload, "failed to check block status")
 
     async def get_privacy_settings(self) -> dict[str, Any]:
         resp = await self._await_if_needed(self._get("/client/v1/person/v1/privacy/v1/query"))
-        payload = self._ensure_success_payload(resp, "failed to get privacy settings")
-        return self._require_dict_data(payload, "failed to get privacy settings")
+        payload = ensure_success_payload(resp, "failed to get privacy settings")
+        return require_dict_data(payload, "failed to get privacy settings")
 
     async def get_notification_settings(self) -> dict[str, Any]:
         resp = await self._await_if_needed(self._get("/client/v1/person/v1/notification/v1/query"))
-        payload = self._ensure_success_payload(
+        payload = ensure_success_payload(
             resp, "failed to get notification settings"
         )
-        return self._require_dict_data(payload, "failed to get notification settings")
+        return require_dict_data(payload, "failed to get notification settings")
 
     async def get_real_name_auth_status(self) -> dict[str, Any]:
         resp = await self._await_if_needed(self._get("/client/v1/person/v2/realNameAuth"))
-        payload = self._ensure_success_payload(
+        payload = ensure_success_payload(
             resp, "failed to get real-name auth status"
         )
-        return self._require_dict_data(payload, "failed to get real-name auth status")
+        return require_dict_data(payload, "failed to get real-name auth status")
 
     async def get_friend_list(self) -> list[dict[str, Any]]:
         resp = await self._await_if_needed(self._get("/client/v1/list/v1/friendship"))
-        payload = self._ensure_success_payload(resp, "failed to get friend list")
+        payload = ensure_success_payload(resp, "failed to get friend list")
         return self._extract_dict_list(
             payload,
             keys=("friends", "friendships", "items", "list"),
@@ -639,7 +720,7 @@ class OopzRESTClient:
 
     async def get_blocked_list(self) -> list[dict[str, Any]]:
         resp = await self._await_if_needed(self._get("/client/v1/list/v1/blocked"))
-        payload = self._ensure_success_payload(resp, "failed to get blocked list")
+        payload = ensure_success_payload(resp, "failed to get blocked list")
         return self._extract_dict_list(
             payload,
             keys=("blocked", "blocks", "items", "list"),
@@ -648,7 +729,7 @@ class OopzRESTClient:
 
     async def get_friend_requests(self) -> list[dict[str, Any]]:
         resp = await self._await_if_needed(self._get("/client/v1/friendship/v1/requests"))
-        payload = self._ensure_success_payload(resp, "failed to get friend requests")
+        payload = ensure_success_payload(resp, "failed to get friend requests")
         return self._extract_dict_list(
             payload,
             keys=("requests", "items", "list"),
@@ -657,12 +738,12 @@ class OopzRESTClient:
 
     async def get_diamond_remain(self) -> dict[str, Any]:
         resp = await self._await_if_needed(self._get("/diamond/v1/remain"))
-        payload = self._ensure_success_payload(resp, "failed to get diamond remain")
-        return self._require_dict_data(payload, "failed to get diamond remain")
+        payload = ensure_success_payload(resp, "failed to get diamond remain")
+        return require_dict_data(payload, "failed to get diamond remain")
 
     async def get_mixer_settings(self) -> dict[str, Any]:
         resp = await self._await_if_needed(self._get("/client/v1/settings/v1/mixer"))
-        payload = self._ensure_success_payload(resp, "failed to get mixer settings")
+        payload = ensure_success_payload(resp, "failed to get mixer settings")
         return self._extract_json_dict_data(
             payload, default_message="failed to get mixer settings"
         )
@@ -674,14 +755,14 @@ class OopzRESTClient:
             "/person/v1/remarkName/setUserRemarkName",
             {"remarkUid": str(remark_uid), "remarkName": str(remark_name or "")},
         ))
-        payload = self._ensure_success_payload(resp, "failed to set remark name")
+        payload = ensure_success_payload(resp, "failed to set remark name")
         return self._build_operation_result(
             payload, message="set remark name", response=resp
         )
 
     async def send_friend_request(self, target_uid: str) -> models.OperationResult:
         resp = await self._await_if_needed(self._post("/friendship/v1/request", {"target": str(target_uid)}))
-        payload = self._ensure_success_payload(resp, "failed to send friend request")
+        payload = ensure_success_payload(resp, "failed to send friend request")
         return self._build_operation_result(
             payload, message="sent friend request", response=resp
         )
@@ -697,13 +778,13 @@ class OopzRESTClient:
         if friend_request_id:
             body["friendRequestId"] = str(friend_request_id)
         resp = await self._await_if_needed(self._post("/friendship/v1/response", body))
-        payload = self._ensure_success_payload(resp, "failed to respond friend request")
+        payload = ensure_success_payload(resp, "failed to respond friend request")
         message = "accepted friend request" if agree else "rejected friend request"
         return self._build_operation_result(payload, message=message, response=resp)
 
     async def remove_friend(self, target_uid: str) -> models.OperationResult:
         resp = await self._await_if_needed(self._delete(f"/friendship/v1/remove?target={str(target_uid)}"))
-        payload = self._ensure_success_payload(resp, "failed to remove friend")
+        payload = ensure_success_payload(resp, "failed to remove friend")
         return self._build_operation_result(payload, message="removed friend", response=resp)
 
     async def edit_privacy_settings(
@@ -723,7 +804,7 @@ class OopzRESTClient:
             "uid": str(uid or self._config.person_uid),
         }
         resp = await self._await_if_needed(self._patch("/person/v1/privacy/v1/edit", body))
-        payload = self._ensure_success_payload(
+        payload = ensure_success_payload(
             resp, "failed to update privacy settings"
         )
         return self._build_operation_result(
@@ -739,7 +820,7 @@ class OopzRESTClient:
             else "/person/v1/notification/v1/edit"
         )
         resp = await self._await_if_needed(self._patch(path, dict(settings)))
-        payload = self._ensure_success_payload(
+        payload = ensure_success_payload(
             resp, "failed to update notification settings"
         )
         return self._build_operation_result(
@@ -749,16 +830,26 @@ class OopzRESTClient:
     async def get_user_area_detail(self, target: str, area: Optional[str] = None) -> dict:
         return await self.members.get_user_area_detail(target, area=area)
 
-    async def get_assignable_roles(self, target: str, area: Optional[str] = None) -> list:
-        return await self.members.get_assignable_roles(target, area=area)
+    async def get_assignable_roles(
+        self, target: str, area: Optional[str] = None
+    ) -> list[dict[str, Any]]:
+        return self._require_service_list_result(
+            await self.members.get_assignable_roles(target, area=area),
+            "failed to get assignable roles",
+        )
 
     async def edit_user_role(
         self, target_uid: str, role_id: int, add: bool, area: Optional[str] = None
     ):
         return await self.members.edit_user_role(target_uid, role_id, add, area=area)
 
-    async def search_area_members(self, area: Optional[str] = None, keyword: str = "") -> list:
-        return await self.members.search_area_members(area=area, keyword=keyword)
+    async def search_area_members(
+        self, area: Optional[str] = None, keyword: str = ""
+    ) -> list[dict[str, Any]]:
+        return self._require_service_list_result(
+            await self.members.search_area_members(area=area, keyword=keyword),
+            "failed to search area members",
+        )
 
     async def search_area_private_setting_members(
         self,
@@ -773,30 +864,27 @@ class OopzRESTClient:
             "page": str(max(int(page), 1)),
         }
         resp = await self._await_if_needed(self._get("/area/v3/search/areaPrivateSettingMembers", params=params))
-        payload = self._ensure_success_payload(
+        payload = ensure_success_payload(
             resp, "failed to search private-setting members"
         )
-        data = self._require_dict_data(
+        data = require_dict_data(
             payload, "failed to search private-setting members"
         )
         members = data.get("members", data.get("list", []))
-        if not isinstance(members, list):
-            raise OopzApiError(
-                "failed to search private-setting members",
-                status_code=resp.status_code,
-                response=payload,
-            )
-        return [member for member in members if isinstance(member, dict)]
+        return self._require_dict_items(
+            members,
+            default_message="failed to search private-setting members",
+            list_key="members",
+            response=payload,
+        )
 
     async def get_voice_channel_members(
         self, area: Optional[str] = None
     ) -> models.VoiceChannelMembersResult:
-        result = await self.channels.get_voice_channel_members(area=area, as_model=True)
-        if isinstance(result, dict):
-            raise OopzApiError(
-                result.get("error") or "failed to get voice channel members"
-            )
-        return result
+        return self._require_model_success(
+            await self.channels.get_voice_channel_members(area=area, as_model=True),
+            "failed to get voice channel members",
+        )
 
     async def get_voice_channel_for_user(
         self, user_uid: str, area: Optional[str] = None
@@ -831,8 +919,8 @@ class OopzRESTClient:
 
     async def get_daily_speech(self) -> models.DailySpeechResult:
         resp = await self._await_if_needed(self._get("/general/v1/speech"))
-        payload = self._ensure_success_payload(resp, "failed to get daily speech")
-        data = self._require_dict_data(payload, "failed to get daily speech")
+        payload = ensure_success_payload(resp, "failed to get daily speech")
+        data = require_dict_data(payload, "failed to get daily speech")
         return models.DailySpeechResult(
             words=str(data.get("words") or ""),
             author=str(data.get("author") or ""),
@@ -902,10 +990,10 @@ class OopzRESTClient:
     async def get_area_blocks(
         self, area: Optional[str] = None, name: str = ""
     ) -> models.AreaBlocksResult:
-        result = await self.moderation.get_area_blocks(area=area, name=name, as_model=True)
-        if isinstance(result, dict):
-            raise OopzApiError(result.get("error") or "failed to get area blocks")
-        return result
+        return self._require_model_success(
+            await self.moderation.get_area_blocks(area=area, name=name, as_model=True),
+            "failed to get area blocks",
+        )
 
     async def unblock_user_in_area(self, uid: str, area: Optional[str] = None):
         return await self.moderation.unblock_user_in_area(uid, area=area)
@@ -929,6 +1017,12 @@ class OopzRESTClient:
     async def populate_names(self, *, set_area=None, set_channel=None) -> models.OperationResult:
         payload = await self.areas.populate_names(set_area=set_area, set_channel=set_channel)
         if isinstance(payload, dict):
+            if payload.get("error"):
+                return models.OperationResult(
+                    ok=False,
+                    message=str(payload.get("error") or "populate names failed"),
+                    payload=payload,
+                )
             return models.OperationResult(
                 ok=True, message="populated names", payload=payload
             )

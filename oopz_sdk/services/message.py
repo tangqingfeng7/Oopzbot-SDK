@@ -390,7 +390,7 @@ class Message(BaseService):
         size: int = 50,
         *,
         as_model: bool = False,
-    ) -> list:
+    ) -> list | dict:
         area = self._resolve_area(area)
         channel = self._resolve_channel(channel)
         url_path = "/im/session/v2/messageBefore"
@@ -399,18 +399,122 @@ class Message(BaseService):
         try:
             resp = await self._await_if_needed(self._get(url_path, params=params))
             if resp.status_code != 200:
+                preview = (resp.text or "")[:200]
                 logger.error("failed to get channel messages: HTTP %d", resp.status_code)
-                return []
+                error_payload = {
+                    "error": f"HTTP {resp.status_code}",
+                    "debug_reason": "get_channel_messages_http_error",
+                    "area": area,
+                    "channel": channel,
+                    "size": size,
+                    "response_preview": preview,
+                }
+                if as_model:
+                    if resp.status_code == 429:
+                        raise OopzRateLimitError(
+                            f"HTTP {resp.status_code}",
+                            retry_after=self._retry_after_seconds(resp),
+                            response=error_payload,
+                        )
+                    raise OopzApiError(
+                        f"HTTP {resp.status_code}",
+                        status_code=resp.status_code,
+                        response=error_payload,
+                    )
+                return error_payload
             result = resp.json()
+            if not isinstance(result, dict):
+                error_payload = {
+                    "error": "channel messages响应格式异常",
+                    "debug_reason": "get_channel_messages_malformed_root",
+                    "area": area,
+                    "channel": channel,
+                    "size": size,
+                    "payload": result,
+                }
+                if as_model:
+                    raise OopzApiError(
+                        "channel messages响应格式异常",
+                        status_code=resp.status_code,
+                        response=error_payload,
+                    )
+                return error_payload
             if not result.get("status"):
+                message = str(
+                    result.get("message") or result.get("error") or "failed to get channel messages"
+                )
                 logger.error(
                     "failed to get channel messages: %s",
-                    result.get("message") or result.get("error"),
+                    message,
                 )
-                return []
-            raw_list = result.get("data", {}).get("messages", [])
+                error_payload = {
+                    "error": message,
+                    "debug_reason": "get_channel_messages_payload_error",
+                    "area": area,
+                    "channel": channel,
+                    "size": size,
+                    "payload": result,
+                }
+                if as_model:
+                    raise OopzApiError(
+                        message,
+                        status_code=resp.status_code,
+                        response=error_payload,
+                    )
+                return error_payload
+            data = result.get("data", {})
+            if not isinstance(data, dict):
+                error_payload = {
+                    "error": "channel messages响应格式异常",
+                    "debug_reason": "get_channel_messages_malformed_data",
+                    "area": area,
+                    "channel": channel,
+                    "size": size,
+                    "payload": result,
+                }
+                if as_model:
+                    raise OopzApiError(
+                        "channel messages响应格式异常",
+                        status_code=resp.status_code,
+                        response=error_payload,
+                    )
+                return error_payload
+            raw_list = data.get("messages", [])
+            if not isinstance(raw_list, list):
+                error_payload = {
+                    "error": "channel messages响应格式异常",
+                    "debug_reason": "get_channel_messages_malformed_messages",
+                    "area": area,
+                    "channel": channel,
+                    "size": size,
+                    "payload": result,
+                }
+                if as_model:
+                    raise OopzApiError(
+                        "channel messages响应格式异常",
+                        status_code=resp.status_code,
+                        response=error_payload,
+                    )
+                return error_payload
             messages = []
-            for message in raw_list:
+            for index, message in enumerate(raw_list):
+                if not isinstance(message, dict):
+                    error_payload = {
+                        "error": "channel messages响应格式异常",
+                        "debug_reason": "get_channel_messages_malformed_message_item",
+                        "area": area,
+                        "channel": channel,
+                        "size": size,
+                        "message_index": index,
+                        "payload": result,
+                    }
+                    if as_model:
+                        raise OopzApiError(
+                            "channel messages响应格式异常",
+                            status_code=resp.status_code,
+                            response=error_payload,
+                        )
+                    return error_payload
                 mid = message.get("messageId") or message.get("id")
                 if mid is not None:
                     message = {**message, "messageId": str(mid)}
@@ -423,9 +527,23 @@ class Message(BaseService):
                     if isinstance(message, dict)
                 ]
             return messages
+        except OopzApiError:
+            raise
         except Exception as exc:
             logger.error("get channel messages exception: %s", exc)
-            return []
+            error_payload = {
+                "error": str(exc),
+                "debug_reason": "get_channel_messages_exception",
+                "area": area,
+                "channel": channel,
+                "size": size,
+            }
+            if as_model:
+                raise OopzApiError(
+                    f"failed to get channel messages: {exc}",
+                    response=error_payload,
+                ) from exc
+            return error_payload
 
     async def resolve_segments(self, segments: list[Segment]) -> list[Segment]:
         resolved: list[Segment] = []
@@ -459,8 +577,12 @@ class Message(BaseService):
         channel: Optional[str] = None,
     ) -> Optional[str]:
         messages = await self.get_channel_messages(area=area, channel=channel)
+        if isinstance(messages, dict) and messages.get("error"):
+            return None
+        if not isinstance(messages, list):
+            return None
         for message in messages:
-            if message.get("messageId") == message_id:
+            if isinstance(message, dict) and message.get("messageId") == message_id:
                 return message.get("timestamp")
         return None
 
