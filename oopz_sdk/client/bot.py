@@ -45,7 +45,6 @@ class OopzBot:
         self.parser = EventParser()
         self.rest = OopzRESTClient(self, config)
         self.messages = self.rest.messages
-        self.private = self.rest.private
         self.media = self.rest.media
         self.areas = self.rest.areas
         self.channels = self.rest.channels
@@ -92,6 +91,10 @@ class OopzBot:
     @property
     def on_message(self):
         return self.registry.on("message")
+
+    @property
+    def on_private_message(self):
+        return self.registry.on("message.private")
 
     @property
     def on_recall(self):
@@ -158,12 +161,11 @@ class OopzBot:
             return message.get(name, default)
         return getattr(message, name, default)
 
-    def _make_context(self, *, event=None, message=None, trace_id: str = "") -> EventContext:
+    def _make_context(self, *, event=None, trace_id: str = "") -> EventContext:
         return EventContext(
             bot=self,
             config=self.config,
-            event=event,
-            message=message,
+            event=event
         )
 
     # -------------------------
@@ -172,14 +174,15 @@ class OopzBot:
     def _handle_ws_message(self, raw: str) -> None:
         try:
             event = self.parser.parse(raw)
+            # if event.to_dict()["name"] != "heartbeat":
+            #     print(json.dumps(event.to_dict(), ensure_ascii=False, indent=2))
         except Exception as exc:
             logger.exception("解析 WebSocket 消息失败: %s", exc)
-            ctx = self._make_context(event=exc, message=None)
+            ctx = self._make_context(event=exc)
             self.dispatcher.dispatch_sync("error", exc, ctx)
             return
 
-        message = getattr(event, "message", None)
-        ctx = self._make_context(event=event, message=message)
+        ctx = self._make_context(event=event)
 
         if isinstance(event, MessageEvent) and self._should_ignore_self_message(event.message):
             return

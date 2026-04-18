@@ -8,7 +8,6 @@ from oopz_sdk.services.media import Media
 from oopz_sdk.services.member import Member
 from oopz_sdk.services.message import Message
 from oopz_sdk.services.moderation import Moderation
-from oopz_sdk.services.privatemessage import PrivateMessage
 from oopz_sdk.transport.http import HttpTransport
 
 
@@ -24,7 +23,6 @@ class OopzRESTClient:
         self.signer = Signer(config)
         self.transport = HttpTransport(config, self.signer)
         self.messages = Message(bot, config, self.transport, self.signer)
-        self.private = PrivateMessage(bot, config, self.transport, self.signer)
         self.media = Media(bot, config, self.transport, self.signer)
         self.areas = AreaService(bot, config, self.transport, self.signer)
         self.channels = Channel(bot, config, self.transport, self.signer)

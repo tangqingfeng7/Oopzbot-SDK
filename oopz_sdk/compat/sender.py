@@ -269,13 +269,13 @@ class OopzSender(OopzRESTClient):
         return result
 
     def open_private_session(self, target: str):
-        return self.private.open_private_session(target)
+        return self.messages.open_private_session(target)
 
     def send_private_message(self, target: str, text: str, **kwargs):
         attachments = kwargs.get("attachments")
         style_tags = kwargs.get("styleTags")
         channel = kwargs.get("channel")
-        return self.private.send_private_message(
+        return self.messages.send_private_message(
             target,
             text,
             attachments=attachments,
