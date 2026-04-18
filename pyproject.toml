@@ -4,12 +4,11 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "oopz-sdk"
-version = "0.4.3"
+version = "0.5.0"
 description = "Oopz 平台 Python SDK，提供 HTTP API、文件上传与 WebSocket 事件能力。"
 readme = "README.md"
 requires-python = ">=3.10"
-license = "MIT"
-license-files = ["LICENSE"]
+license-files = []
 authors = [
   { name = "Oopzbot Contributors" },
 ]
@@ -17,6 +16,7 @@ keywords = ["oopz", "sdk", "bot", "websocket"]
 classifiers = [
   "Development Status :: 3 - Alpha",
   "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3.10",
   "Programming Language :: Python :: 3.11",
@@ -40,6 +40,7 @@ Issues = "https://github.com/tangqingfeng7/Oopzbot-SDK/issues"
 dev = [
   "build>=1.2,<2",
   "pytest>=8,<9",
+  "tomli>=2,<3; python_version < '3.11'",
   "twine>=6,<7",
 ]
 
