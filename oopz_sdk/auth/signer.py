@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+from dataclasses import replace
 from typing import Any
 
 from cryptography.hazmat.backends import default_backend
@@ -22,11 +23,10 @@ class Signer:
 
     @classmethod
     def from_pem(cls, pem: str | bytes, config: OopzConfig) -> "Signer":
-        config_copy = config
         if isinstance(pem, str):
             pem = pem.encode("utf-8")
         key = serialization.load_pem_private_key(pem, password=None, backend=default_backend())
-        object.__setattr__(config_copy, "private_key", key)
+        config_copy = replace(config, private_key=key)
         return cls(config_copy)
 
     @staticmethod

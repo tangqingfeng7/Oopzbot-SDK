@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import io
 import json
@@ -138,16 +139,7 @@ class Media(BaseService):
         super().__init__(config, resolved_transport, resolved_signer, bot=bot)
 
     def _message_service(self) -> Message:
-        return Message(self._bot, self._config, self.transport, self.signer, media=self)
-
-    def _private_message_service(self) -> PrivateMessage:
-        return PrivateMessage(
-            self._bot,
-            self._config,
-            self.transport,
-            self.signer,
-            media=self,
-        )
+        return self._require_service("messages")
 
     async def _download_external(
         self,
@@ -194,6 +186,9 @@ class Media(BaseService):
                             ),
                         },
                     )()
+        except asyncio.TimeoutError as exc:
+            detail = str(exc).strip() or "timeout"
+            raise OopzConnectionError(f"下载外部文件失败: {detail}") from exc
         except aiohttp.ClientError as exc:
             raise OopzConnectionError(f"下载外部文件失败: {exc}") from exc
 
@@ -227,6 +222,9 @@ class Media(BaseService):
                             "json": lambda self: json.loads(self.text),
                         },
                     )()
+        except asyncio.TimeoutError as exc:
+            detail = str(exc).strip() or "timeout"
+            raise OopzConnectionError(f"{default_message}: {detail}") from exc
         except aiohttp.ClientError as exc:
             raise OopzConnectionError(f"{default_message}: {exc}") from exc
 
@@ -457,8 +455,12 @@ class Media(BaseService):
         if text:
             msg_text += f"\n{text}"
 
-        return await self._message_service().send_message(
-            text=msg_text, attachments=attachments, **kwargs
+        return await self._await_if_needed(
+            self._message_service().send_message(
+                msg_text,
+                attachments=attachments,
+                **kwargs,
+            )
         )
 
     async def send_private_image(
@@ -510,10 +512,12 @@ class Media(BaseService):
         msg_text = f"![IMAGEw{width}h{height}]({file_key})"
         if text:
             msg_text += f"\n{text}"
-        return await self._private_message_service().send_private_message(
-            target,
-            msg_text,
-            attachments=[attachment],
+        return await self._await_if_needed(
+            self._message_service().send_private_message(
+                msg_text,
+                target=target,
+                attachments=[attachment],
+            )
         )
 
 

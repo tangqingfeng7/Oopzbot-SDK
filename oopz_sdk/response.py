@@ -94,15 +94,12 @@ def ensure_http_ok(
 def is_success_payload(payload: JsonObject) -> bool:
     status = payload.get("status")
     code = payload.get("code")
+    success = payload.get("success")
 
-    if status is True:
-        return True
-    if status is False:
-        return code in SUCCESS_CODES
-    if payload.get("success") is True:
-        return True
-    if payload.get("success") is False:
+    if status is False or success is False:
         return False
+    if status is True or success is True:
+        return True
     return code in SUCCESS_CODES
 
 

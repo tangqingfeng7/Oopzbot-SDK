@@ -1,20 +1,7 @@
 from __future__ import annotations
 
-import asyncio
-import inspect
-import json
-from typing import Any, Optional
-
-from oopz_sdk import models
 from oopz_sdk.auth.signer import Signer
 from oopz_sdk.config.settings import OopzConfig
-from oopz_sdk.exceptions import OopzApiError, OopzRateLimitError
-from oopz_sdk.response import (
-    ensure_success_payload,
-    error_message_from_payload,
-    require_dict_data,
-    require_list_data,
-)
 from oopz_sdk.services.area import AreaService
 from oopz_sdk.services.channel import Channel
 from oopz_sdk.services.media import Media
@@ -25,6 +12,8 @@ from oopz_sdk.transport.http import HttpTransport
 
 
 class OopzRESTClient:
+    """REST 总入口，只负责共享连接和挂载各分类 service。"""
+
     def __init__(self, config_or_bot, config: OopzConfig | None = None):
         if config is None:
             bot = None
@@ -36,12 +25,13 @@ class OopzRESTClient:
         self.config = config
         self.signer = Signer(config)
         self.transport = HttpTransport(config, self.signer)
-        self.messages = Message(bot, config, self.transport, self.signer)
-        self.media = Media(bot, config, self.transport, self.signer)
-        self.areas = AreaService(bot, config, self.transport, self.signer)
-        self.channels = Channel(bot, config, self.transport, self.signer)
-        self.members = Member(bot, config, self.transport, self.signer)
-        self.moderation = Moderation(bot, config, self.transport, self.signer)
+        service_owner = bot or self
+        self.messages = Message(service_owner, config, self.transport, self.signer)
+        self.media = Media(service_owner, config, self.transport, self.signer)
+        self.areas = AreaService(service_owner, config, self.transport, self.signer)
+        self.channels = Channel(service_owner, config, self.transport, self.signer)
+        self.members = Member(service_owner, config, self.transport, self.signer)
+        self.moderation = Moderation(service_owner, config, self.transport, self.signer)
 
     async def start(self) -> None:
         await self.transport.start()

@@ -24,9 +24,23 @@ class BaseService:
         self.signer = signer
         self._area_members_cache: dict[tuple[str, int, int], dict] = {}
 
+    async def _await_if_needed(self, value):
+        if inspect.isawaitable(value):
+            return await value
+        return value
+
+    def _require_service(self, name: str):
+        owner = getattr(self, "_bot", None)
+        if owner is None:
+            raise RuntimeError(f"{self.__class__.__name__} 缺少 {name} service")
+        service = getattr(owner, name, None)
+        if service is None:
+            raise RuntimeError(f"{self.__class__.__name__} 缺少 {name} service")
+        return service
+
 
     async def _get(self, url_path: str, params: dict | None = None):
-        return await self.transport.get(url_path, params=params)
+        return await self._await_if_needed(self.transport.get(url_path, params=params))
 
     async def _request(
         self,
@@ -35,19 +49,21 @@ class BaseService:
         body: dict | None = None,
         params: dict | None = None,
     ):
-        return await self.transport.request(method, url_path, body=body, params=params)
+        return await self._await_if_needed(
+            self.transport.request(method, url_path, body=body, params=params)
+        )
 
     async def _post(self, url_path: str, body: dict):
-        return await self.transport.post(url_path, body)
+        return await self._await_if_needed(self.transport.post(url_path, body))
 
     async def _put(self, url_path: str, body: dict):
-        return self.transport.put(url_path, body)
+        return await self._await_if_needed(self.transport.put(url_path, body))
 
     async def _delete(self, url_path: str, body: dict | None = None):
-        return await self.transport.delete(url_path, body)
+        return await self._await_if_needed(self.transport.delete(url_path, body))
 
     async def _patch(self, url_path: str, body: dict):
-        return await self.transport.patch(url_path, body)
+        return await self._await_if_needed(self.transport.patch(url_path, body))
 
     def _resolve_area(self, area: str | None) -> str:
         value = str(area or self._config.default_area).strip()

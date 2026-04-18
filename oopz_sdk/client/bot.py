@@ -141,7 +141,7 @@ class OopzBot:
         self, text: str, area: str | None = None, channel: str | None = None, **kwargs
     ):
         return await self.messages.send_message(
-            text=text, area=area, channel=channel, **kwargs
+            text, area=area, channel=channel, **kwargs
         )
 
     async def recall(
@@ -167,10 +167,10 @@ class OopzBot:
         对某条消息进行回复
         """
         return await self.messages.send_message(
-            text=text,
+            text,
             area=area,
             channel=channel,
-            referenceMessageId=reference_message_id,
+            reference_message_id=reference_message_id,
             **kwargs,
         )
 
@@ -200,9 +200,7 @@ class OopzBot:
             event = self.parser.parse(raw)
         except Exception as exc:
             logger.exception("解析 WebSocket 消息失败: %s", exc)
-            ctx = self._make_context(event=exc)
-            await self.dispatcher.dispatch("error", exc, ctx)
-            return
+            raise
 
         ctx = self._make_context(event=event)
 

@@ -70,7 +70,14 @@ class EventParser:
                 message=message,
             )
         elif event_type == EVENT_PRIVATE_MESSAGE:
-            msg_data = self.safe_json_parse(body.get("data", {}), fallback={})
+            body = self.safe_json_parse(data.get("body", {}), fallback=None)
+            if not isinstance(body, dict):
+                raise OopzParseError("Invalid private event body")
+
+            msg_data = self.safe_json_parse(body.get("data", {}), fallback=None)
+            if not isinstance(msg_data, dict):
+                raise OopzParseError("Invalid private event data")
+
             message = Message.from_dict(msg_data)
             return MessageEvent(
                 name="message.private",

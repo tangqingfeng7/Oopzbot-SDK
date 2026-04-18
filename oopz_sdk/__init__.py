@@ -1,13 +1,23 @@
 """Modern Oopz SDK package layout."""
 
+
+def _optional_dependency_message(exc: ModuleNotFoundError, *, feature: str) -> str:
+    missing_name = getattr(exc, "name", "") or "optional dependency"
+    if missing_name.startswith("oopz_sdk"):
+        raise exc
+    return f"{missing_name} is required for {feature}"
+
+
 try:
     from .services.media import UploadMixin, get_image_info
-except ModuleNotFoundError:  # pragma: no cover - optional runtime dependency
+except ModuleNotFoundError as exc:  # pragma: no cover - optional runtime dependency
+    _missing_media_dependency_message = _optional_dependency_message(exc, feature="image helpers")
+
     class UploadMixin:  # type: ignore[override]
         """Fallback mixin when optional media dependencies are unavailable."""
 
     def get_image_info(*args, **kwargs):
-        raise ModuleNotFoundError("Pillow is required for image helpers")
+        raise ModuleNotFoundError(_missing_media_dependency_message)
 
 from .api import OopzApiMixin
 from .auth import Signer
@@ -37,7 +47,6 @@ from .models import (
     Area,
     AreaBlock,
     AreaBlocksResult,
-    AreaInfo,
     AreaMembersPage,
     ApiResponse,
     Attachment,
@@ -46,17 +55,13 @@ from .models import (
     Channel,
     ChannelGroup,
     ChannelGroupsResult,
-    ChannelInfo,
-    ChannelMessage,
     ChannelSetting,
-    ChatMessageEvent,
     DailySpeechResult,
     Event,
     ImageAttachment,
     JsonList,
     JsonObject,
     JoinedAreasResult,
-    LifecycleEvent,
     Member,
     Message as MessageModel,
     MessageEvent,
@@ -67,9 +72,7 @@ from .models import (
     PersonInfo,
     PrivateSessionResult,
     SelfDetail,
-    UploadAttachment,
     UploadResult,
-    VoiceChannelMember,
     VoiceChannelMembersResult,
 )
 from .services.message import Message as MessageService
@@ -94,10 +97,12 @@ from .version import __version__
 try:
     from .client.bot import OopzBot
     from .client.ws import OopzWSClient
-except ModuleNotFoundError:  # pragma: no cover - optional runtime dependency
+except ModuleNotFoundError as exc:  # pragma: no cover - optional runtime dependency
+    _missing_ws_dependency_message = _optional_dependency_message(exc, feature="WebSocket features")
+
     class _MissingWebSocketDependency:
         def __init__(self, *args, **kwargs):
-            raise ModuleNotFoundError("websocket-client is required for WebSocket features")
+            raise ModuleNotFoundError(_missing_ws_dependency_message)
 
     OopzBot = _MissingWebSocketDependency
     OopzWSClient = _MissingWebSocketDependency
@@ -105,7 +110,6 @@ except ModuleNotFoundError:  # pragma: no cover - optional runtime dependency
 Message = MessageService
 
 __all__ = [
-    "AreaInfo",
     "AutoRecallConfig",
     "DEFAULT_HEADERS",
     "EVENT_AUTH",
@@ -123,7 +127,6 @@ __all__ = [
     "OopzApiError",
     "OopzAuthError",
     "OopzBot",
-    "OopzClient",
     "OopzConfig",
     "OopzConnectionError",
     "OopzError",
@@ -152,19 +155,15 @@ __all__ = [
     "AudioAttachment",
     "BaseModel",
     "Channel",
-    "ChannelInfo",
-    "ChannelMessage",
     "ChannelGroup",
     "ChannelGroupsResult",
     "ChannelSetting",
-    "ChatMessageEvent",
     "DailySpeechResult",
     "ensure_http_ok",
     "ensure_success_payload",
     "error_message_from_payload",
     "Event",
     "is_success_payload",
-    "LifecycleEvent",
     "JsonList",
     "JsonObject",
     "MessageEvent",
@@ -181,6 +180,4 @@ __all__ = [
     "safe_json_object",
     "SUCCESS_CODES",
     "get_image_info",
-    "UploadAttachment",
-    "VoiceChannelMember",
 ]

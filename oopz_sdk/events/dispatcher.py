@@ -38,6 +38,7 @@ class EventDispatcher:
                     await result
             except Exception:
                 logger.exception("事件处理器执行失败: event=%s handler=%r", event_name, handler)
+                raise
 
 
     @staticmethod

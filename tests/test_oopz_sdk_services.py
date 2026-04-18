@@ -1,15 +1,23 @@
 import asyncio
 import io
+import oopz_sdk
+import oopz_sdk.client as oopz_client
+import oopz_sdk.services.media as oopz_media_service
+import oopz_sdk.transport.http as oopz_http_transport
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from PIL import Image
 
-from oopz_sdk import OopzClient, OopzRESTClient, models
+from oopz_sdk import OopzRESTClient, models
+from oopz_sdk.auth.signer import Signer
 from oopz_sdk.client.bot import OopzBot
+from oopz_sdk.client.ws import OopzWSClient
 from oopz_sdk.config import OopzConfig
+from oopz_sdk.config.constants import EVENT_PRIVATE_MESSAGE
 from oopz_sdk.exceptions import OopzApiError, OopzConnectionError, OopzParseError, OopzRateLimitError
 from oopz_sdk.events.context import EventContext
 from oopz_sdk.events.dispatcher import EventDispatcher
@@ -24,7 +32,7 @@ from oopz_sdk.services.media import Media
 from oopz_sdk.services.member import Member
 from oopz_sdk.services.message import Message
 from oopz_sdk.services.moderation import Moderation
-from oopz_sdk.services.privatemessage import PrivateMessage
+from oopz_sdk.transport.http import HttpTransport
 
 
 class _FakeResponse:
@@ -43,18 +51,6 @@ class _FakeResponse:
     def raise_for_status(self):
         if self.status_code >= 400:
             raise RuntimeError(f"http {self.status_code}")
-
-
-class _FakeWebSocket:
-    def __init__(self):
-        self.sent: list[str] = []
-        self.sock = type("Sock", (), {"connected": True})()
-
-    def send(self, payload: str) -> None:
-        self.sent.append(payload)
-
-    def close(self) -> None:
-        self.sock.connected = False
 
 
 def _make_private_key():
@@ -89,6 +85,32 @@ def test_oopz_sdk_config_requires_private_key():
         )
 
 
+def test_oopz_sdk_signer_from_pem_does_not_mutate_original_config():
+    original_key = _make_private_key()
+    replacement_key = _make_private_key()
+    pem = replacement_key.private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.PKCS8,
+        encryption_algorithm=serialization.NoEncryption(),
+    )
+    config = _make_config(private_key=original_key)
+
+    signer = Signer.from_pem(pem, config)
+
+    assert config.private_key is original_key
+    assert signer.private_key is not original_key
+
+
+def test_oopz_sdk_response_helper_treats_explicit_failure_as_failure():
+    assert oopz_sdk.is_success_payload({"status": False, "code": 0}) is False
+
+    with pytest.raises(OopzApiError, match="helper rejected"):
+        oopz_sdk.ensure_success_payload(
+            _FakeResponse(200, payload={"status": False, "code": 0, "message": "helper rejected"}),
+            "fallback message",
+        )
+
+
 def test_oopz_sdk_send_message_returns_result_model(monkeypatch):
     service = Message(None, _make_config())
     monkeypatch.setattr(
@@ -108,33 +130,24 @@ def test_oopz_sdk_send_message_returns_result_model(monkeypatch):
     assert result.channel == "channel"
 
 
-def test_oopz_sdk_send_message_accepts_legacy_text_keyword(monkeypatch):
-    service = Message(_make_config())
-    captured = {}
+def test_oopz_sdk_send_message_rejects_explicit_failure_payload(monkeypatch):
+    service = Message(None, _make_config())
     monkeypatch.setattr(
         service,
         "_post",
-        lambda url_path, body: captured.update({"url_path": url_path, "body": body}) or _FakeResponse(
+        lambda url_path, body: _FakeResponse(
             200,
-            payload={"status": True, "data": {"messageId": "msg-legacy-text"}},
+            payload={"status": False, "code": 0, "message": "denied"},
         ),
     )
 
-    result = _run(service.send_message(text="hello", auto_recall=False))
-
-    assert result.message_id == "msg-legacy-text"
-    assert captured["url_path"] == "/im/session/v1/sendGimMessage"
-    assert captured["body"]["text"] == "hello"
+    with pytest.raises(OopzApiError, match="denied"):
+        _run(service.send_message("hello", auto_recall=False))
 
 
 def test_oopz_sdk_recall_message_returns_operation_result(monkeypatch):
     service = Message(None, _make_config())
     captured = {}
-    monkeypatch.setattr(
-        service.session,
-        "post",
-        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("session.post should not be used")),
-    )
     monkeypatch.setattr(
         service.transport,
         "request",
@@ -154,6 +167,42 @@ def test_oopz_sdk_recall_message_returns_operation_result(monkeypatch):
     assert captured["params"]["channel"] == "channel"
 
 
+def test_oopz_sdk_recall_message_rejects_explicit_failure_payload(monkeypatch):
+    service = Message(None, _make_config())
+    monkeypatch.setattr(
+        service.transport,
+        "request",
+        lambda *args, **kwargs: _FakeResponse(
+            200,
+            payload={"status": False, "code": 0, "message": "denied"},
+        ),
+    )
+
+    result = _run(service.recall_message("msg-1"))
+
+    assert isinstance(result, models.OperationResult)
+    assert result.ok is False
+    assert result.message == "denied"
+
+
+def test_oopz_sdk_open_private_session_rejects_explicit_failure_payload(monkeypatch):
+    service = Message(None, _make_config())
+    monkeypatch.setattr(
+        service,
+        "_request",
+        lambda *args, **kwargs: _FakeResponse(
+            200,
+            payload={"status": False, "message": "denied", "data": {"channel": "dm-1"}},
+        ),
+    )
+
+    result = _run(service.open_private_session("target-1"))
+
+    assert result.channel == ""
+    assert result.target == "target-1"
+    assert result.payload["error"] == "denied"
+
+
 def test_oopz_sdk_get_channel_messages_returns_error_dict_on_http_failure(monkeypatch):
     service = Message(None, _make_config())
     monkeypatch.setattr(
@@ -164,17 +213,19 @@ def test_oopz_sdk_get_channel_messages_returns_error_dict_on_http_failure(monkey
 
     result = _run(service.get_channel_messages())
 
-    assert result == {
-        "error": "HTTP 503",
-        "debug_reason": "get_channel_messages_http_error",
-        "area": "area",
-        "channel": "channel",
-        "size": 50,
-        "response_preview": "upstream timeout",
-    }
+    assert result["error"] == "HTTP 503"
+    assert result["debug_reason"] == "get_channel_messages_http_error"
+    assert result["channel"] == "channel"
 
 
-def test_oopz_sdk_find_message_timestamp_returns_none_when_channel_messages_fail(monkeypatch):
+def test_oopz_sdk_recall_private_message_raises_not_implemented_error():
+    service = Message(None, _make_config())
+
+    with pytest.raises(NotImplementedError, match="暂不支持撤回私信消息"):
+        _run(service.recall_private_message("msg-1", channel="dm-1", target="user-1"))
+
+
+def test_oopz_sdk_find_message_timestamp_raises_when_channel_messages_fail(monkeypatch):
     service = Message(None, _make_config())
 
     async def _fake_get_channel_messages(*args, **kwargs):
@@ -182,9 +233,10 @@ def test_oopz_sdk_find_message_timestamp_returns_none_when_channel_messages_fail
 
     monkeypatch.setattr(service, "get_channel_messages", _fake_get_channel_messages)
 
-    result = _run(service.find_message_timestamp("msg-1"))
+    with pytest.raises(OopzApiError, match="HTTP 503") as exc_info:
+        _run(service.find_message_timestamp("msg-1"))
 
-    assert result is None
+    assert exc_info.value.response == {"error": "HTTP 503"}
 
 
 def test_oopz_sdk_get_channel_messages_returns_error_dict_when_message_item_is_invalid(
@@ -209,8 +261,25 @@ def test_oopz_sdk_get_channel_messages_returns_error_dict_when_message_item_is_i
     result = _run(service.get_channel_messages())
 
     assert result["error"] == "channel messages响应格式异常"
-    assert result["debug_reason"] == "get_channel_messages_malformed_message_item"
-    assert result["payload"] == payload
+    assert result["debug_reason"] == "get_channel_messages_invalid_item"
+    assert result["invalid_index"] == 1
+
+
+def test_oopz_sdk_get_channel_messages_returns_error_dict_on_failed_status(monkeypatch):
+    service = Message(None, _make_config())
+    monkeypatch.setattr(
+        service,
+        "_get",
+        lambda *args, **kwargs: _FakeResponse(
+            200,
+            payload={"status": False, "message": "message list rejected", "data": {"messages": []}},
+        ),
+    )
+
+    result = _run(service.get_channel_messages())
+
+    assert result["error"] == "message list rejected"
+    assert result["debug_reason"] == "get_channel_messages_failed_status"
 
 
 def test_oopz_sdk_get_channel_messages_returns_error_dict_when_root_payload_is_invalid(
@@ -269,19 +338,9 @@ def test_oopz_sdk_model_error_does_not_swallow_other_type_errors():
 
 
 def test_oopz_sdk_private_message_returns_result_model(monkeypatch):
-    service = PrivateMessage(None, _make_config())
+    service = Message(None, _make_config())
     dm_channel = "DM12345678901234567890"
     calls = []
-    monkeypatch.setattr(
-        service.session,
-        "patch",
-        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("session.patch should not be used")),
-    )
-    monkeypatch.setattr(
-        service.session,
-        "post",
-        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("session.post should not be used")),
-    )
     monkeypatch.setattr(
         service.transport,
         "request",
@@ -297,7 +356,7 @@ def test_oopz_sdk_private_message_returns_result_model(monkeypatch):
         ) or _FakeResponse(200, payload={"status": True, "data": {"messageId": "dm-1"}}),
     )
 
-    result = _run(service.send_private_message("target-1", "hello"))
+    result = _run(service.send_private_message("hello", target="target-1"))
 
     assert isinstance(result, models.MessageSendResult)
     assert result.channel == dm_channel
@@ -390,9 +449,67 @@ def test_oopz_sdk_upload_file_wraps_put_request_exception(monkeypatch, tmp_path)
         _run(service.upload_file(str(sample), file_type="IMAGE", ext=".bin"))
 
 
+def test_oopz_sdk_download_external_wraps_timeout_as_connection_error(monkeypatch):
+    service = Media(None, _make_config())
+
+    class _TimeoutContext:
+        async def __aenter__(self):
+            raise asyncio.TimeoutError("boom")
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    class _TimeoutSession:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        def get(self, *args, **kwargs):
+            return _TimeoutContext()
+
+    monkeypatch.setattr(oopz_media_service.aiohttp, "ClientSession", _TimeoutSession)
+
+    with pytest.raises(OopzConnectionError, match="下载外部文件失败: boom"):
+        _run(service._download_external("https://example.com/file.bin", timeout=1))
+
+
+def test_oopz_sdk_upload_to_signed_url_wraps_timeout_as_connection_error(monkeypatch):
+    service = Media(None, _make_config())
+
+    class _TimeoutContext:
+        async def __aenter__(self):
+            raise asyncio.TimeoutError("boom")
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    class _TimeoutSession:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        def put(self, *args, **kwargs):
+            return _TimeoutContext()
+
+    monkeypatch.setattr(oopz_media_service.aiohttp, "ClientSession", _TimeoutSession)
+
+    with pytest.raises(OopzConnectionError, match="上传失败: boom"):
+        _run(service._upload_to_signed_url("https://upload.example.com", b"data", default_message="上传失败"))
+
+
 def test_oopz_sdk_upload_file_from_url_does_not_reuse_authenticated_session(monkeypatch):
     service = Media(None, _make_config())
-    service.session.headers["X-Test-Auth"] = "secret"
+    service.transport.headers["X-Test-Auth"] = "secret"
 
     image_buffer = io.BytesIO()
     Image.new("RGB", (8, 6), color="white").save(image_buffer, format="PNG")
@@ -545,7 +662,8 @@ def test_oopz_sdk_send_image_delegates_to_message_service(monkeypatch, tmp_path)
     captured = {}
 
     class _Messages:
-        async def send_message(self, **kwargs):
+        async def send_message(self, *texts, **kwargs):
+            captured["texts"] = list(texts)
             captured.update(kwargs)
             return "ok"
 
@@ -554,7 +672,7 @@ def test_oopz_sdk_send_image_delegates_to_message_service(monkeypatch, tmp_path)
     result = _run(service.send_image(str(sample), text="hello"))
 
     assert result == "ok"
-    assert captured["text"] == "![IMAGEw16h16](file-key)\nhello"
+    assert captured["texts"] == ["![IMAGEw16h16](file-key)\nhello"]
     assert captured["attachments"][0]["fileKey"] == "file-key"
 
 
@@ -637,6 +755,49 @@ def test_oopz_sdk_send_private_image_preserves_rate_limit_error(monkeypatch, tmp
     assert exc_info.value.retry_after == 5
 
 
+def test_oopz_sdk_send_image_requires_injected_message_service(monkeypatch, tmp_path):
+    service = Media(_make_config())
+    sample = tmp_path / "sample.png"
+    sample.write_bytes(b"fake-image")
+
+    monkeypatch.setattr(
+        "oopz_sdk.services.media.get_image_info",
+        lambda path: (16, 16, 10),
+    )
+    monkeypatch.setattr(
+        service,
+        "_put",
+        lambda url_path, body: _FakeResponse(
+            200,
+            payload={
+                "data": {
+                    "signedUrl": "https://upload.example.com",
+                    "file": "file-key",
+                    "url": "https://cdn.example.com/file-key",
+                }
+            },
+        ),
+    )
+
+    class _UploadResp:
+        status_code = 200
+        text = ""
+
+    async def _upload_to_signed_url(*args, **kwargs):
+        return _UploadResp()
+
+    monkeypatch.setattr(service, "_upload_to_signed_url", _upload_to_signed_url)
+
+    with pytest.raises(RuntimeError, match="messages"):
+        _run(service.send_image(str(sample), text="hello"))
+
+
+def test_oopz_sdk_media_service_reuses_sender_message_service():
+    sender = OopzRESTClient(_make_config())
+
+    assert sender.media._message_service() is sender.messages
+
+
 def test_oopz_sdk_area_members_retries_after_429(monkeypatch):
     service = AreaService(_make_config())
     calls = {"count": 0}
@@ -660,6 +821,32 @@ def test_oopz_sdk_area_members_retries_after_429(monkeypatch):
 
     assert calls["count"] == 3
     assert result["members"][0]["uid"] == "u1"
+
+
+def test_oopz_sdk_area_members_does_not_fallback_to_stale_cache_on_http_failure(monkeypatch):
+    service = AreaService(_make_config())
+    cache_key = ("area", 0, 49)
+    service._set_cached_area_members(
+        cache_key,
+        {
+            "members": [{"uid": "stale-user", "name": "Stale", "online": 1}],
+            "onlineCount": 1,
+            "totalCount": 1,
+            "userCount": 1,
+            "fetchedCount": 1,
+        },
+    )
+    monkeypatch.setattr(
+        service,
+        "_get",
+        lambda *args, **kwargs: _FakeResponse(503, text="gateway error"),
+    )
+
+    result = _run(service.get_area_members())
+
+    assert result["error"] == "HTTP 503"
+    assert result["debug_reason"] == "get_area_members_http_error"
+    assert "members" not in result
 
 
 def test_oopz_sdk_area_members_quiet_cache_hit_preserves_model_shape():
@@ -690,7 +877,8 @@ def test_oopz_sdk_area_members_as_model_returns_result_object_when_response_miss
     result = _run(service.get_area_members(as_model=True))
 
     assert isinstance(result, models.AreaMembersPage)
-    assert result.payload == {"error": "未获得响应"}
+    assert result.payload["error"] == "未获得响应"
+    assert result.payload["debug_reason"] == "get_area_members_missing_response"
 
 
 def test_oopz_sdk_area_members_as_model_returns_result_object_on_malformed_success(monkeypatch):
@@ -707,7 +895,8 @@ def test_oopz_sdk_area_members_as_model_returns_result_object_on_malformed_succe
     result = _run(service.get_area_members(as_model=True))
 
     assert isinstance(result, models.AreaMembersPage)
-    assert result.payload == {"error": "area members响应格式异常"}
+    assert result.payload["error"] == "area members响应格式异常"
+    assert result.payload["debug_reason"] == "get_area_members_malformed_data"
 
 
 def test_oopz_sdk_area_members_as_model_returns_result_object_on_malformed_member_entry(
@@ -734,6 +923,7 @@ def test_oopz_sdk_area_members_as_model_returns_result_object_on_malformed_membe
 
     assert isinstance(result, models.AreaMembersPage)
     assert result.payload["error"] == "area members响应格式异常"
+    assert result.payload["debug_reason"] == "get_area_members_invalid_member"
     assert result.payload["invalid_index"] == 1
 
 
@@ -1336,6 +1526,21 @@ def test_oopz_sdk_create_channel_reports_group_fetch_error(monkeypatch):
     assert result.message == "获取频道分组失败: group list unavailable"
 
 
+def test_oopz_sdk_create_channel_returns_error_when_root_payload_is_not_dict(monkeypatch):
+    service = Channel(None, _make_config())
+    monkeypatch.setattr(
+        service,
+        "_post",
+        lambda *args, **kwargs: _FakeResponse(200, payload=[], text="[]"),
+    )
+
+    result = _run(service.create_channel(name="测试频道", group_id="group-1"))
+
+    assert isinstance(result, models.OperationResult)
+    assert result.ok is False
+    assert result.message == "创建频道响应格式异常"
+
+
 def test_oopz_sdk_update_channel_returns_setting_error_when_role_fields_are_malformed(
     monkeypatch,
 ):
@@ -1422,6 +1627,26 @@ def test_oopz_sdk_update_channel_uses_explicit_channel_id_when_setting_omits_cha
     assert result.ok is True
     assert captured["url_path"] == "/area/v3/channel/setting/edit"
     assert captured["body"]["channel"] == "channel-1"
+
+
+def test_oopz_sdk_update_channel_returns_error_when_root_payload_is_not_dict(monkeypatch):
+    service = Channel(None, _make_config())
+
+    async def _fake_get_channel_setting_info(*args, **kwargs):
+        return models.ChannelSetting(channel="channel-1")
+
+    monkeypatch.setattr(service, "get_channel_setting_info", _fake_get_channel_setting_info)
+    monkeypatch.setattr(
+        service,
+        "_post",
+        lambda *args, **kwargs: _FakeResponse(200, payload=[], text="[]"),
+    )
+
+    result = _run(service.update_channel(channel_id="channel-1"))
+
+    assert isinstance(result, models.OperationResult)
+    assert result.ok is False
+    assert result.message == "更新频道响应格式异常"
 
 
 def test_oopz_sdk_voice_channel_members_as_model_returns_result_object_on_malformed_success(
@@ -1545,7 +1770,7 @@ def test_oopz_sdk_voice_channel_members_returns_error_dict_on_failed_payload(mon
     assert result == {"error": "voice members rejected"}
 
 
-def test_oopz_sdk_get_voice_channel_for_user_ignores_error_dict(monkeypatch):
+def test_oopz_sdk_get_voice_channel_for_user_raises_on_error_dict(monkeypatch):
     service = Channel(None, _make_config())
 
     async def _fake_get_voice_channel_members(*args, **kwargs):
@@ -1557,9 +1782,10 @@ def test_oopz_sdk_get_voice_channel_for_user_ignores_error_dict(monkeypatch):
         _fake_get_voice_channel_members,
     )
 
-    result = _run(service.get_voice_channel_for_user("user-1"))
+    with pytest.raises(OopzApiError, match="voice members rejected") as exc_info:
+        _run(service.get_voice_channel_for_user("user-1"))
 
-    assert result is None
+    assert exc_info.value.response == {"error": "voice members rejected"}
 
 
 def test_oopz_sdk_get_voice_channel_ids_propagates_group_fetch_error(monkeypatch):
@@ -1578,6 +1804,59 @@ def test_oopz_sdk_get_voice_channel_ids_propagates_group_fetch_error(monkeypatch
 
     assert result == {"error": "group list unavailable"}
     assert getattr(service, "_voice_ids_cache", {}) == {}
+
+
+def test_oopz_sdk_create_voice_channel_invalidates_voice_ids_cache(monkeypatch):
+    service = Channel(None, _make_config())
+    service._voice_ids_cache = {
+        "area": {"ids": ["voice-old"], "ts": 1.0},
+        "area-2": {"ids": ["voice-keep"], "ts": 1.0},
+    }
+    monkeypatch.setattr(
+        service,
+        "_post",
+        lambda *args, **kwargs: _FakeResponse(200, payload={"status": True, "data": {"channelId": "voice-new"}}),
+    )
+
+    result = _run(service.create_channel(area="area", name="语音房", channel_type="voice", group_id="group-1"))
+
+    assert result.ok is True
+    assert "area" not in service._voice_ids_cache
+    assert service._voice_ids_cache["area-2"]["ids"] == ["voice-keep"]
+
+
+def test_oopz_sdk_delete_channel_invalidates_voice_ids_cache(monkeypatch):
+    service = Channel(None, _make_config())
+    service._voice_ids_cache = {
+        "area": {"ids": ["voice-old"], "ts": 1.0},
+        "area-2": {"ids": ["voice-keep"], "ts": 1.0},
+    }
+    monkeypatch.setattr(
+        service,
+        "_delete",
+        lambda *args, **kwargs: _FakeResponse(200, payload={"status": True, "message": "ok"}),
+    )
+
+    result = _run(service.delete_channel("channel-1", area="area"))
+
+    assert result.ok is True
+    assert "area" not in service._voice_ids_cache
+    assert service._voice_ids_cache["area-2"]["ids"] == ["voice-keep"]
+
+
+def test_oopz_sdk_delete_channel_returns_error_when_root_payload_is_not_dict(monkeypatch):
+    service = Channel(None, _make_config())
+    monkeypatch.setattr(
+        service,
+        "_delete",
+        lambda *args, **kwargs: _FakeResponse(200, payload=[], text="[]"),
+    )
+
+    result = _run(service.delete_channel("channel-1"))
+
+    assert isinstance(result, models.OperationResult)
+    assert result.ok is False
+    assert result.message == "删除频道响应格式异常"
 
 
 def test_oopz_sdk_voice_channel_members_returns_error_when_voice_ids_fetch_fails(monkeypatch):
@@ -2003,6 +2282,24 @@ def test_oopz_sdk_get_assignable_roles_returns_error_dict_on_malformed_role_entr
     assert result["invalid_index"] == 1
 
 
+def test_oopz_sdk_edit_user_role_returns_error_on_malformed_detail_shape(monkeypatch):
+    service = Member(None, _make_config())
+
+    async def _fake_get_user_area_detail(*args, **kwargs):
+        return []
+
+    monkeypatch.setattr(service, "get_user_area_detail", _fake_get_user_area_detail)
+    monkeypatch.setattr(
+        service,
+        "_post",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("不应继续修改身份组")),
+    )
+
+    result = _run(service.edit_user_role("target-1", 1, True))
+
+    assert result == {"error": "user area detail响应格式异常"}
+
+
 def test_oopz_sdk_self_detail_as_model_returns_result_object_on_http_failure(monkeypatch):
     service = Member(None, _make_config())
     monkeypatch.setattr(
@@ -2200,28 +2497,6 @@ def test_oopz_sdk_self_detail_as_model_returns_result_object_on_malformed_succes
     assert result.payload == {"error": "self detail响应格式异常"}
 
 
-def test_oopz_sdk_event_context_send_allows_explicit_channel_without_message():
-    class _Messages:
-        def __init__(self):
-            self.calls = []
-
-        def send_message(self, **kwargs):
-            self.calls.append(kwargs)
-            return kwargs
-
-    class _Bot:
-        def __init__(self):
-            self.message = _Messages()
-
-    bot = _Bot()
-    ctx = EventContext(bot=bot, config=_make_config(), message=_Messages(message_id="msg-1", content="hello", area="area-1",  channel="channel-1"))
-
-    result = asyncio.run(ctx.send("hello", area="area-1", channel="channel-1"))
-
-    assert result == {"text": "hello", "area": "area-1", "channel": "channel-1"}
-    assert bot.message.calls == [{"text": "hello", "area": "area-1", "channel": "channel-1"}]
-
-
 def test_oopz_sdk_local_image_segment_uses_injected_media(monkeypatch, tmp_path):
     sender = OopzRESTClient(_make_config())
     sample = tmp_path / "sample.png"
@@ -2253,7 +2528,7 @@ def test_oopz_sdk_local_image_segment_uses_injected_media(monkeypatch, tmp_path)
     monkeypatch.setattr("oopz_sdk.services.media.Media", _UnexpectedMedia)
 
     with pytest.raises(OopzApiError, match="upload failed"):
-        _run(sender.send_message(ImageSegment.from_file(str(sample)), auto_recall=False))
+        _run(sender.messages.send_message(ImageSegment.from_file(str(sample)), auto_recall=False))
 
     assert captured == {
         "file_path": str(sample),
@@ -2306,19 +2581,14 @@ def test_oopz_sdk_dispatcher_message_handler_receives_message_then_context():
     assert captured["ctx"] is ctx
 
 
-def test_oopz_sdk_dispatcher_sync_preserves_order_inside_running_loop():
+def test_oopz_sdk_dispatcher_does_not_swallow_handler_error():
     registry = EventRegistry()
-    dispatcher = EventDispatcher(registry)
-    order = []
-
-    @registry.on("raw_event")
-    def _handle_raw(event, ctx):
-        order.append(("raw_event", event.name, ctx is not None))
 
     @registry.on("message")
-    def _handle_message(message, ctx):
-        order.append(("message", message.message_id, ctx is not None))
+    def _handler(message, ctx):
+        raise RuntimeError("handler boom")
 
+    dispatcher = EventDispatcher(registry)
     ctx = EventContext(bot=None, config=_make_config())
     event = MessageEvent(
         name="message",
@@ -2326,16 +2596,91 @@ def test_oopz_sdk_dispatcher_sync_preserves_order_inside_running_loop():
         message=models.Message(message_id="msg-1", content="hello", text="hello"),
     )
 
-    async def _run():
-        dispatcher.dispatch_sync("raw_event", event, ctx)
-        dispatcher.dispatch_sync("message", event, ctx)
-        await asyncio.sleep(0)
-        assert order == [
-            ("raw_event", "message", True),
-            ("message", "msg-1", True),
-        ]
+    with pytest.raises(RuntimeError, match="handler boom"):
+        asyncio.run(dispatcher.dispatch("message", event, ctx))
 
-    asyncio.run(_run())
+
+def test_oopz_sdk_ws_client_does_not_reconnect_on_callback_error():
+    errors = []
+
+    class _FakeTransport:
+        def __init__(self):
+            self.connect_calls = 0
+            self.close_calls = 0
+            self.sent = []
+            self.closed = True
+
+        async def connect(self):
+            self.connect_calls += 1
+            self.closed = False
+
+        async def recv(self):
+            return "raw-message"
+
+        async def send_json(self, data):
+            self.sent.append(data)
+
+        async def close(self):
+            self.close_calls += 1
+            self.closed = True
+
+    async def _on_message(raw):
+        raise RuntimeError("handler boom")
+
+    async def _on_error(error):
+        errors.append(str(error))
+
+    client = OopzWSClient(
+        _make_config(),
+        on_message=_on_message,
+        on_error=_on_error,
+    )
+    client.transport = _FakeTransport()
+
+    with pytest.raises(RuntimeError, match="handler boom"):
+        _run(client.start())
+
+    assert client.transport.connect_calls == 1
+    assert errors == ["handler boom"]
+
+
+def test_oopz_sdk_bot_ws_parse_error_is_not_swallowed():
+    errors = []
+
+    class _FakeTransport:
+        def __init__(self):
+            self.connect_calls = 0
+            self.close_calls = 0
+            self.sent = []
+            self.closed = True
+
+        async def connect(self):
+            self.connect_calls += 1
+            self.closed = False
+
+        async def recv(self):
+            return "not-json"
+
+        async def send_json(self, data):
+            self.sent.append(data)
+
+        async def close(self):
+            self.close_calls += 1
+            self.closed = True
+
+    bot = OopzBot(_make_config())
+
+    @bot.on_error
+    async def _on_error(ctx, error):
+        errors.append(str(error))
+
+    bot.ws.transport = _FakeTransport()
+
+    with pytest.raises(OopzParseError, match="Invalid event payload"):
+        _run(bot.ws.start())
+
+    assert bot.ws.transport.connect_calls == 1
+    assert errors == ["Invalid event payload"]
 
 
 def test_oopz_sdk_event_registry_deduplicates_same_handler():
@@ -2368,9 +2713,21 @@ def test_oopz_sdk_bot_convenience_methods_allow_config_defaults():
     recall_calls = []
 
     class _Messages:
-        async def send_message(self, **kwargs):
-            send_calls.append(kwargs)
-            return kwargs
+        async def send_message(
+            self,
+            *texts,
+            area=None,
+            channel=None,
+            reference_message_id=None,
+        ):
+            payload = {
+                "texts": texts,
+                "area": area,
+                "channel": channel,
+                "reference_message_id": reference_message_id,
+            }
+            send_calls.append(payload)
+            return payload
 
         async def recall_message(self, message_id, area=None, channel=None, **kwargs):
             payload = {
@@ -2388,11 +2745,12 @@ def test_oopz_sdk_bot_convenience_methods_allow_config_defaults():
     reply_result = _run(bot.reply("pong", reference_message_id="msg-1"))
     recall_result = _run(bot.recall("msg-2"))
 
-    assert send_result["text"] == "hello"
+    assert send_result["texts"] == ("hello",)
     assert send_calls[0]["area"] is None
     assert send_calls[0]["channel"] is None
 
-    assert reply_result["referenceMessageId"] == "msg-1"
+    assert reply_result["texts"] == ("pong",)
+    assert reply_result["reference_message_id"] == "msg-1"
     assert reply_result["area"] is None
     assert reply_result["channel"] is None
 
@@ -2403,6 +2761,31 @@ def test_oopz_sdk_bot_convenience_methods_allow_config_defaults():
     assert recall_calls[0]["channel"] is None
 
 
+def test_oopz_sdk_http_transport_wraps_timeout_as_connection_error(monkeypatch):
+    config = _make_config(rate_limit_interval=0)
+    transport = HttpTransport(config, signer=object())
+
+    monkeypatch.setattr(oopz_http_transport, "build_oopz_headers", lambda *args, **kwargs: {})
+
+    class _TimeoutContext:
+        async def __aenter__(self):
+            raise asyncio.TimeoutError("boom")
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    class _Session:
+        closed = False
+
+        def request(self, *args, **kwargs):
+            return _TimeoutContext()
+
+    transport._client_session = _Session()
+
+    with pytest.raises(OopzConnectionError, match="request failed: boom"):
+        _run(transport.request("GET", "/timeout"))
+
+
 def test_oopz_sdk_event_context_has_single_send_definition():
     source = Path("oopz_sdk/events/context.py").read_text(encoding="utf-8")
 
@@ -2410,20 +2793,25 @@ def test_oopz_sdk_event_context_has_single_send_definition():
 
 
 @pytest.mark.parametrize(
-    ("method_name", "message"),
+    ("method_name", "event"),
     [
-        ("send", None),
-        ("reply", models.Message.from_dict({"id": "msg-1", "area": "area-1", "channel": "channel-1"})),
-        ("recall", models.Message.from_dict({"id": "msg-1", "area": "area-1", "channel": "channel-1"})),
+        ("send", MessageEvent(name="message", event_type=9, message=models.Message.from_dict({"id": "msg-1", "area": "area-1", "channel": "channel-1"}))),
+        ("reply", MessageEvent(name="message", event_type=9, message=models.Message.from_dict({"id": "msg-1", "area": "area-1", "channel": "channel-1"}))),
+        ("recall", MessageEvent(name="message", event_type=9, message=models.Message.from_dict({"id": "msg-1", "area": "area-1", "channel": "channel-1"}))),
     ],
 )
-def test_oopz_sdk_event_context_async_methods_do_not_block_event_loop(method_name, message):
+def test_oopz_sdk_event_context_async_methods_do_not_block_event_loop(method_name, event):
     order = []
 
     class _Messages:
-        async def send_message(self, **kwargs):
+        async def send_message(self, *args, **kwargs):
             await asyncio.sleep(0.05)
             order.append("send_message")
+            return kwargs
+
+        async def send_private_message(self, *args, **kwargs):
+            await asyncio.sleep(0.05)
+            order.append("send_private_message")
             return kwargs
 
         async def recall_message(self, **kwargs):
@@ -2435,7 +2823,7 @@ def test_oopz_sdk_event_context_async_methods_do_not_block_event_loop(method_nam
         def __init__(self):
             self.messages = _Messages()
 
-    ctx = EventContext(bot=_Bot(), config=_make_config(), message=message)
+    ctx = EventContext(bot=_Bot(), config=_make_config(), event=event)
 
     async def _marker():
         await asyncio.sleep(0.01)
@@ -2486,12 +2874,49 @@ def test_oopz_sdk_chat_event_parser_rejects_invalid_message_data():
         parser.parse({"event": 9, "body": '{"data":"not-json"}'})
 
 
+def test_oopz_sdk_private_event_parser_rejects_invalid_body():
+    parser = EventParser()
+
+    with pytest.raises(OopzParseError):
+        parser.parse({"event": EVENT_PRIVATE_MESSAGE, "body": "not-json"})
+
+
+def test_oopz_sdk_private_event_parser_rejects_invalid_message_data():
+    parser = EventParser()
+
+    with pytest.raises(OopzParseError):
+        parser.parse({"event": EVENT_PRIVATE_MESSAGE, "body": '{"data":"not-json"}'})
+
+
+def test_oopz_sdk_event_context_private_recall_raises_not_implemented_error():
+    event = MessageEvent(
+        name="message.private",
+        event_type=EVENT_PRIVATE_MESSAGE,
+        message=models.Message.from_dict(
+            {
+                "id": "msg-private-1",
+                "channel": "dm-1",
+                "person": "user-1",
+            }
+        ),
+        is_private=True,
+    )
+    ctx = EventContext(
+        bot=SimpleNamespace(messages=Message(None, _make_config())),
+        config=_make_config(),
+        event=event,
+    )
+
+    with pytest.raises(NotImplementedError, match="暂不支持撤回私信消息"):
+        asyncio.run(ctx.recall())
+
+
 def test_oopz_sdk_event_context_reply_uses_message_id_from_legacy_id():
     class _Messages:
         def __init__(self):
             self.calls = []
 
-        def send_message(self, **kwargs):
+        async def send_message(self, *texts, **kwargs):
             self.calls.append(kwargs)
             return kwargs
 
@@ -2500,26 +2925,58 @@ def test_oopz_sdk_event_context_reply_uses_message_id_from_legacy_id():
             self.messages = _Messages()
 
     bot = _Bot()
-    message = models.Message.from_dict(
-        {
-            "id": "msg-legacy",
-            "area": "area-1",
-            "channel": "channel-1",
-            "content": "hello",
-        }
+    event = MessageEvent(
+        name="message",
+        event_type=9,
+        message=models.Message.from_dict(
+            {
+                "id": "msg-legacy",
+                "area": "area-1",
+                "channel": "channel-1",
+                "content": "hello",
+            }
+        ),
     )
-    ctx = EventContext(bot=bot, config=_make_config(), message=message)
+    ctx = EventContext(bot=bot, config=_make_config(), event=event)
 
     result = asyncio.run(ctx.reply("pong"))
 
-    assert result["referenceMessageId"] == "msg-legacy"
-    assert bot.messages.calls[0]["referenceMessageId"] == "msg-legacy"
+    assert result["reference_message_id"] == "msg-legacy"
+    assert bot.messages.calls[0]["reference_message_id"] == "msg-legacy"
 
 
 def test_oopz_sdk_message_service_has_single_upload_local_image_segment_definition():
     source = Path("oopz_sdk/services/message.py").read_text(encoding="utf-8")
 
     assert source.count("def _upload_local_image_segment(") == 1
+
+
+def test_oopz_sdk_client_optional_dependency_message_uses_real_missing_module_name():
+    exc = ModuleNotFoundError("No module named 'aiohttp'")
+    exc.name = "aiohttp"
+
+    assert oopz_client._optional_dependency_message(exc, feature="WebSocket features") == (
+        "aiohttp is required for WebSocket features"
+    )
+
+
+def test_oopz_sdk_client_optional_dependency_message_re_raises_internal_missing_module():
+    exc = ModuleNotFoundError("No module named 'oopz_sdk.events'")
+    exc.name = "oopz_sdk.events"
+
+    with pytest.raises(ModuleNotFoundError) as exc_info:
+        oopz_client._optional_dependency_message(exc, feature="WebSocket features")
+
+    assert exc_info.value is exc
+
+
+def test_oopz_sdk_package_optional_dependency_message_uses_real_missing_module_name():
+    exc = ModuleNotFoundError("No module named 'PIL'")
+    exc.name = "PIL"
+
+    assert oopz_sdk._optional_dependency_message(exc, feature="image helpers") == (
+        "PIL is required for image helpers"
+    )
 
 
 def test_oopz_sdk_version_matches_package_version():

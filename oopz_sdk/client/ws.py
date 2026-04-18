@@ -13,6 +13,13 @@ from oopz_sdk.transport.ws import WebSocketTransport
 logger = logging.getLogger("oopz_sdk.client.ws")
 
 
+class _WebSocketCallbackError(RuntimeError):
+    def __init__(self, callback_name: str, original: Exception):
+        super().__init__(f"{callback_name} failed: {original}")
+        self.callback_name = callback_name
+        self.original = original
+
+
 class OopzWSClient:
     def __init__(
         self,
@@ -43,9 +50,10 @@ class OopzWSClient:
         self._running = True
 
         while self._running:
+            fatal_error: Exception | None = None
             try:
-                if self._has_connected_once and self.on_reconnect:
-                    await self.on_reconnect()
+                if self._has_connected_once:
+                    await self._run_callback("on_reconnect", self.on_reconnect)
 
                 await self.transport.connect()
                 self._consecutive_failures = 0
@@ -53,19 +61,25 @@ class OopzWSClient:
 
                 await self.send_auth()
 
-                if self.on_open:
-                    await self.on_open()
+                await self._run_callback("on_open", self.on_open)
 
                 self._heartbeat_task = asyncio.create_task(self._heartbeat_loop())
                 await self._receive_loop()
 
+            except asyncio.CancelledError:
+                raise
             except Exception as exc:
-                logger.exception("WebSocket 运行异常: %s", exc)
+                reported_error = (
+                    exc.original if isinstance(exc, _WebSocketCallbackError) else exc
+                )
+                logger.exception("WebSocket 运行异常: %s", reported_error)
                 if self.on_error:
                     try:
-                        await self.on_error(exc)
-                    except Exception:
-                        logger.exception("on_error 回调执行失败")
+                        await self._run_callback("on_error", self.on_error, reported_error)
+                    except _WebSocketCallbackError as callback_exc:
+                        fatal_error = callback_exc.original
+                if fatal_error is None and isinstance(exc, _WebSocketCallbackError):
+                    fatal_error = reported_error
 
             finally:
                 if self._heartbeat_task:
@@ -80,6 +94,9 @@ class OopzWSClient:
                     await self.transport.close()
                 except Exception:
                     logger.exception("关闭 WebSocketTransport 失败")
+
+            if fatal_error is not None:
+                raise fatal_error
 
             if not self._running:
                 break
@@ -101,8 +118,7 @@ class OopzWSClient:
     async def _receive_loop(self) -> None:
         while self._running:
             raw = await self.transport.recv()
-            if self.on_message:
-                await self.on_message(raw)
+            await self._run_callback("on_message", self.on_message, raw)
 
     async def send_auth(self) -> None:
         auth_body = {
@@ -137,3 +153,16 @@ class OopzWSClient:
             await asyncio.sleep(heartbeat.interval)
             if self._running and not self.transport.closed:
                 await self.send_heartbeat()
+
+    @staticmethod
+    async def _run_callback(callback_name: str, callback, *args) -> None:
+        if callback is None:
+            return
+        try:
+            result = callback(*args)
+            if asyncio.iscoroutine(result):
+                await result
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            raise _WebSocketCallbackError(callback_name, exc) from exc

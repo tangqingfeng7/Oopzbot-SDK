@@ -10,6 +10,7 @@ from oopz_sdk import models
 from oopz_sdk.auth.signer import Signer
 from oopz_sdk.config.settings import OopzConfig
 from oopz_sdk.exceptions import OopzApiError, OopzRateLimitError
+from oopz_sdk.response import is_success_payload
 from oopz_sdk.models.segment import Image, Segment, Text
 from oopz_sdk.services import BaseService
 from oopz_sdk.transport.http import HttpTransport
@@ -185,7 +186,7 @@ class Message(BaseService):
             target[:12],
         )
 
-        resp = await self._post(url_path, body)
+        resp = await self._await_if_needed(self._post(url_path, body))
         logger.info("response status: %d", resp.status_code)
 
         if resp.text:
@@ -201,7 +202,7 @@ class Message(BaseService):
                 status_code=resp.status_code,
             )
 
-        if not result.get("status") and result.get("code") not in (0, "0", 200, "200", "success"):
+        if not is_success_payload(result):
             self._raise_api_error(resp, "send message failed")
 
         send_result = self._build_send_result(
@@ -235,7 +236,9 @@ class Message(BaseService):
         body = {"target": target}
 
         try:
-            resp = await self._request("PATCH", url_path, body=body, params={"target": target})
+            resp = await self._await_if_needed(
+                self._request("PATCH", url_path, body=body, params={"target": target})
+            )
         except Exception as e:
             logger.error("open_private_session failed: %s", e)
             return models.PrivateSessionResult(
@@ -261,6 +264,19 @@ class Message(BaseService):
                 channel="",
                 target=target,
                 payload={"error": f"non-json response: {raw[:200]}"},
+                response=resp,
+            )
+
+        if not is_success_payload(result):
+            message = self._error_message(result, "打开私信会话失败")
+            return models.PrivateSessionResult(
+                channel="",
+                target=target,
+                payload=self._error_payload(
+                    message,
+                    payload=result,
+                    default=message,
+                ),
                 response=resp,
             )
 
@@ -393,7 +409,7 @@ class Message(BaseService):
 
         resolved_channel = str(channel or "").strip()
         if not resolved_channel:
-            opened = self.open_private_session(resolved_target)
+            opened = await self._await_if_needed(self.open_private_session(resolved_target))
             if not opened.channel:
                 raise OopzApiError(
                     f"Failed to open private session for target={resolved_target[:12]}",
@@ -529,7 +545,9 @@ class Message(BaseService):
         }
 
         try:
-            resp = await self._request("POST", url_path, body=body, params=dict(body))
+            resp = await self._await_if_needed(
+                self._request("POST", url_path, body=body, params=dict(body))
+            )
         except Exception as e:
             logger.error("recall request error: %s", e)
             return models.OperationResult(ok=False, message=str(e), payload=body)
@@ -550,7 +568,7 @@ class Message(BaseService):
                 response=resp,
             )
 
-        if result.get("status") is True or result.get("code") in (0, "0", "success", 200):
+        if is_success_payload(result):
             return self._build_operation_result(result, response=resp, message="撤回成功")
 
         err = result.get("message") or result.get("error") or str(result)
@@ -564,47 +582,7 @@ class Message(BaseService):
         timestamp: Optional[str] = None,
         target: str = "",
     ) -> models.OperationResult:
-        raise NotImplemented
-        area = self._resolve_area(area)
-        channel = self._resolve_channel(channel)
-        timestamp = timestamp or self.signer.timestamp_us()
-        message_id = str(message_id).strip() if message_id is not None else ""
-        url_path = "/im/session/v1/recallIm" # 根据group recall猜测的接口, 没实现
-        body = {
-            "area": area,
-            "channel": channel,
-            "messageId": message_id,
-            "timestamp": timestamp,
-            "target": target,
-        }
-
-        try:
-            resp = await self._request("POST", url_path, body=body, params=dict(body))
-        except Exception as e:
-            logger.error("recall request error: %s", e)
-            return models.OperationResult(ok=False, message=str(e), payload=body)
-
-        raw_text = resp.text or ""
-        logger.info("recall POST %s -> HTTP %d", url_path, resp.status_code)
-
-        if resp.status_code != 200:
-            err = f"HTTP {resp.status_code}" + (f" | {raw_text[:200]}" if raw_text else "")
-            return models.OperationResult(ok=False, message=err, payload=body, response=resp)
-
-        result = self._safe_json(resp)
-        if result is None:
-            return models.OperationResult(
-                ok=False,
-                message=f"响应非 JSON: {raw_text[:200]}",
-                payload=body,
-                response=resp,
-            )
-
-        if result.get("status") is True or result.get("code") in (0, "0", "success", 200):
-            return self._build_operation_result(result, response=resp, message="撤回成功")
-
-        err = result.get("message") or result.get("error") or str(result)
-        return models.OperationResult(ok=False, message=str(err), payload=result, response=resp)
+        raise NotImplementedError("暂不支持撤回私信消息")
 
 
     async def get_channel_messages(
@@ -620,14 +598,91 @@ class Message(BaseService):
         url_path = "/im/session/v2/messageBefore"
         params = {"area": area, "channel": channel, "size": str(size)}
 
+        def _error_response(
+            message: str,
+            *,
+            debug_reason: str,
+            payload: object | None = None,
+            response=None,
+            preview: str = "",
+        ) -> dict:
+            error_payload = self._error_payload(
+                message,
+                payload=payload if isinstance(payload, dict) else None,
+                default=message,
+            )
+            error_payload["debug_reason"] = debug_reason
+            error_payload["area"] = area
+            error_payload["channel"] = channel
+            error_payload["size"] = size
+            if response is not None and getattr(response, "status_code", None) is not None:
+                error_payload.setdefault("status_code", response.status_code)
+            if preview:
+                error_payload["preview"] = preview
+            if payload is not None and not isinstance(payload, dict):
+                error_payload["payload"] = payload
+            return error_payload
+
+        def _raise_channel_messages_error(
+            message: str,
+            *,
+            debug_reason: str,
+            payload: object | None = None,
+            response=None,
+            preview: str = "",
+        ) -> None:
+            error_payload = _error_response(
+                message,
+                debug_reason=debug_reason,
+                payload=payload,
+                response=response,
+                preview=preview,
+            )
+            status_code = getattr(response, "status_code", None)
+            raise OopzApiError(
+                str(error_payload.get("error") or message),
+                status_code=status_code,
+                response=error_payload,
+            )
+
         try:
-            resp = await self._get(url_path, params=params)
+            resp = await self._await_if_needed(self._get(url_path, params=params))
             if resp.status_code != 200:
                 preview = (resp.text or "")[:200]
                 logger.error("failed to get channel messages: HTTP %d", resp.status_code)
-                return []
+                error_payload = _error_response(
+                    f"HTTP {resp.status_code}",
+                    debug_reason="get_channel_messages_http_error",
+                    response=resp,
+                    preview=preview,
+                )
+                if as_model:
+                    _raise_channel_messages_error(
+                        f"HTTP {resp.status_code}",
+                        debug_reason="get_channel_messages_http_error",
+                        response=resp,
+                        preview=preview,
+                    )
+                return error_payload
 
-            result = resp.json()
+            try:
+                result = resp.json()
+            except ValueError as exc:
+                preview = (resp.text or "")[:200]
+                logger.error("failed to get channel messages: non-json response: %s", exc)
+                if as_model:
+                    _raise_channel_messages_error(
+                        "channel messages响应非 JSON",
+                        debug_reason="get_channel_messages_non_json",
+                        response=resp,
+                        preview=preview,
+                    )
+                return _error_response(
+                    "channel messages响应非 JSON",
+                    debug_reason="get_channel_messages_non_json",
+                    response=resp,
+                    preview=preview,
+                )
             if not isinstance(result, dict):
                 error_payload = {
                     "error": "channel messages响应格式异常",
@@ -652,13 +707,75 @@ class Message(BaseService):
                     "failed to get channel messages: %s",
                     message,
                 )
+                if as_model:
+                    _raise_channel_messages_error(
+                        message,
+                        debug_reason="get_channel_messages_failed_status",
+                        payload=result,
+                        response=resp,
+                    )
+                return _error_response(
+                    message,
+                    debug_reason="get_channel_messages_failed_status",
+                    payload=result,
+                    response=resp,
+                )
 
-            raw_list = result.get("data", {}).get("messages", [])
+            data = result.get("data")
+            if not isinstance(data, dict):
+                if as_model:
+                    _raise_channel_messages_error(
+                        "channel messages响应格式异常",
+                        debug_reason="get_channel_messages_malformed_data",
+                        payload=result,
+                        response=resp,
+                    )
+                return _error_response(
+                    "channel messages响应格式异常",
+                    debug_reason="get_channel_messages_malformed_data",
+                    payload=result,
+                    response=resp,
+                )
+
+            raw_list = data.get("messages")
+            if not isinstance(raw_list, list):
+                if as_model:
+                    _raise_channel_messages_error(
+                        "channel messages响应格式异常",
+                        debug_reason="get_channel_messages_malformed_messages",
+                        payload={"messages": raw_list},
+                        response=resp,
+                    )
+                return _error_response(
+                    "channel messages响应格式异常",
+                    debug_reason="get_channel_messages_malformed_messages",
+                    payload={"messages": raw_list},
+                    response=resp,
+                )
+
+            invalid_messages_payload = self._invalid_dict_item_payload(
+                raw_list,
+                "channel messages响应格式异常",
+                list_key="messages",
+                payload={"messages": raw_list},
+            )
+            if invalid_messages_payload:
+                if as_model:
+                    _raise_channel_messages_error(
+                        "channel messages响应格式异常",
+                        debug_reason="get_channel_messages_invalid_item",
+                        payload=invalid_messages_payload,
+                        response=resp,
+                    )
+                return _error_response(
+                    "channel messages响应格式异常",
+                    debug_reason="get_channel_messages_invalid_item",
+                    payload=invalid_messages_payload,
+                    response=resp,
+                )
             messages = []
 
             for m in raw_list:
-                if not isinstance(m, dict):
-                    continue
                 mid = m.get("messageId") or m.get("id")
                 if mid is not None:
                     m = {**m, "messageId": str(mid)}
@@ -673,23 +790,22 @@ class Message(BaseService):
                 ]
             return messages
 
+        except OopzApiError:
+            raise
         except Exception as exc:
             logger.error("get channel messages exception: %s", exc)
-            error_payload = {
-                "error": str(exc),
-                "debug_reason": "get_channel_messages_exception",
-                "area": area,
-                "channel": channel,
-                "size": size,
-            }
+            error_payload = _error_response(
+                str(exc),
+                debug_reason="get_channel_messages_exception",
+            )
             if as_model:
                 raise OopzApiError(
-                    f"failed to get channel messages: {exc}",
+                    str(error_payload.get("error") or exc),
                     response=error_payload,
                 ) from exc
             return error_payload
 
-    def _upload_local_image_segment(self, seg: Image) -> Image:
+    async def _upload_local_image_segment(self, seg: Image) -> Image:
         source_path = seg.source_path
         if not source_path:
             raise ValueError("Image 缺少文件路径")
@@ -702,10 +818,14 @@ class Message(BaseService):
 
         ext = os.path.splitext(source_path)[1] or ".jpg"
 
-        upload = self._bot.media.upload_file(
-            source_path,
-            file_type="IMAGE",
-            ext=ext,
+        media_service = self._require_service("media")
+
+        upload = await self._await_if_needed(
+            media_service.upload_file(
+                source_path,
+                file_type="IMAGE",
+                ext=ext,
+            )
         )
 
         attachment = upload.attachment
@@ -751,55 +871,22 @@ class Message(BaseService):
         area: Optional[str] = None,
         channel: Optional[str] = None,
     ) -> Optional[str]:
-        messages = self.get_channel_messages(area=area, channel=channel)
-        for msg in messages:
-            if isinstance(msg, dict) and msg.get("messageId") == message_id:
-                return msg.get("timestamp")
-        messages = await self.get_channel_messages(area=area, channel=channel)
+        messages = await self._await_if_needed(
+            self.get_channel_messages(area=area, channel=channel)
+        )
         if isinstance(messages, dict) and messages.get("error"):
-            return None
+            raise OopzApiError(
+                str(messages.get("error") or "failed to get channel messages"),
+                response=messages,
+            )
         if not isinstance(messages, list):
-            return None
+            error_payload = {
+                "error": "channel messages响应格式异常",
+                "message_id": message_id,
+                "result_type": type(messages).__name__,
+            }
+            raise OopzApiError("channel messages响应格式异常", response=error_payload)
         for message in messages:
             if isinstance(message, dict) and message.get("messageId") == message_id:
                 return message.get("timestamp")
         return None
-
-    # async def _upload_local_image_segment(self, seg: Image) -> Image:
-    #     source_path = seg.source_path
-    #     if not source_path:
-    #         raise ValueError("Image missing file path")
-    #
-    #     width = seg.width
-    #     height = seg.height
-    #     file_size = seg.file_size
-    #     if width <= 0 or height <= 0 or file_size <= 0:
-    #         width, height, file_size = get_image_info(source_path)
-    #
-    #     ext = os.path.splitext(source_path)[1] or ".jpg"
-    #     uploader = self._media_uploader()
-    #
-    #     try:
-    #         upload = await self._await_if_needed(
-    #             uploader.upload_file(
-    #                 source_path,
-    #                 file_type="IMAGE",
-    #                 ext=ext,
-    #             )
-    #         )
-    #     except OopzApiError:
-    #         logger.error("failed to upload image: %s", source_path)
-    #         raise
-    #
-    #     attachment = upload.attachment
-    #     return Image.from_uploaded(
-    #         file_key=attachment.file_key,
-    #         url=attachment.url,
-    #         width=width,
-    #         height=height,
-    #         file_size=file_size,
-    #         hash=attachment.hash,
-    #         animated=attachment.animated,
-    #         display_name=attachment.display_name,
-    #         preview_file_key=getattr(attachment, "preview_file_key", ""),
-    #     )

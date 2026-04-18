@@ -278,9 +278,14 @@ class Member(BaseService):
             if resp.status_code != 200:
                 return {"error": f"HTTP {resp.status_code}"}
             result = resp.json()
+            if not isinstance(result, dict):
+                return {"error": "user area detail响应格式异常"}
             if not result.get("status"):
                 return {"error": result.get("message") or "未知错误"}
-            return result.get("data", {})
+            data = result.get("data", {})
+            if not isinstance(data, dict):
+                return {"error": "user area detail响应格式异常"}
+            return data
         except Exception as e:
             logger.error("获取用户域内详情异常: %s", e)
             return {"error": str(e)}
@@ -336,9 +341,17 @@ class Member(BaseService):
         """给目标用户添加或取消指定身份组。"""
         area = area or self._config.default_area
         detail = await self.get_user_area_detail(target_uid, area=area)
-        if "error" in detail:
-            return {"error": detail["error"]}
-        current_list = detail.get("list") or []
+        if not isinstance(detail, dict):
+            return {"error": "user area detail响应格式异常"}
+        if detail.get("error"):
+            return {"error": str(detail["error"])}
+        current_list = detail.get("list")
+        if current_list is None:
+            current_list = []
+        if not isinstance(current_list, list):
+            return {"error": "user area detail响应格式异常"}
+        if any(not isinstance(role, dict) for role in current_list):
+            return {"error": "user area detail响应格式异常"}
         current_ids = [int(r["roleID"]) for r in current_list if r.get("roleID") is not None]
         role_id = int(role_id)
         if add:

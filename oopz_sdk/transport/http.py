@@ -126,6 +126,9 @@ class HttpTransport(BaseTransport):
                     content=await resp.read(),
                 )
 
+        except asyncio.TimeoutError as exc:
+            detail = str(exc).strip() or "timeout"
+            raise OopzConnectionError(f"request failed: {detail}") from exc
         except aiohttp.ClientError as exc:
             raise OopzConnectionError(f"request failed: {exc}") from exc
 

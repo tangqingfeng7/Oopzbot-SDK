@@ -10,6 +10,7 @@ from typing import Optional
 from oopz_sdk import models
 from oopz_sdk.auth.signer import Signer
 from oopz_sdk.config.settings import OopzConfig
+from oopz_sdk.exceptions import OopzApiError
 from oopz_sdk.transport.http import HttpTransport
 
 from . import BaseService
@@ -64,6 +65,13 @@ class Channel(BaseService):
             store = {}
             self._voice_ids_cache = store
         return store
+
+    def _invalidate_voice_ids_cache(self, area: str | None = None) -> None:
+        store = self._get_voice_ids_cache_store()
+        if area is None:
+            store.clear()
+            return
+        store.pop(str(area), None)
 
     @staticmethod
     def _to_channel_model(payload: dict, area: str = "") -> models.Channel:
@@ -442,6 +450,13 @@ class Channel(BaseService):
             result = resp.json()
         except Exception:
             return models.OperationResult(ok=False, message=f"响应非 JSON: {raw[:200]}", payload=body, response=resp)
+        if not isinstance(result, dict):
+            return models.OperationResult(
+                ok=False,
+                message="创建频道响应格式异常",
+                payload={"payload": result},
+                response=resp,
+            )
 
         if not result.get("status"):
             msg = result.get("message") or "创建频道失败"
@@ -452,6 +467,8 @@ class Channel(BaseService):
 
         data = result.get("data", {})
         channel_id = self._extract_channel_id(data) or self._extract_channel_id(result)
+        if resolved_type == "VOICE":
+            self._invalidate_voice_ids_cache(area)
         return models.OperationResult(
             ok=True,
             message="频道已创建",
@@ -557,6 +574,13 @@ class Channel(BaseService):
             result = resp.json()
         except Exception:
             return models.OperationResult(ok=False, message=f"响应非 JSON: {raw[:200]}", payload=edit_body, response=resp)
+        if not isinstance(result, dict):
+            return models.OperationResult(
+                ok=False,
+                message="更新频道响应格式异常",
+                payload={"payload": result},
+                response=resp,
+            )
 
         if not result.get("status"):
             return models.OperationResult(ok=False, message=str(result.get("message") or "更新频道失败"), payload=result, response=resp)
@@ -609,6 +633,8 @@ class Channel(BaseService):
             result = resp.json()
         except Exception:
             return {"error": f"响应非 JSON: {raw[:200]}"}
+        if not isinstance(result, dict):
+            return {"error": "创建频道响应格式异常"}
 
         if not result.get("status"):
             msg = result.get("message") or result.get("error") or "创建频道失败"
@@ -681,6 +707,12 @@ class Channel(BaseService):
                 area,
                 f"权限设置响应非 JSON: {edit_raw[:200]}",
             )
+        if not isinstance(edit_result, dict):
+            return await self._rollback_created_channel(
+                channel_id,
+                area,
+                "权限设置响应格式异常",
+            )
 
         if not edit_result.get("status"):
             msg = edit_result.get("message") or edit_result.get("error") or "权限设置失败"
@@ -722,8 +754,16 @@ class Channel(BaseService):
             result = resp.json()
         except Exception:
             return models.OperationResult(ok=False, message=f"响应非 JSON: {raw[:200]}", response=resp)
+        if not isinstance(result, dict):
+            return models.OperationResult(
+                ok=False,
+                message="删除频道响应格式异常",
+                payload={"payload": result},
+                response=resp,
+            )
 
         if result.get("status") is True:
+            self._invalidate_voice_ids_cache(area)
             return self._ok_result(result, response=resp, message="已删除频道")
 
         err = result.get("message") or result.get("error") or str(result)
@@ -770,10 +810,12 @@ class Channel(BaseService):
         full_path = url_path + query
 
         try:
-            resp = await self._request(
-                "DELETE",
-                url_path,
-                params={"area": area, "channel": channel, "target": target},
+            resp = await self._await_if_needed(
+                self._request(
+                    "DELETE",
+                    url_path,
+                    params={"area": area, "channel": channel, "target": target},
+                )
             )
         except Exception as e:
             logger.error("退出语音频道异常: %s", e)
@@ -824,7 +866,7 @@ class Channel(BaseService):
     ) -> dict | models.VoiceChannelMembersResult:
         """获取域内各语音频道的在线成员列表。"""
         area = self._resolve_area(area)
-        voice_ids = await self._get_voice_channel_ids(area)
+        voice_ids = await self._await_if_needed(self._get_voice_channel_ids(area))
         if isinstance(voice_ids, dict) and voice_ids.get("error"):
             if as_model:
                 return self._model_error(
@@ -843,7 +885,7 @@ class Channel(BaseService):
         max_retries = 3
         for attempt in range(max_retries):
             try:
-                resp = await self._post(url_path, body)
+                resp = await self._await_if_needed(self._post(url_path, body))
                 if resp.status_code == 429:
                     wait = min(2 ** attempt, 4)
                     logger.warning("获取语音频道成员被限流 (429)，%ds 后重试 (%d/%d)", wait, attempt + 1, max_retries)
@@ -937,8 +979,16 @@ class Channel(BaseService):
     async def get_voice_channel_for_user(self, user_uid: str, area: Optional[str] = None) -> Optional[str]:
         """获取用户当前所在的语音频道 ID，不在任何语音频道则返回 None。"""
         members = await self.get_voice_channel_members(area=area)
-        if not isinstance(members, dict) or members.get("error"):
-            return None
+        if isinstance(members, dict) and members.get("error"):
+            raise OopzApiError(
+                str(members.get("error") or "voice channel members查询失败"),
+                response=members,
+            )
+        if not isinstance(members, dict):
+            raise OopzApiError(
+                "voice channel members响应格式异常",
+                response={"error": "voice channel members响应格式异常"},
+            )
         for ch_id, ch_members in members.items():
             if not ch_members:
                 continue
