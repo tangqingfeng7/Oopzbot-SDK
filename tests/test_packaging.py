@@ -14,3 +14,10 @@ def test_pyproject_ships_only_oopz_sdk_packages() -> None:
 
     package_data = data["tool"]["setuptools"]["package-data"]
     assert package_data["oopz_sdk"] == ["py.typed"]
+
+
+def test_manifest_includes_py_typed_from_oopz_sdk_package() -> None:
+    manifest = Path(__file__).resolve().parents[1] / "MANIFEST.in"
+    lines = manifest.read_text(encoding="utf-8").splitlines()
+
+    assert "include oopz_sdk/py.typed" in lines

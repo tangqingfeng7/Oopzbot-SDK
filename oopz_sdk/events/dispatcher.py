@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import inspect
 import logging
+import threading
 from typing import Any
 
 from .context import EventContext
@@ -40,93 +41,79 @@ class EventDispatcher:
                 logger.exception("事件处理器执行失败: event=%s handler=%r", event_name, handler)
 
     def dispatch_sync(self, event_name: str, event: Any, context: EventContext) -> None:
+        coroutine = self.dispatch(event_name, event, context)
         try:
-            loop = asyncio.get_running_loop()
+            asyncio.get_running_loop()
         except RuntimeError:
-            asyncio.run(self.dispatch(event_name, event, context))
+            asyncio.run(coroutine)
             return
 
-        loop.create_task(self.dispatch(event_name, event, context))
+        self._run_coroutine_in_thread(coroutine)
+
+    @staticmethod
+    def _run_coroutine_in_thread(coroutine) -> None:
+        error: list[BaseException] = []
+
+        def runner() -> None:
+            try:
+                asyncio.run(coroutine)
+            except BaseException as exc:  # pragma: no cover - defensive propagation
+                error.append(exc)
+
+        thread = threading.Thread(target=runner)
+        thread.start()
+        thread.join()
+
+        if error:
+            raise error[0]
 
     @staticmethod
     def _invoke_handler(handler, event_name: str, event: Any, context: EventContext):
         """
         定义事件的调用方式。
         """
+        preferred_args = EventDispatcher._build_preferred_args(event_name, event, context)
+
+        try:
+            sig = inspect.signature(handler)
+        except (TypeError, ValueError):
+            return handler(*preferred_args)
+
+        positional_params = [
+            param
+            for param in sig.parameters.values()
+            if param.kind in (
+                inspect.Parameter.POSITIONAL_ONLY,
+                inspect.Parameter.POSITIONAL_OR_KEYWORD,
+            )
+        ]
+        has_varargs = any(
+            param.kind == inspect.Parameter.VAR_POSITIONAL
+            for param in sig.parameters.values()
+        )
+
+        if has_varargs:
+            return handler(*preferred_args)
+
+        argc = len(positional_params)
+        if argc <= 0:
+            return handler()
+        if argc == 1:
+            return handler(preferred_args[0])
+        if argc == 2:
+            return handler(*preferred_args[:2])
+        return handler(*preferred_args)
+
+    @staticmethod
+    def _build_preferred_args(event_name: str, event: Any, context: EventContext):
+        """
+        为不同事件构建推荐参数。
+        """
         if event_name == "message":
             message = getattr(event, "message", None)
-            return handler(message, context)
+            return (message, context)
 
         if event_name in {"ready", "reconnect"}:
-            return handler(context)
+            return (context,)
 
-        if event_name in {"close", "error", "raw_event"}:
-            return handler(context, event)
-
-        return handler(context, event)
-
-    # def _invoke_handler(self, handler, event_name: str, event: Any, context: EventContext):
-    #     """
-    #     根据事件类型和 handler 签名，选择最合适的调用方式。
-    #     """
-    #
-    #     # 优先按事件语义调用
-    #     preferred_args = self._build_preferred_args(event_name, event, context)
-    #
-    #     # 如果签名正常可分析，尽量按参数数量做兼容裁剪
-    #     try:
-    #         sig = inspect.signature(handler)
-    #         positional_params = [
-    #             p for p in sig.parameters.values()
-    #             if p.kind in (
-    #                 inspect.Parameter.POSITIONAL_ONLY,
-    #                 inspect.Parameter.POSITIONAL_OR_KEYWORD,
-    #             )
-    #         ]
-    #         has_varargs = any(
-    #             p.kind == inspect.Parameter.VAR_POSITIONAL
-    #             for p in sig.parameters.values()
-    #         )
-    #
-    #         if has_varargs:
-    #             return handler(*preferred_args)
-    #
-    #         argc = len(positional_params)
-    #
-    #         if argc <= 0:
-    #             return handler()
-    #         if argc == 1:
-    #             # message/ready 事件优先给第一个核心对象
-    #             return handler(preferred_args[0])
-    #         if argc == 2:
-    #             return handler(*preferred_args[:2])
-    #
-    #         # >= 3 时，仍按 preferred_args 调，多余参数交给 Python 报错更清晰
-    #         return handler(*preferred_args)
-    #
-    #     except (TypeError, ValueError):
-    #         # 某些可调用对象签名不可分析时，直接按语义调用
-    #         return handler(*preferred_args)
-    #
-    # @staticmethod
-    # def _build_preferred_args(event_name: str, event: Any, context: EventContext):
-    #     """
-    #     为不同事件构建推荐参数。
-    #     """
-    #     if event_name == "message":
-    #         message = getattr(event, "message", None)
-    #         return (message, context)
-    #
-    #     if event_name in {"ready", "reconnect"}:
-    #         return (context,)
-    #
-    #     if event_name == "close":
-    #         return (event, context)
-    #
-    #     if event_name == "error":
-    #         return (event, context)
-    #
-    #     if event_name == "raw_event":
-    #         return (event, context)
-    #
-    #     return (event, context)
+        return (event, context)

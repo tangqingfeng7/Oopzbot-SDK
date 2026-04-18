@@ -1,6 +1,7 @@
 import asyncio
 import io
 from pathlib import Path
+import time
 
 import pytest
 import requests
@@ -10,9 +11,10 @@ from PIL import Image
 from oopz_sdk import OopzClient, OopzRESTClient, models
 from oopz_sdk.client.bot import OopzBot
 from oopz_sdk.config import OopzConfig
-from oopz_sdk.exceptions import OopzApiError, OopzConnectionError, OopzRateLimitError
+from oopz_sdk.exceptions import OopzApiError, OopzConnectionError, OopzParseError, OopzRateLimitError
 from oopz_sdk.events.context import EventContext
 from oopz_sdk.events.dispatcher import EventDispatcher
+from oopz_sdk.events.parser import EventParser
 from oopz_sdk.events.registry import EventRegistry
 from oopz_sdk.models.event import MessageEvent
 from oopz_sdk.models.segment import Image as ImageSegment
@@ -670,6 +672,37 @@ def test_oopz_sdk_dispatcher_message_handler_receives_message_then_context():
     assert captured["ctx"] is ctx
 
 
+def test_oopz_sdk_dispatcher_sync_preserves_order_inside_running_loop():
+    registry = EventRegistry()
+    dispatcher = EventDispatcher(registry)
+    order = []
+
+    @registry.on("raw_event")
+    def _handle_raw(event, ctx):
+        order.append(("raw_event", event.name, ctx is not None))
+
+    @registry.on("message")
+    def _handle_message(message, ctx):
+        order.append(("message", message.message_id, ctx is not None))
+
+    ctx = EventContext(bot=None, config=_make_config())
+    event = MessageEvent(
+        name="message",
+        event_type=9,
+        message=models.Message(message_id="msg-1", content="hello", text="hello"),
+    )
+
+    async def _run():
+        dispatcher.dispatch_sync("raw_event", event, ctx)
+        dispatcher.dispatch_sync("message", event, ctx)
+        assert order == [
+            ("raw_event", "message", True),
+            ("message", "msg-1", True),
+        ]
+
+    asyncio.run(_run())
+
+
 def test_oopz_sdk_event_registry_deduplicates_same_handler():
     registry = EventRegistry()
 
@@ -741,6 +774,55 @@ def test_oopz_sdk_event_context_has_single_send_definition():
     assert source.count("async def send(") == 1
 
 
+@pytest.mark.parametrize(
+    ("method_name", "message"),
+    [
+        ("send", None),
+        ("reply", models.Message.from_dict({"id": "msg-1", "area": "area-1", "channel": "channel-1"})),
+        ("recall", models.Message.from_dict({"id": "msg-1", "area": "area-1", "channel": "channel-1"})),
+    ],
+)
+def test_oopz_sdk_event_context_async_methods_do_not_block_event_loop(method_name, message):
+    order = []
+
+    class _Messages:
+        def send_message(self, **kwargs):
+            time.sleep(0.05)
+            order.append("send_message")
+            return kwargs
+
+        def recall_message(self, **kwargs):
+            time.sleep(0.05)
+            order.append("recall_message")
+            return kwargs
+
+    class _Bot:
+        def __init__(self):
+            self.messages = _Messages()
+
+    ctx = EventContext(bot=_Bot(), config=_make_config(), message=message)
+
+    async def _marker():
+        await asyncio.sleep(0.01)
+        order.append("tick")
+
+    async def _invoke():
+        if method_name == "send":
+            await ctx.send("hello", area="area-1", channel="channel-1")
+            return
+        if method_name == "reply":
+            await ctx.reply("hello")
+            return
+        await ctx.recall()
+
+    async def _run():
+        await asyncio.gather(_invoke(), _marker())
+
+    asyncio.run(_run())
+
+    assert order[0] == "tick"
+
+
 def test_oopz_sdk_message_from_dict_accepts_legacy_id_field():
     message = models.Message.from_dict(
         {
@@ -753,6 +835,20 @@ def test_oopz_sdk_message_from_dict_accepts_legacy_id_field():
 
     assert message.message_id == "msg-legacy"
     assert message.content == "hello"
+
+
+def test_oopz_sdk_chat_event_parser_rejects_invalid_body():
+    parser = EventParser()
+
+    with pytest.raises(OopzParseError):
+        parser.parse({"event": 9, "body": "not-json"})
+
+
+def test_oopz_sdk_chat_event_parser_rejects_invalid_message_data():
+    parser = EventParser()
+
+    with pytest.raises(OopzParseError):
+        parser.parse({"event": 9, "body": '{"data":"not-json"}'})
 
 
 def test_oopz_sdk_event_context_reply_uses_message_id_from_legacy_id():
@@ -783,6 +879,12 @@ def test_oopz_sdk_event_context_reply_uses_message_id_from_legacy_id():
 
     assert result["referenceMessageId"] == "msg-legacy"
     assert bot.messages.calls[0]["referenceMessageId"] == "msg-legacy"
+
+
+def test_oopz_sdk_message_service_has_single_upload_local_image_segment_definition():
+    source = Path("oopz_sdk/services/message.py").read_text(encoding="utf-8")
+
+    assert source.count("def _upload_local_image_segment(") == 1
 
 
 def test_oopz_sdk_sender_send_message_v2_builds_wrapped_payload(monkeypatch):

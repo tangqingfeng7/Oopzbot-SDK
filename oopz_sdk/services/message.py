@@ -6,15 +6,15 @@ import threading
 import time
 from typing import Optional
 
+from oopz_sdk import models
 from oopz_sdk.auth.signer import Signer
 from oopz_sdk.config.settings import OopzConfig
 from oopz_sdk.exceptions import OopzApiError, OopzRateLimitError
-from oopz_sdk import models
 from oopz_sdk.models.segment import Image, Segment, Text
 from oopz_sdk.services import BaseService
 from oopz_sdk.transport.http import HttpTransport
 from oopz_sdk.utils.image import get_image_info
-from oopz_sdk.utils.message_builder import normalize_message_parts, build_segments
+from oopz_sdk.utils.message_builder import build_segments, normalize_message_parts
 
 logger = logging.getLogger("oopz_sdk.services.message")
 
@@ -51,7 +51,11 @@ class Message(BaseService):
                 message = str(payload.get("message") or payload.get("error") or message)
             elif response.text:
                 message = f"{message}: {response.text[:200]}"
-            raise OopzRateLimitError(message=message, retry_after=retry_after, response=payload)
+            raise OopzRateLimitError(
+                message=message,
+                retry_after=retry_after,
+                response=payload,
+            )
 
         if payload:
             message = str(payload.get("message") or payload.get("error") or message)
@@ -106,7 +110,9 @@ class Message(BaseService):
         )
 
     @staticmethod
-    def _build_operation_result(payload: dict, *, response, message: str) -> models.OperationResult:
+    def _build_operation_result(
+        payload: dict, *, response, message: str
+    ) -> models.OperationResult:
         return models.OperationResult(
             ok=True,
             message=str(payload.get("message") or message),
@@ -127,22 +133,12 @@ class Message(BaseService):
         auto_recall: Optional[bool] = None,
         **kwargs,
     ) -> models.MessageSendResult:
-        """发送聊天消息。
-
-        Args:
-            texts:    消息文本
-            area:    区域 ID（默认取配置）
-            channel: 频道 ID（默认取配置）
-            auto_recall: 是否自动撤回（None=按配置决定）
-            **kwargs: attachments, mentionList, referenceMessageId, styleTags 等
-        """
-
-        # 判断是不是存在同时存在Segment和 attachments 的情况，如果是，则抛出异常,
-        # 因为Segment会自动处理附件，而 attachments 是手动指定的附件，两者不能共存
         message_parts = list(texts)
         if text is not None:
             if message_parts:
-                raise TypeError("Use either positional message parts or the legacy text= argument, not both")
+                raise TypeError(
+                    "Use either positional message parts or the legacy text= argument, not both"
+                )
             message_parts.append(text)
 
         attachments = kwargs.get("attachments", [])
@@ -187,20 +183,29 @@ class Message(BaseService):
         }
 
         url_path = "/im/session/v1/sendGimMessage"
-        logger.info("发送消息: %s%s", text[:80], "..." if len(text) > 80 else "")
+        logger.info("send message %s%s", text[:80], "..." if len(text) > 80 else "")
 
         try:
             resp = self._post(url_path, body)
-            logger.info("响应状态: %d", resp.status_code)
+            logger.info("response status %d", resp.status_code)
             if resp.text:
-                logger.debug("响应内容: %s", resp.text[:200])
+                logger.debug("response body: %s", resp.text[:200])
             if resp.status_code != 200:
-                self._raise_api_error(resp, "发送消息失败")
+                self._raise_api_error(resp, "failed to send message")
             result = self._safe_json(resp)
             if result is None:
-                raise OopzApiError("发送消息失败: 响应非 JSON", status_code=resp.status_code)
-            if not result.get("status") and result.get("code") not in (0, "0", 200, "200", "success"):
-                self._raise_api_error(resp, "发送消息失败")
+                raise OopzApiError(
+                    "failed to send message: response is not JSON",
+                    status_code=resp.status_code,
+                )
+            if not result.get("status") and result.get("code") not in (
+                0,
+                "0",
+                200,
+                "200",
+                "success",
+            ):
+                self._raise_api_error(resp, "failed to send message")
             send_result = self._build_send_result(
                 result,
                 response=resp,
@@ -213,15 +218,14 @@ class Message(BaseService):
             if auto_recall is not False and send_result.message_id:
                 self._schedule_auto_recall(send_result.message_id, area, channel)
             return send_result
-        except Exception as e:
-            logger.error("发送失败: %s", e)
+        except Exception as exc:
+            logger.error("send failed: %s", exc)
             raise
 
     def send_to_default(self, text: str, **kwargs) -> models.MessageSendResult:
-        """发送到默认频道。"""
         return self.send_message(text, **kwargs)
 
-    def _schedule_auto_recall(self, message_id: str, area: str, channel: str):
+    def _schedule_auto_recall(self, message_id: str, area: str, channel: str) -> None:
         if not self._config.auto_recall_enabled:
             return
         delay = self._config.auto_recall_delay
@@ -230,45 +234,52 @@ class Message(BaseService):
 
         try:
             timer = threading.Timer(
-                delay, self._do_auto_recall, args=[message_id, area, channel],
+                delay,
+                self._do_auto_recall,
+                args=[message_id, area, channel],
             )
             timer.daemon = True
             timer.start()
-            logger.debug("已安排 %ds 后自动撤回: %s...", delay, message_id[:16])
-        except Exception as e:
-            logger.debug("安排自动撤回失败: %s", e)
+            logger.debug("scheduled auto recall in %ds for %s...", delay, message_id[:16])
+        except Exception as exc:
+            logger.debug("failed to schedule auto recall: %s", exc)
 
-    def _do_auto_recall(self, message_id: str, area: str, channel: str):
+    def _do_auto_recall(self, message_id: str, area: str, channel: str) -> None:
         try:
             result = self.recall_message(message_id, area=area, channel=channel)
             if not result.ok:
-                logger.warning("自动撤回失败: %s (msgId=%s...)", result.message, message_id[:16])
+                logger.warning(
+                    "auto recall failed: %s (msgId=%s...)",
+                    result.message,
+                    message_id[:16],
+                )
             else:
-                logger.info("自动撤回成功: %s...", message_id[:16])
-        except Exception as e:
-            logger.error("自动撤回异常: %s", e)
+                logger.info("auto recall succeeded: %s...", message_id[:16])
+        except Exception as exc:
+            logger.error("auto recall exception: %s", exc)
 
-    def send_multiple(self, messages: list[str], interval: float = 1.0) -> list[models.OperationResult]:
-        """批量发送消息。"""
+    def send_multiple(
+        self, messages: list[str], interval: float = 1.0
+    ) -> list[models.OperationResult]:
         results: list[models.OperationResult] = []
-        for i, msg in enumerate(messages, 1):
+        for index, message in enumerate(messages, 1):
             try:
-                resp = self.send_to_default(msg)
+                resp = self.send_to_default(message)
                 results.append(
                     models.OperationResult(
                         ok=True,
-                        message=f"已发送: {msg}",
-                        payload={"message": msg, "messageId": resp.message_id},
+                        message=f"sent {message}",
+                        payload={"message": message, "messageId": resp.message_id},
                     )
                 )
-                if i < len(messages):
+                if index < len(messages):
                     time.sleep(interval)
-            except Exception as e:
+            except Exception as exc:
                 results.append(
                     models.OperationResult(
                         ok=False,
-                        message=str(e),
-                        payload={"message": msg},
+                        message=str(exc),
+                        payload={"message": message},
                     )
                 )
         return results
@@ -281,7 +292,6 @@ class Message(BaseService):
         timestamp: Optional[str] = None,
         target: str = "",
     ) -> models.OperationResult:
-        """撤回指定消息（需要管理员权限）。"""
         area = self._resolve_area(area)
         channel = self._resolve_channel(channel)
         timestamp = timestamp or self.signer.timestamp_us()
@@ -304,36 +314,57 @@ class Message(BaseService):
 
         try:
             resp = self._request("POST", url_path, body=body, params=dict(body))
-        except Exception as e:
-            logger.error("撤回请求异常: %s", e)
-            return models.OperationResult(ok=False, message=str(e), payload=body)
+        except Exception as exc:
+            logger.error("recall request exception: %s", exc)
+            return models.OperationResult(ok=False, message=str(exc), payload=body)
 
         raw_text = resp.text or ""
-        logger.info("撤回 POST %s -> HTTP %d, body: %s", full_path, resp.status_code, raw_text[:300])
+        logger.info(
+            "recall POST %s -> HTTP %d, body: %s",
+            full_path,
+            resp.status_code,
+            raw_text[:300],
+        )
 
         if resp.status_code != 200:
-            err = f"HTTP {resp.status_code}" + (f" | {raw_text[:200]}" if raw_text else "")
-            logger.error("撤回消息失败: %s", err)
-            return models.OperationResult(ok=False, message=err, payload=body, response=resp)
+            err = f"HTTP {resp.status_code}" + (
+                f" | {raw_text[:200]}" if raw_text else ""
+            )
+            logger.error("recall failed: %s", err)
+            return models.OperationResult(
+                ok=False,
+                message=err,
+                payload=body,
+                response=resp,
+            )
 
         try:
             result = resp.json()
         except Exception:
-            logger.error("撤回响应非 JSON: %s", raw_text[:200])
+            logger.error("recall response is not JSON: %s", raw_text[:200])
             return models.OperationResult(
                 ok=False,
-                message=f"响应非 JSON: {raw_text[:200]}",
+                message=f"response is not JSON: {raw_text[:200]}",
                 payload=body,
                 response=resp,
             )
 
         if result.get("status") is True or result.get("code") in (0, "0", "success", 200):
-            logger.info("撤回消息成功: %s", message_id)
-            return self._build_operation_result(result, response=resp, message="撤回成功")
+            logger.info("recall succeeded: %s", message_id)
+            return self._build_operation_result(
+                result,
+                response=resp,
+                message="recall succeeded",
+            )
 
         err = result.get("message") or result.get("error") or str(result)
-        logger.error("撤回消息失败: %s", err)
-        return models.OperationResult(ok=False, message=str(err), payload=result, response=resp)
+        logger.error("recall failed: %s", err)
+        return models.OperationResult(
+            ok=False,
+            message=str(err),
+            payload=result,
+            response=resp,
+        )
 
     def get_channel_messages(
         self,
@@ -343,7 +374,6 @@ class Message(BaseService):
         *,
         as_model: bool = False,
     ) -> list:
-        """获取频道最近的消息列表。"""
         area = self._resolve_area(area)
         channel = self._resolve_channel(channel)
         url_path = "/im/session/v2/messageBefore"
@@ -352,94 +382,35 @@ class Message(BaseService):
         try:
             resp = self._get(url_path, params=params)
             if resp.status_code != 200:
-                logger.error("获取频道消息失败: HTTP %d", resp.status_code)
+                logger.error("failed to get channel messages: HTTP %d", resp.status_code)
                 return []
             result = resp.json()
             if not result.get("status"):
-                logger.error("获取频道消息失败: %s", result.get("message") or result.get("error"))
+                logger.error(
+                    "failed to get channel messages: %s",
+                    result.get("message") or result.get("error"),
+                )
                 return []
             raw_list = result.get("data", {}).get("messages", [])
             messages = []
-            for m in raw_list:
-                mid = m.get("messageId") or m.get("id")
+            for message in raw_list:
+                mid = message.get("messageId") or message.get("id")
                 if mid is not None:
-                    m = {**m, "messageId": str(mid)}
-                messages.append(m)
-            logger.info("获取频道消息: %d 条", len(messages))
+                    message = {**message, "messageId": str(mid)}
+                messages.append(message)
+            logger.info("loaded channel messages: %d", len(messages))
             if as_model:
-                return [models.Message.from_dict(m) for m in messages if isinstance(m, dict)]
+                return [
+                    models.Message.from_dict(message)
+                    for message in messages
+                    if isinstance(message, dict)
+                ]
             return messages
-        except Exception as e:
-            logger.error("获取频道消息异常: %s", e)
+        except Exception as exc:
+            logger.error("get channel messages exception: %s", exc)
             return []
 
-    # def find_message_timestamp(
-    #     self,
-    #     message_id: str,
-    #     area: Optional[str] = None,
-    #     channel: Optional[str] = None,
-    # ) -> Optional[str]:
-    #     """从频道最近消息中查找指定 messageId 的 timestamp。"""
-    #     messages = self.get_channel_messages(area=area, channel=channel)
-    #     for msg in messages:
-    #         if msg.get("messageId") == message_id:
-    #             return msg.get("timestamp")
-    #     return None
-
-
-
-    def _upload_local_image_segment(self, seg: Image) -> Image | None:
-        """
-        将本地/缓存图片 ImageSegment 上传并返回可发送的新 ImageSegment。
-        """
-        source_path = seg.source_path
-        if not source_path:
-            raise ValueError("Image 缺少文件路径")
-
-
-        # 检查用户提供的图片大小
-        width = seg.width
-        height = seg.height
-        file_size = seg.file_size
-        if width <= 0 or height <= 0 or file_size <= 0:
-            width, height, file_size = get_image_info(source_path)
-
-        ext = os.path.splitext(source_path)[1] or ".jpg"
-
-        upload = None
-        try:
-            upload = self._bot.media.upload_file(
-                source_path,
-                file_type="IMAGE",
-                ext=ext,
-            )
-        except OopzApiError:
-            logger.error("上传图片失败: %s", source_path)
-
-        if upload is None:
-            return upload
-
-        attachment = upload.attachment
-
-        return Image.from_uploaded(
-            file_key=attachment.file_key,
-            url=attachment.url,
-            width=width,
-            height=height,
-            file_size=file_size,
-            hash=attachment.hash,
-            animated=attachment.animated,
-            display_name=attachment.display_name,
-            preview_file_key=getattr(attachment, "preview_file_key", ""),
-        )
-
     def resolve_segments(self, segments: list[Segment]) -> list[Segment]:
-        """
-        将用户输入或 parse 得到的 segments 转成可发送状态。
-        - TextSegment: 原样返回
-        - ImageSegment(已上传): 原样返回
-        - ImageSegment(本地文件/缓存): 自动上传
-        """
         resolved: list[Segment] = []
 
         for seg in segments:
@@ -471,15 +442,15 @@ class Message(BaseService):
         channel: Optional[str] = None,
     ) -> Optional[str]:
         messages = self.get_channel_messages(area=area, channel=channel)
-        for msg in messages:
-            if msg.get("messageId") == message_id:
-                return msg.get("timestamp")
+        for message in messages:
+            if message.get("messageId") == message_id:
+                return message.get("timestamp")
         return None
 
     def _upload_local_image_segment(self, seg: Image) -> Image:
         source_path = seg.source_path
         if not source_path:
-            raise ValueError("Image 缺少文件路径")
+            raise ValueError("Image missing file path")
 
         width = seg.width
         height = seg.height
@@ -505,7 +476,7 @@ class Message(BaseService):
                 ext=ext,
             )
         except OopzApiError:
-            logger.error("上传图片失败: %s", source_path)
+            logger.error("failed to upload image: %s", source_path)
             raise
 
         attachment = upload.attachment

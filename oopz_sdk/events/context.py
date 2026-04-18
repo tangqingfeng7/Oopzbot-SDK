@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from typing import Any
 
@@ -30,6 +31,10 @@ class EventContext:
             return message.get(name, default)
         return getattr(message, name, default)
 
+    @staticmethod
+    async def _call_blocking(func, /, *args, **kwargs):
+        return await asyncio.to_thread(func, *args, **kwargs)
+
     async def reply(self, text: str, **kwargs):
         """
         回复当前上下文中的消息。
@@ -45,7 +50,8 @@ class EventContext:
             or self._get_message_field(self.message, "id")
         )
 
-        return self.bot.messages.send_message(
+        return await self._call_blocking(
+            self.bot.messages.send_message,
             text=text,
             area=area,
             channel=channel,
@@ -71,7 +77,8 @@ class EventContext:
         area = self._get_message_field(self.message, "area")
         channel = self._get_message_field(self.message, "channel")
 
-        return self.bot.messages.recall_message(
+        return await self._call_blocking(
+            self.bot.messages.recall_message,
             message_id=message_id,
             area=area,
             channel=channel,
@@ -82,11 +89,16 @@ class EventContext:
         if texts and all(isinstance(part, str) for part in texts):
             text = "".join(texts)
             if self.message is None:
-                return self.bot.messages.send_message(text=text, **kwargs)
+                return await self._call_blocking(
+                    self.bot.messages.send_message,
+                    text=text,
+                    **kwargs,
+                )
 
             area = kwargs.pop("area", self._get_message_field(self.message, "area"))
             channel = kwargs.pop("channel", self._get_message_field(self.message, "channel"))
-            return self.bot.messages.send_message(
+            return await self._call_blocking(
+                self.bot.messages.send_message,
                 text=text,
                 area=area,
                 channel=channel,
@@ -94,8 +106,18 @@ class EventContext:
             )
 
         if self.message is None:
-            return self.bot.messages.send_message(*texts, **kwargs)
+            return await self._call_blocking(
+                self.bot.messages.send_message,
+                *texts,
+                **kwargs,
+            )
 
         area = kwargs.pop("area", self._get_message_field(self.message, "area"))
         channel = kwargs.pop("channel", self._get_message_field(self.message, "channel"))
-        return self.bot.messages.send_message(*texts, area=area, channel=channel, **kwargs)
+        return await self._call_blocking(
+            self.bot.messages.send_message,
+            *texts,
+            area=area,
+            channel=channel,
+            **kwargs,
+        )
