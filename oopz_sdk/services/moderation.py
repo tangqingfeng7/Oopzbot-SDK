@@ -94,7 +94,7 @@ class Moderation(BaseService):
         url_path = f"/area/v3/remove?area={area}&target={uid}"
         body = {"area": area, "target": uid}
         try:
-            resp = await self._await_if_needed(self._post(url_path, body))
+            resp = await self._post(url_path, body)
         except Exception as e:
             logger.error("移出域请求异常: %s", e)
             return models.OperationResult(ok=False, message=str(e), payload=body)
@@ -124,7 +124,7 @@ class Moderation(BaseService):
         area = area or self._config.default_area
         url_path = f"/client/v1/area/v1/block?area={area}&target={uid}"
         try:
-            resp = await self._await_if_needed(self._delete(url_path))
+            resp = await self._delete(url_path)
         except Exception as e:
             logger.error("封禁请求异常: %s", e)
             return models.OperationResult(ok=False, message=str(e))
@@ -162,7 +162,7 @@ class Moderation(BaseService):
         params = {"area": area, "name": name}
 
         try:
-            resp = await self._await_if_needed(self._get(url_path, params=params))
+            resp = await self._get(url_path, params=params)
             if resp.status_code != 200:
                 logger.debug("获取域封禁列表失败: HTTP %d", resp.status_code)
                 if as_model:

@@ -172,7 +172,7 @@ class Channel(BaseService):
         params = {"area": area}
 
         try:
-            resp = await self._await_if_needed(self._get(url_path, params=params))
+            resp = await self._get(url_path, params=params)
             if resp.status_code != 200:
                 logger.error("获取频道列表失败: HTTP %d", resp.status_code)
                 if as_model:
@@ -272,7 +272,7 @@ class Channel(BaseService):
         url_path = "/area/v3/channel/setting/info"
         params = {"channel": channel}
         try:
-            resp = await self._await_if_needed(self._get(url_path, params=params))
+            resp = await self._get(url_path, params=params)
             if resp.status_code != 200:
                 logger.error("获取频道设置失败: HTTP %d", resp.status_code)
                 if as_model:
@@ -432,7 +432,7 @@ class Channel(BaseService):
             body["isTemp"] = False
 
         try:
-            resp = await self._await_if_needed(self._post("/client/v1/area/v1/channel/v1/create", body))
+            resp = await self._post("/client/v1/area/v1/channel/v1/create", body)
         except Exception as e:
             logger.error("创建频道异常: %s", e)
             return models.OperationResult(ok=False, message=str(e), payload=body)
@@ -555,7 +555,7 @@ class Channel(BaseService):
                     edit_body["accessibleMembers"] = []
 
         try:
-            resp = await self._await_if_needed(self._post("/area/v3/channel/setting/edit", edit_body))
+            resp = await self._post("/area/v3/channel/setting/edit", edit_body)
         except Exception as e:
             logger.error("更新频道异常: %s", e)
             return models.OperationResult(ok=False, message=str(e), payload=edit_body)
@@ -619,7 +619,7 @@ class Channel(BaseService):
         }
 
         try:
-            resp = await self._await_if_needed(self._post(url_path, body))
+            resp = await self._post(url_path, body)
         except Exception as e:
             logger.error("创建受限频道异常: %s", e)
             return {"error": str(e)}
@@ -685,7 +685,7 @@ class Channel(BaseService):
 
         edit_path = "/area/v3/channel/setting/edit"
         try:
-            edit_resp = await self._await_if_needed(self._post(edit_path, edit_body))
+            edit_resp = await self._post(edit_path, edit_body)
         except Exception as e:
             logger.error("设置受限频道权限异常: %s", e)
             return await self._rollback_created_channel(channel_id, area, str(e))
@@ -736,7 +736,7 @@ class Channel(BaseService):
         url_path = f"/client/v1/area/v1/channel/v1/delete?channel={channel}&area={area}"
 
         try:
-            resp = await self._await_if_needed(self._delete(url_path))
+            resp = await self._delete(url_path)
         except Exception as e:
             logger.error("删除频道异常: %s", e)
             return models.OperationResult(ok=False, message=str(e))
@@ -789,7 +789,7 @@ class Channel(BaseService):
             })
 
         try:
-            resp = await self._await_if_needed(self._post(url_path, body))
+            resp = await self._post(url_path, body)
             if resp.status_code != 200:
                 return {"error": f"HTTP {resp.status_code}"}
             result = resp.json()
@@ -810,12 +810,10 @@ class Channel(BaseService):
         full_path = url_path + query
 
         try:
-            resp = await self._await_if_needed(
-                self._request(
-                    "DELETE",
-                    url_path,
-                    params={"area": area, "channel": channel, "target": target},
-                )
+            resp = await self._request(
+                "DELETE",
+                url_path,
+                params={"area": area, "channel": channel, "target": target},
             )
         except Exception as e:
             logger.error("退出语音频道异常: %s", e)
@@ -866,7 +864,7 @@ class Channel(BaseService):
     ) -> dict | models.VoiceChannelMembersResult:
         """获取域内各语音频道的在线成员列表。"""
         area = self._resolve_area(area)
-        voice_ids = await self._await_if_needed(self._get_voice_channel_ids(area))
+        voice_ids = await self._get_voice_channel_ids(area)
         if isinstance(voice_ids, dict) and voice_ids.get("error"):
             if as_model:
                 return self._model_error(
@@ -885,7 +883,7 @@ class Channel(BaseService):
         max_retries = 3
         for attempt in range(max_retries):
             try:
-                resp = await self._await_if_needed(self._post(url_path, body))
+                resp = await self._post(url_path, body)
                 if resp.status_code == 429:
                     wait = min(2 ** attempt, 4)
                     logger.warning("获取语音频道成员被限流 (429)，%ds 后重试 (%d/%d)", wait, attempt + 1, max_retries)

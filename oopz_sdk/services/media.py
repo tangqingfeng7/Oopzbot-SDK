@@ -238,7 +238,7 @@ class Media(BaseService):
         url_path = "/rtc/v1/cos/v1/signedUploadUrl"
         body = {"type": file_type, "ext": ext}
 
-        resp = await self._await_if_needed(self._put(url_path, body))
+        resp = await self._put(url_path, body)
         payload, upload_url, file_key, cdn_url = _require_upload_ticket(
             resp,
             "获取上传 URL 失败",
@@ -279,7 +279,7 @@ class Media(BaseService):
 
             url_path = "/rtc/v1/cos/v1/signedUploadUrl"
             body = {"type": "IMAGE", "ext": ext}
-            resp2 = await self._await_if_needed(self._put(url_path, body))
+            resp2 = await self._put(url_path, body)
             _, signed_url, file_key, cdn_url = _require_upload_ticket(
                 resp2,
                 "获取上传 URL 失败",
@@ -358,7 +358,7 @@ class Media(BaseService):
 
             url_path = "/rtc/v1/cos/v1/signedUploadUrl"
             body = {"type": "AUDIO", "ext": ext}
-            resp2 = await self._await_if_needed(self._put(url_path, body))
+            resp2 = await self._put(url_path, body)
             _, signed_url, file_key, cdn_url = _require_upload_ticket(
                 resp2,
                 "获取上传 URL 失败",
@@ -420,7 +420,7 @@ class Media(BaseService):
 
         url_path = "/rtc/v1/cos/v1/signedUploadUrl"
         body = {"type": "IMAGE", "ext": os.path.splitext(file_path)[1]}
-        resp = await self._await_if_needed(self._put(url_path, body))
+        resp = await self._put(url_path, body)
         _, signed_url, file_key, cdn_url = _require_upload_ticket(
             resp,
             "获取上传 URL 失败",
@@ -455,12 +455,10 @@ class Media(BaseService):
         if text:
             msg_text += f"\n{text}"
 
-        return await self._await_if_needed(
-            self._message_service().send_message(
-                msg_text,
-                attachments=attachments,
-                **kwargs,
-            )
+        return await self._message_service().send_message(
+            msg_text,
+            attachments=attachments,
+            **kwargs,
         )
 
     async def send_private_image(
@@ -475,7 +473,7 @@ class Media(BaseService):
         url_path = "/rtc/v1/cos/v1/signedUploadUrl"
         body = {"type": "IMAGE", "ext": os.path.splitext(file_path)[1]}
         try:
-            resp = await self._await_if_needed(self._put(url_path, body))
+            resp = await self._put(url_path, body)
             _, signed_url, file_key, cdn_url = _require_upload_ticket(
                 resp,
                 "获取上传 URL 失败",
@@ -512,12 +510,10 @@ class Media(BaseService):
         msg_text = f"![IMAGEw{width}h{height}]({file_key})"
         if text:
             msg_text += f"\n{text}"
-        return await self._await_if_needed(
-            self._message_service().send_private_message(
-                msg_text,
-                target=target,
-                attachments=[attachment],
-            )
+        return await self._message_service().send_private_message(
+            msg_text,
+            target=target,
+            attachments=[attachment],
         )
 
 

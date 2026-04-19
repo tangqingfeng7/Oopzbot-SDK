@@ -43,6 +43,12 @@ class _FakeResponse:
         self.headers = headers or {}
         self.content = text.encode("utf-8") if text else b"{}"
 
+    def __await__(self):
+        async def _wrapped():
+            return self
+
+        return _wrapped().__await__()
+
     def json(self):
         if self._payload is None:
             raise ValueError("no json")
@@ -872,7 +878,11 @@ def test_oopz_sdk_area_members_quiet_cache_hit_preserves_model_shape():
 
 def test_oopz_sdk_area_members_as_model_returns_result_object_when_response_missing(monkeypatch):
     service = AreaService(_make_config())
-    monkeypatch.setattr(service, "_get", lambda *args, **kwargs: None)
+
+    async def _fake_get(*args, **kwargs):
+        return None
+
+    monkeypatch.setattr(service, "_get", _fake_get)
 
     result = _run(service.get_area_members(as_model=True))
 

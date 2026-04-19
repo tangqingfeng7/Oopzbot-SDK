@@ -186,7 +186,7 @@ class Message(BaseService):
             target[:12],
         )
 
-        resp = await self._await_if_needed(self._post(url_path, body))
+        resp = await self._post(url_path, body)
         logger.info("response status: %d", resp.status_code)
 
         if resp.text:
@@ -236,9 +236,7 @@ class Message(BaseService):
         body = {"target": target}
 
         try:
-            resp = await self._await_if_needed(
-                self._request("PATCH", url_path, body=body, params={"target": target})
-            )
+            resp = await self._request("PATCH", url_path, body=body, params={"target": target})
         except Exception as e:
             logger.error("open_private_session failed: %s", e)
             return models.PrivateSessionResult(
@@ -409,7 +407,7 @@ class Message(BaseService):
 
         resolved_channel = str(channel or "").strip()
         if not resolved_channel:
-            opened = await self._await_if_needed(self.open_private_session(resolved_target))
+            opened = await self.open_private_session(resolved_target)
             if not opened.channel:
                 raise OopzApiError(
                     f"Failed to open private session for target={resolved_target[:12]}",
@@ -545,9 +543,7 @@ class Message(BaseService):
         }
 
         try:
-            resp = await self._await_if_needed(
-                self._request("POST", url_path, body=body, params=dict(body))
-            )
+            resp = await self._request("POST", url_path, body=body, params=dict(body))
         except Exception as e:
             logger.error("recall request error: %s", e)
             return models.OperationResult(ok=False, message=str(e), payload=body)
@@ -646,7 +642,7 @@ class Message(BaseService):
             )
 
         try:
-            resp = await self._await_if_needed(self._get(url_path, params=params))
+            resp = await self._get(url_path, params=params)
             if resp.status_code != 200:
                 preview = (resp.text or "")[:200]
                 logger.error("failed to get channel messages: HTTP %d", resp.status_code)
@@ -820,12 +816,10 @@ class Message(BaseService):
 
         media_service = self._require_service("media")
 
-        upload = await self._await_if_needed(
-            media_service.upload_file(
-                source_path,
-                file_type="IMAGE",
-                ext=ext,
-            )
+        upload = await media_service.upload_file(
+            source_path,
+            file_type="IMAGE",
+            ext=ext,
         )
 
         attachment = upload.attachment
@@ -871,9 +865,7 @@ class Message(BaseService):
         area: Optional[str] = None,
         channel: Optional[str] = None,
     ) -> Optional[str]:
-        messages = await self._await_if_needed(
-            self.get_channel_messages(area=area, channel=channel)
-        )
+        messages = await self.get_channel_messages(area=area, channel=channel)
         if isinstance(messages, dict) and messages.get("error"):
             raise OopzApiError(
                 str(messages.get("error") or "failed to get channel messages"),

@@ -93,7 +93,7 @@ class Member(BaseService):
             batch = uids[i : i + batch_size]
             body = {"persons": batch, "commonIds": []}
             try:
-                resp = await self._await_if_needed(self._post(url_path, body))
+                resp = await self._post(url_path, body)
                 if resp.status_code != 200:
                     logger.error("批量获取用户信息失败: HTTP %d", resp.status_code)
                     if resp.status_code == 429:
@@ -136,7 +136,7 @@ class Member(BaseService):
         body = {"persons": [uid], "commonIds": []}
 
         try:
-            resp = await self._await_if_needed(self._post(url_path, body))
+            resp = await self._post(url_path, body)
             if resp.status_code != 200:
                 logger.error("获取个人信息失败: HTTP %d", resp.status_code)
                 if as_model:
@@ -200,7 +200,7 @@ class Member(BaseService):
         url_path = "/client/v1/person/v1/personDetail"
         params = {"uid": uid}
         try:
-            resp = await self._await_if_needed(self._get(url_path, params=params))
+            resp = await self._get(url_path, params=params)
             if resp.status_code != 200:
                 return {"error": f"HTTP {resp.status_code}"}
             result = resp.json()
@@ -217,7 +217,7 @@ class Member(BaseService):
         url_path = "/client/v1/person/v2/selfDetail"
         params = {"uid": uid}
         try:
-            resp = await self._await_if_needed(self._get(url_path, params=params))
+            resp = await self._get(url_path, params=params)
             if resp.status_code != 200:
                 if as_model:
                     return self._model_error(
@@ -257,7 +257,7 @@ class Member(BaseService):
         """获取当前用户等级、积分信息。"""
         url_path = "/user_points/v1/level_info"
         try:
-            resp = await self._await_if_needed(self._get(url_path))
+            resp = await self._get(url_path)
             if resp.status_code != 200:
                 return {"error": f"HTTP {resp.status_code}"}
             result = resp.json()
@@ -274,7 +274,7 @@ class Member(BaseService):
         url_path = "/area/v3/userDetail"
         params = {"area": area, "target": target}
         try:
-            resp = await self._await_if_needed(self._get(url_path, params=params))
+            resp = await self._get(url_path, params=params)
             if resp.status_code != 200:
                 return {"error": f"HTTP {resp.status_code}"}
             result = resp.json()
@@ -296,7 +296,7 @@ class Member(BaseService):
         url_path = "/area/v3/role/canGiveList"
         params = {"area": area, "target": target}
         try:
-            resp = await self._await_if_needed(self._get(url_path, params=params))
+            resp = await self._get(url_path, params=params)
             if resp.status_code != 200:
                 logger.error("获取可分配角色失败: HTTP %d", resp.status_code)
                 error_payload = self._error_payload(f"HTTP {resp.status_code}")
@@ -362,7 +362,7 @@ class Member(BaseService):
         url_path = "/area/v3/role/editUserRole"
         body = {"area": area, "target": target_uid, "targetRoleIDs": current_ids}
         try:
-            resp = await self._await_if_needed(self._post(url_path, body))
+            resp = await self._post(url_path, body)
             raw = resp.text or ""
             logger.info("editUserRole POST %s add=%s -> %d, body: %s", url_path, add, resp.status_code, raw[:200])
             if resp.status_code != 200:
@@ -387,7 +387,7 @@ class Member(BaseService):
         url_path = "/area/v3/search/areaSettingMembers"
         body = {"area": area, "name": keyword, "offset": 0, "limit": 50}
         try:
-            resp = await self._await_if_needed(self._post(url_path, body))
+            resp = await self._post(url_path, body)
             if resp.status_code != 200:
                 logger.error("搜索域成员失败: HTTP %d", resp.status_code)
                 if as_model:
