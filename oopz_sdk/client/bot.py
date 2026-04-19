@@ -25,7 +25,6 @@ class OopzBot:
     - 统一管理 REST / WS
     - 统一事件注册入口
     - 统一事件调度
-    - 为 handler 提供可直接使用的上下文（ctx.bot / ctx.reply）
     """
 
     def __init__(
@@ -96,8 +95,16 @@ class OopzBot:
         return self.on("message")
 
     @property
+    def on_message_edit(self):
+        return self.on("message.edit")
+
+    @property
     def on_private_message(self):
         return self.registry.on("message.private")
+
+    @property
+    def on_private_message_edit(self):
+        return self.registry.on("message.private.edit")
 
     @property
     def on_recall(self):
@@ -198,6 +205,8 @@ class OopzBot:
     async def _handle_ws_message(self, raw: str) -> None:
         try:
             event = self.parser.parse(raw)
+            if event.event_type != 254:
+                print(json.dumps(event.to_dict(), ensure_ascii=False, indent=2))
         except Exception as exc:
             logger.exception("解析 WebSocket 消息失败: %s", exc)
             raise

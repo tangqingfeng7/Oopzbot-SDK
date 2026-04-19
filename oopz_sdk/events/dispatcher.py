@@ -46,7 +46,7 @@ class EventDispatcher:
         """
         定义事件的调用方式。
         """
-        if event_name in {"message", "message.private"}:
+        if event_name in {"message", "message.private", "message.edit", "message.private.edit"}:
             message = getattr(event, "message", None)
             return handler(message, context)
 
