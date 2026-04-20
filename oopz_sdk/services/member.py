@@ -270,7 +270,7 @@ class Member(BaseService):
 
     async def get_user_area_detail(self, target: str, area: Optional[str] = None) -> dict:
         """获取指定用户在域内的角色列表和禁言/禁麦状态。"""
-        area = area or self._config.default_area
+        area = self._resolve_area(area)
         url_path = "/area/v3/userDetail"
         params = {"area": area, "target": target}
         try:
@@ -292,7 +292,7 @@ class Member(BaseService):
 
     async def get_assignable_roles(self, target: str, area: Optional[str] = None) -> list | dict:
         """获取当前用户可以分配给目标用户的角色列表。"""
-        area = area or self._config.default_area
+        area = self._resolve_area(area)
         url_path = "/area/v3/role/canGiveList"
         params = {"area": area, "target": target}
         try:
@@ -339,7 +339,7 @@ class Member(BaseService):
         area: Optional[str] = None,
     ) -> dict:
         """给目标用户添加或取消指定身份组。"""
-        area = area or self._config.default_area
+        area = self._resolve_area(area)
         detail = await self.get_user_area_detail(target_uid, area=area)
         if not isinstance(detail, dict):
             return {"error": "user area detail响应格式异常"}
@@ -383,7 +383,7 @@ class Member(BaseService):
         as_model: bool = False,
     ) -> list | dict:
         """搜索域内成员。"""
-        area = area or self._config.default_area
+        area = self._resolve_area(area)
         url_path = "/area/v3/search/areaSettingMembers"
         body = {"area": area, "name": keyword, "offset": 0, "limit": 50}
         try:

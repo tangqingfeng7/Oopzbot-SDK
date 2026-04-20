@@ -128,7 +128,7 @@ def test_oopz_sdk_send_message_returns_result_model(monkeypatch):
         ),
     )
 
-    result = _run(service.send_message("hello", auto_recall=False))
+    result = _run(service.send_message("hello", area="area", channel="channel", auto_recall=False))
 
     assert isinstance(result, models.MessageSendResult)
     assert result.message_id == "msg-1"
@@ -148,7 +148,27 @@ def test_oopz_sdk_send_message_rejects_explicit_failure_payload(monkeypatch):
     )
 
     with pytest.raises(OopzApiError, match="denied"):
-        _run(service.send_message("hello", auto_recall=False))
+        _run(service.send_message("hello", area="area", channel="channel", auto_recall=False))
+
+
+def test_oopz_sdk_send_message_requires_area_before_request(monkeypatch):
+    service = Message(None, _make_config(default_area="area-default", default_channel="channel-default"))
+
+    monkeypatch.setattr(
+        service,
+        "_post",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("不应在缺少 area 时继续发消息")),
+    )
+
+    with pytest.raises(ValueError, match="缺少 area"):
+        _run(service.send_message("hello", channel="channel-1", auto_recall=False))
+
+
+def test_oopz_sdk_send_to_default_raises_clear_error():
+    service = Message(None, _make_config(default_area="area-default", default_channel="channel-default"))
+
+    with pytest.raises(ValueError, match="send_to_default 已移除默认上下文行为"):
+        _run(service.send_to_default("hello"))
 
 
 def test_oopz_sdk_recall_message_returns_operation_result(monkeypatch):
@@ -162,7 +182,7 @@ def test_oopz_sdk_recall_message_returns_operation_result(monkeypatch):
         ) or _FakeResponse(200, payload={"status": True, "message": "ok"}),
     )
 
-    result = _run(service.recall_message("msg-1"))
+    result = _run(service.recall_message("msg-1", area="area", channel="channel"))
 
     assert isinstance(result, models.OperationResult)
     assert result.ok is True
@@ -184,11 +204,41 @@ def test_oopz_sdk_recall_message_rejects_explicit_failure_payload(monkeypatch):
         ),
     )
 
-    result = _run(service.recall_message("msg-1"))
+    result = _run(service.recall_message("msg-1", area="area", channel="channel"))
 
     assert isinstance(result, models.OperationResult)
     assert result.ok is False
     assert result.message == "denied"
+
+
+def test_oopz_sdk_recall_message_returns_operation_result_on_http_failure(monkeypatch):
+    service = Message(None, _make_config())
+    monkeypatch.setattr(
+        service.transport,
+        "request",
+        lambda *args, **kwargs: _FakeResponse(503, text="gateway error"),
+    )
+
+    result = _run(service.recall_message("msg-1", area="area", channel="channel"))
+
+    assert isinstance(result, models.OperationResult)
+    assert result.ok is False
+    assert result.message == "HTTP 503 | gateway error"
+
+
+def test_oopz_sdk_recall_message_returns_operation_result_on_non_json_response(monkeypatch):
+    service = Message(None, _make_config())
+    monkeypatch.setattr(
+        service.transport,
+        "request",
+        lambda *args, **kwargs: _FakeResponse(200, payload=None, text="<html>bad gateway</html>"),
+    )
+
+    result = _run(service.recall_message("msg-1", area="area", channel="channel"))
+
+    assert isinstance(result, models.OperationResult)
+    assert result.ok is False
+    assert result.message == "响应非 JSON: <html>bad gateway</html>"
 
 
 def test_oopz_sdk_open_private_session_rejects_explicit_failure_payload(monkeypatch):
@@ -217,11 +267,37 @@ def test_oopz_sdk_get_channel_messages_returns_error_dict_on_http_failure(monkey
         lambda *args, **kwargs: _FakeResponse(503, text="upstream timeout"),
     )
 
-    result = _run(service.get_channel_messages())
+    result = _run(service.get_channel_messages(area="area", channel="channel"))
 
     assert result["error"] == "HTTP 503"
     assert result["debug_reason"] == "get_channel_messages_http_error"
     assert result["channel"] == "channel"
+
+
+def test_oopz_sdk_get_channel_messages_requires_channel_before_request(monkeypatch):
+    service = Message(None, _make_config(default_area="area-default", default_channel="channel-default"))
+
+    monkeypatch.setattr(
+        service,
+        "_get",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("不应在缺少 channel 时继续查消息")),
+    )
+
+    with pytest.raises(ValueError, match="缺少 channel"):
+        _run(service.get_channel_messages(area="area-1"))
+
+
+def test_oopz_sdk_send_multiple_requires_area_before_request(monkeypatch):
+    service = Message(None, _make_config(default_area="area-default", default_channel="channel-default"))
+
+    monkeypatch.setattr(
+        service,
+        "send_message",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("不应在缺少 area 时继续批量发消息")),
+    )
+
+    with pytest.raises(ValueError, match="缺少 area"):
+        _run(service.send_multiple(["hello"], channel="channel-1"))
 
 
 def test_oopz_sdk_recall_private_message_raises_not_implemented_error():
@@ -264,7 +340,7 @@ def test_oopz_sdk_get_channel_messages_returns_error_dict_when_message_item_is_i
         lambda *args, **kwargs: _FakeResponse(200, payload=payload),
     )
 
-    result = _run(service.get_channel_messages())
+    result = _run(service.get_channel_messages(area="area", channel="channel"))
 
     assert result["error"] == "channel messages响应格式异常"
     assert result["debug_reason"] == "get_channel_messages_invalid_item"
@@ -282,7 +358,7 @@ def test_oopz_sdk_get_channel_messages_returns_error_dict_on_failed_status(monke
         ),
     )
 
-    result = _run(service.get_channel_messages())
+    result = _run(service.get_channel_messages(area="area", channel="channel"))
 
     assert result["error"] == "message list rejected"
     assert result["debug_reason"] == "get_channel_messages_failed_status"
@@ -298,7 +374,7 @@ def test_oopz_sdk_get_channel_messages_returns_error_dict_when_root_payload_is_i
         lambda *args, **kwargs: _FakeResponse(200, payload=["bad-root"]),
     )
 
-    result = _run(service.get_channel_messages())
+    result = _run(service.get_channel_messages(area="area", channel="channel"))
 
     assert result == {
         "error": "channel messages响应格式异常",
@@ -823,7 +899,7 @@ def test_oopz_sdk_area_members_retries_after_429(monkeypatch):
 
     monkeypatch.setattr("oopz_sdk.services.area.asyncio.sleep", _sleep)
 
-    result = _run(service.get_area_members())
+    result = _run(service.get_area_members(area="area"))
 
     assert calls["count"] == 3
     assert result["members"][0]["uid"] == "u1"
@@ -848,7 +924,7 @@ def test_oopz_sdk_area_members_does_not_fallback_to_stale_cache_on_http_failure(
         lambda *args, **kwargs: _FakeResponse(503, text="gateway error"),
     )
 
-    result = _run(service.get_area_members())
+    result = _run(service.get_area_members(area="area"))
 
     assert result["error"] == "HTTP 503"
     assert result["debug_reason"] == "get_area_members_http_error"
@@ -1033,6 +1109,30 @@ def test_oopz_sdk_area_info_as_model_returns_result_object_on_http_failure(monke
     assert result.payload == {"error": "HTTP 503"}
 
 
+def test_oopz_sdk_get_area_members_requires_area_before_request(monkeypatch):
+    service = AreaService(None, _make_config(default_area="area-default"))
+
+    async def _fake_request_data_with_retry(*args, **kwargs):
+        raise AssertionError("不应在缺少 area 时继续请求域成员")
+
+    monkeypatch.setattr(service, "_request_data_with_retry", _fake_request_data_with_retry)
+
+    with pytest.raises(ValueError, match="缺少 area"):
+        _run(service.get_area_members())
+
+
+def test_oopz_sdk_get_area_info_requires_area_before_request(monkeypatch):
+    service = AreaService(None, _make_config(default_area="area-default"))
+
+    async def _fake_request_data(*args, **kwargs):
+        raise AssertionError("不应在缺少 area 时继续请求域信息")
+
+    monkeypatch.setattr(service, "_request_data", _fake_request_data)
+
+    with pytest.raises(ValueError, match="缺少 area"):
+        _run(service.get_area_info(""))
+
+
 def test_oopz_sdk_area_info_as_model_returns_result_object_on_malformed_success(monkeypatch):
     service = AreaService(None, _make_config())
     monkeypatch.setattr(
@@ -1058,7 +1158,7 @@ def test_oopz_sdk_area_service_get_area_channels_returns_error_dict_on_http_fail
         lambda *args, **kwargs: _FakeResponse(503, text="gateway error"),
     )
 
-    result = _run(service.get_area_channels())
+    result = _run(service.get_area_channels(area="area"))
 
     assert result == {"error": "HTTP 503"}
 
@@ -1298,7 +1398,7 @@ def test_oopz_sdk_get_area_channels_returns_format_error_on_falsey_channels_valu
         ),
     )
 
-    result = _run(service.get_area_channels())
+    result = _run(service.get_area_channels(area="area"))
 
     assert result["error"] == "channel groups响应格式异常"
     assert result["list_key"] == "channels"
@@ -1318,7 +1418,7 @@ def test_oopz_sdk_get_area_channels_returns_format_error_on_falsey_data(
         ),
     )
 
-    result = _run(service.get_area_channels())
+    result = _run(service.get_area_channels(area="area"))
 
     assert result == {"error": "channel groups响应格式异常"}
 
@@ -1331,7 +1431,7 @@ def test_oopz_sdk_channel_groups_as_model_returns_result_object_on_http_failure(
         lambda *args, **kwargs: _FakeResponse(503, text="gateway error"),
     )
 
-    result = _run(service.get_area_channels(as_model=True))
+    result = _run(service.get_area_channels(area="area", as_model=True))
 
     assert isinstance(result, models.ChannelGroupsResult)
     assert result.payload == {"error": "HTTP 503"}
@@ -1348,7 +1448,7 @@ def test_oopz_sdk_channel_groups_as_model_returns_result_object_on_malformed_suc
         ),
     )
 
-    result = _run(service.get_area_channels(as_model=True))
+    result = _run(service.get_area_channels(area="area", as_model=True))
 
     assert isinstance(result, models.ChannelGroupsResult)
     assert result.payload == {"error": "channel groups响应格式异常"}
@@ -1362,7 +1462,7 @@ def test_oopz_sdk_get_area_channels_returns_error_dict_on_http_failure(monkeypat
         lambda *args, **kwargs: _FakeResponse(503, text="gateway error"),
     )
 
-    result = _run(service.get_area_channels())
+    result = _run(service.get_area_channels(area="area"))
 
     assert result == {"error": "HTTP 503"}
 
@@ -1529,7 +1629,7 @@ def test_oopz_sdk_create_channel_reports_group_fetch_error(monkeypatch):
         _fake_pick_channel_group,
     )
 
-    result = _run(service.create_channel(name="测试频道"))
+    result = _run(service.create_channel(area="area", name="测试频道"))
 
     assert isinstance(result, models.OperationResult)
     assert result.ok is False
@@ -1544,11 +1644,26 @@ def test_oopz_sdk_create_channel_returns_error_when_root_payload_is_not_dict(mon
         lambda *args, **kwargs: _FakeResponse(200, payload=[], text="[]"),
     )
 
-    result = _run(service.create_channel(name="测试频道", group_id="group-1"))
+    result = _run(service.create_channel(area="area", name="测试频道", group_id="group-1"))
 
     assert isinstance(result, models.OperationResult)
     assert result.ok is False
     assert result.message == "创建频道响应格式异常"
+
+
+def test_oopz_sdk_create_channel_returns_http_error_result(monkeypatch):
+    service = Channel(None, _make_config())
+    monkeypatch.setattr(
+        service,
+        "_post",
+        lambda *args, **kwargs: _FakeResponse(503, text="upstream timeout"),
+    )
+
+    result = _run(service.create_channel(area="area", name="测试频道", group_id="group-1"))
+
+    assert isinstance(result, models.OperationResult)
+    assert result.ok is False
+    assert result.message == "HTTP 503 | upstream timeout"
 
 
 def test_oopz_sdk_update_channel_returns_setting_error_when_role_fields_are_malformed(
@@ -1561,7 +1676,7 @@ def test_oopz_sdk_update_channel_returns_setting_error_when_role_fields_are_malf
 
     monkeypatch.setattr(service, "get_channel_setting_info", _fake_get_channel_setting_info)
 
-    result = _run(service.update_channel(channel_id="channel-1"))
+    result = _run(service.update_channel(area="area", channel_id="channel-1"))
 
     assert isinstance(result, models.OperationResult)
     assert result.ok is False
@@ -1592,7 +1707,7 @@ def test_oopz_sdk_update_channel_returns_setting_error_when_role_entry_is_malfor
         lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("不应继续写回频道设置")),
     )
 
-    result = _run(service.update_channel(channel_id="channel-1"))
+    result = _run(service.update_channel(area="area", channel_id="channel-1"))
 
     assert isinstance(result, models.OperationResult)
     assert result.ok is False
@@ -1652,11 +1767,31 @@ def test_oopz_sdk_update_channel_returns_error_when_root_payload_is_not_dict(mon
         lambda *args, **kwargs: _FakeResponse(200, payload=[], text="[]"),
     )
 
-    result = _run(service.update_channel(channel_id="channel-1"))
+    result = _run(service.update_channel(area="area", channel_id="channel-1"))
 
     assert isinstance(result, models.OperationResult)
     assert result.ok is False
     assert result.message == "更新频道响应格式异常"
+
+
+def test_oopz_sdk_update_channel_returns_http_error_result(monkeypatch):
+    service = Channel(None, _make_config())
+
+    async def _fake_get_channel_setting_info(*args, **kwargs):
+        return models.ChannelSetting(channel="channel-1")
+
+    monkeypatch.setattr(service, "get_channel_setting_info", _fake_get_channel_setting_info)
+    monkeypatch.setattr(
+        service,
+        "_post",
+        lambda *args, **kwargs: _FakeResponse(503, text="upstream timeout"),
+    )
+
+    result = _run(service.update_channel(area="area", channel_id="channel-1"))
+
+    assert isinstance(result, models.OperationResult)
+    assert result.ok is False
+    assert result.message == "HTTP 503 | upstream timeout"
 
 
 def test_oopz_sdk_voice_channel_members_as_model_returns_result_object_on_malformed_success(
@@ -1862,11 +1997,26 @@ def test_oopz_sdk_delete_channel_returns_error_when_root_payload_is_not_dict(mon
         lambda *args, **kwargs: _FakeResponse(200, payload=[], text="[]"),
     )
 
-    result = _run(service.delete_channel("channel-1"))
+    result = _run(service.delete_channel("channel-1", area="area"))
 
     assert isinstance(result, models.OperationResult)
     assert result.ok is False
     assert result.message == "删除频道响应格式异常"
+
+
+def test_oopz_sdk_delete_channel_returns_http_error_result(monkeypatch):
+    service = Channel(None, _make_config())
+    monkeypatch.setattr(
+        service,
+        "_delete",
+        lambda *args, **kwargs: _FakeResponse(503, text="upstream timeout"),
+    )
+
+    result = _run(service.delete_channel("channel-1", area="area"))
+
+    assert isinstance(result, models.OperationResult)
+    assert result.ok is False
+    assert result.message == "HTTP 503 | upstream timeout"
 
 
 def test_oopz_sdk_voice_channel_members_returns_error_when_voice_ids_fetch_fails(monkeypatch):
@@ -2123,7 +2273,7 @@ def test_oopz_sdk_create_restricted_text_channel_uses_created_channel_id_when_se
 
 
 def test_oopz_sdk_update_channel_requires_area_before_fetching_setting(monkeypatch):
-    service = Channel(None, _make_config(default_area=""))
+    service = Channel(None, _make_config(default_area="area-default"))
 
     async def _fake_get_channel_setting_info(*args, **kwargs):
         raise AssertionError("不应在缺少 area 时继续获取频道设置")
@@ -2132,6 +2282,18 @@ def test_oopz_sdk_update_channel_requires_area_before_fetching_setting(monkeypat
 
     with pytest.raises(ValueError, match="缺少 area"):
         _run(service.update_channel(channel_id="channel-1"))
+
+
+def test_oopz_sdk_delete_channel_requires_area_before_request(monkeypatch):
+    service = Channel(None, _make_config(default_area="area-default"))
+
+    async def _fake_delete(*args, **kwargs):
+        raise AssertionError("不应在缺少 area 时继续删除频道")
+
+    monkeypatch.setattr(service, "_delete", _fake_delete)
+
+    with pytest.raises(ValueError, match="缺少 area"):
+        _run(service.delete_channel("channel-1"))
 
 
 def test_oopz_sdk_person_detail_as_model(monkeypatch):
@@ -2163,6 +2325,18 @@ def test_oopz_sdk_get_person_infos_batch_returns_error_on_http_failure(monkeypat
     result = _run(service.get_person_infos_batch(["u1", "u2"]))
 
     assert result == {"error": "批量获取用户信息失败: HTTP 503"}
+
+
+def test_oopz_sdk_get_user_area_detail_requires_area_before_request(monkeypatch):
+    service = Member(None, _make_config(default_area="area-default"))
+
+    async def _fake_get(*args, **kwargs):
+        raise AssertionError("不应在缺少 area 时继续获取用户域内详情")
+
+    monkeypatch.setattr(service, "_get", _fake_get)
+
+    with pytest.raises(ValueError, match="缺少 area"):
+        _run(service.get_user_area_detail("target-1"))
 
 
 def test_oopz_sdk_get_person_infos_batch_returns_error_on_failed_payload(monkeypatch):
@@ -2286,7 +2460,7 @@ def test_oopz_sdk_get_assignable_roles_returns_error_dict_on_malformed_role_entr
         ),
     )
 
-    result = _run(service.get_assignable_roles("target-1"))
+    result = _run(service.get_assignable_roles("target-1", area="area"))
 
     assert result["error"] == "assignable roles响应格式异常"
     assert result["invalid_index"] == 1
@@ -2305,7 +2479,7 @@ def test_oopz_sdk_edit_user_role_returns_error_on_malformed_detail_shape(monkeyp
         lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("不应继续修改身份组")),
     )
 
-    result = _run(service.edit_user_role("target-1", 1, True))
+    result = _run(service.edit_user_role("target-1", 1, True, area="area"))
 
     assert result == {"error": "user area detail响应格式异常"}
 
@@ -2335,7 +2509,7 @@ def test_oopz_sdk_area_blocks_as_model_returns_result_object_on_malformed_succes
         ),
     )
 
-    result = _run(service.get_area_blocks(as_model=True))
+    result = _run(service.get_area_blocks(area="area", as_model=True))
 
     assert isinstance(result, models.AreaBlocksResult)
     assert result.payload == {"error": "area blocks响应格式异常"}
@@ -2352,7 +2526,7 @@ def test_oopz_sdk_area_blocks_as_model_returns_result_object_on_malformed_block_
         ),
     )
 
-    result = _run(service.get_area_blocks(as_model=True))
+    result = _run(service.get_area_blocks(area="area", as_model=True))
 
     assert isinstance(result, models.AreaBlocksResult)
     assert result.payload == {"error": "area blocks响应格式异常"}
@@ -2371,7 +2545,7 @@ def test_oopz_sdk_area_blocks_as_model_returns_result_object_on_malformed_block_
         ),
     )
 
-    result = _run(service.get_area_blocks(as_model=True))
+    result = _run(service.get_area_blocks(area="area", as_model=True))
 
     assert isinstance(result, models.AreaBlocksResult)
     assert result.payload["error"] == "area blocks响应格式异常"
@@ -2389,7 +2563,7 @@ def test_oopz_sdk_get_area_blocks_returns_error_dict_on_malformed_block_entry(mo
         ),
     )
 
-    result = _run(service.get_area_blocks())
+    result = _run(service.get_area_blocks(area="area"))
 
     assert result["error"] == "area blocks响应格式异常"
     assert result["invalid_index"] == 1
@@ -2404,7 +2578,7 @@ def test_oopz_sdk_search_area_members_as_model_raises_api_error_on_http_failure(
     )
 
     with pytest.raises(OopzApiError) as exc_info:
-        _run(service.search_area_members(keyword="alice", as_model=True))
+        _run(service.search_area_members(area="area", keyword="alice", as_model=True))
 
     assert str(exc_info.value) == "HTTP 503"
     assert exc_info.value.response == {"error": "HTTP 503"}
@@ -2418,7 +2592,7 @@ def test_oopz_sdk_search_area_members_returns_error_dict_on_http_failure(monkeyp
         lambda *args, **kwargs: _FakeResponse(503, text="gateway error"),
     )
 
-    result = _run(service.search_area_members(keyword="alice"))
+    result = _run(service.search_area_members(area="area", keyword="alice"))
 
     assert result == {"error": "HTTP 503"}
 
@@ -2435,7 +2609,7 @@ def test_oopz_sdk_search_area_members_as_model_raises_api_error_on_malformed_suc
     )
 
     with pytest.raises(OopzApiError) as exc_info:
-        _run(service.search_area_members(keyword="alice", as_model=True))
+        _run(service.search_area_members(area="area", keyword="alice", as_model=True))
 
     assert str(exc_info.value) == "search area members响应格式异常"
     assert exc_info.value.response == {"error": "search area members响应格式异常"}
@@ -2455,7 +2629,7 @@ def test_oopz_sdk_search_area_members_as_model_raises_api_error_on_malformed_mem
     )
 
     with pytest.raises(OopzApiError) as exc_info:
-        _run(service.search_area_members(keyword="alice", as_model=True))
+        _run(service.search_area_members(area="area", keyword="alice", as_model=True))
 
     assert str(exc_info.value) == "search area members响应格式异常"
     assert exc_info.value.response["invalid_index"] == 1
@@ -2472,7 +2646,7 @@ def test_oopz_sdk_search_area_members_returns_error_dict_on_malformed_success(mo
         ),
     )
 
-    result = _run(service.search_area_members(keyword="alice"))
+    result = _run(service.search_area_members(area="area", keyword="alice"))
 
     assert result == {"error": "search area members响应格式异常"}
 
@@ -2485,7 +2659,7 @@ def test_oopz_sdk_get_assignable_roles_returns_error_dict_on_http_failure(monkey
         lambda *args, **kwargs: _FakeResponse(503, text="gateway error"),
     )
 
-    result = _run(service.get_assignable_roles("target-1"))
+    result = _run(service.get_assignable_roles("target-1", area="area"))
 
     assert result == {"error": "HTTP 503"}
 
@@ -2538,7 +2712,7 @@ def test_oopz_sdk_local_image_segment_uses_injected_media(monkeypatch, tmp_path)
     monkeypatch.setattr("oopz_sdk.services.media.Media", _UnexpectedMedia)
 
     with pytest.raises(OopzApiError, match="upload failed"):
-        _run(sender.messages.send_message(ImageSegment.from_file(str(sample)), auto_recall=False))
+        _run(sender.messages.send_message(ImageSegment.from_file(str(sample)), area="area", channel="channel", auto_recall=False))
 
     assert captured == {
         "file_path": str(sample),
@@ -2564,7 +2738,7 @@ def test_oopz_sdk_local_image_segment_requires_injected_media(monkeypatch, tmp_p
     monkeypatch.setattr("oopz_sdk.services.media.Media", _UnexpectedMedia)
 
     with pytest.raises(RuntimeError, match="media"):
-        _run(service.send_message(ImageSegment.from_file(str(sample)), auto_recall=False))
+        _run(service.send_message(ImageSegment.from_file(str(sample)), area="area", channel="channel", auto_recall=False))
 
 
 def test_oopz_sdk_dispatcher_message_handler_receives_message_then_context():
@@ -2868,6 +3042,63 @@ def test_oopz_sdk_message_from_dict_accepts_legacy_id_field():
 
     assert message.message_id == "msg-legacy"
     assert message.content == "hello"
+
+
+def test_oopz_sdk_mute_user_requires_area_before_request(monkeypatch):
+    service = Moderation(None, _make_config(default_area="area-default"))
+
+    async def _fake_request(*args, **kwargs):
+        raise AssertionError("不应在缺少 area 时继续禁言用户")
+
+    monkeypatch.setattr(service, "_request", _fake_request)
+
+    with pytest.raises(ValueError, match="缺少 area"):
+        _run(service.mute_user("target-1"))
+
+
+def test_oopz_sdk_mute_user_returns_operation_result_on_http_failure(monkeypatch):
+    service = Moderation(None, _make_config())
+    monkeypatch.setattr(
+        service,
+        "_request",
+        lambda *args, **kwargs: _FakeResponse(503, text="gateway error"),
+    )
+
+    result = _run(service.mute_user("target-1", area="area"))
+
+    assert isinstance(result, models.OperationResult)
+    assert result.ok is False
+    assert result.message == "HTTP 503 | gateway error"
+
+
+def test_oopz_sdk_remove_from_area_returns_operation_result_on_non_json_response(monkeypatch):
+    service = Moderation(None, _make_config())
+    monkeypatch.setattr(
+        service,
+        "_post",
+        lambda *args, **kwargs: _FakeResponse(200, payload=None, text="<html>bad gateway</html>"),
+    )
+
+    result = _run(service.remove_from_area("target-1", area="area"))
+
+    assert isinstance(result, models.OperationResult)
+    assert result.ok is False
+    assert result.message == "响应非 JSON: <html>bad gateway</html>"
+
+
+def test_oopz_sdk_block_user_in_area_returns_operation_result_on_http_failure(monkeypatch):
+    service = Moderation(None, _make_config())
+    monkeypatch.setattr(
+        service,
+        "_delete",
+        lambda *args, **kwargs: _FakeResponse(503, text="gateway error"),
+    )
+
+    result = _run(service.block_user_in_area("target-1", area="area"))
+
+    assert isinstance(result, models.OperationResult)
+    assert result.ok is False
+    assert result.message == "HTTP 503 | gateway error"
 
 
 def test_oopz_sdk_chat_event_parser_rejects_invalid_body():

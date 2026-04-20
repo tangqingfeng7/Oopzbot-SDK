@@ -46,17 +46,16 @@ class Moderation(BaseService):
         return str(thresholds[-1][1])
 
     @staticmethod
-    def _build_result(payload: dict, *, response=None, default_message: str) -> models.OperationResult:
+    def _build_result(payload: dict, *, default_message: str) -> models.OperationResult:
         return models.OperationResult(
             ok=True,
             message=str(payload.get("message") or default_message),
             payload=payload,
-            response=response,
         )
 
     async def mute_user(self, uid: str, area: Optional[str] = None, channel: Optional[str] = None, duration: int = 10) -> models.OperationResult:
         """禁言用户。"""
-        area = area or self._config.default_area
+        area = self._resolve_area(area)
         interval_id = self._minutes_to_interval_id(duration, voice=False)
         url_path = "/client/v1/area/v1/member/v1/disableText"
         query = f"?area={area}&target={uid}&intervalId={interval_id}"
@@ -65,7 +64,7 @@ class Moderation(BaseService):
 
     async def unmute_user(self, uid: str, area: Optional[str] = None, channel: Optional[str] = None) -> models.OperationResult:
         """解除禁言。"""
-        area = area or self._config.default_area
+        area = self._resolve_area(area)
         url_path = "/client/v1/area/v1/member/v1/recoverText"
         query = f"?area={area}&target={uid}"
         body = {"area": area, "target": uid}
@@ -73,7 +72,7 @@ class Moderation(BaseService):
 
     async def mute_mic(self, uid: str, area: Optional[str] = None, channel: Optional[str] = None, duration: int = 10) -> models.OperationResult:
         """禁麦用户。"""
-        area = area or self._config.default_area
+        area = self._resolve_area(area)
         interval_id = self._minutes_to_interval_id(duration, voice=True)
         url_path = "/client/v1/area/v1/member/v1/disableVoice"
         query = f"?area={area}&target={uid}&intervalId={interval_id}"
@@ -82,7 +81,7 @@ class Moderation(BaseService):
 
     async def unmute_mic(self, uid: str, area: Optional[str] = None, channel: Optional[str] = None) -> models.OperationResult:
         """解除禁麦。"""
-        area = area or self._config.default_area
+        area = self._resolve_area(area)
         url_path = "/client/v1/area/v1/member/v1/recoverVoice"
         query = f"?area={area}&target={uid}"
         body = {"area": area, "target": uid}
@@ -90,7 +89,7 @@ class Moderation(BaseService):
 
     async def remove_from_area(self, uid: str, area: Optional[str] = None) -> models.OperationResult:
         """将用户移出当前域（踢出域）。"""
-        area = area or self._config.default_area
+        area = self._resolve_area(area)
         url_path = f"/area/v3/remove?area={area}&target={uid}"
         body = {"area": area, "target": uid}
         try:
@@ -106,22 +105,21 @@ class Moderation(BaseService):
                 ok=False,
                 message=f"HTTP {resp.status_code}" + (f" | {raw[:200]}" if raw else ""),
                 payload=body,
-                response=resp,
             )
         try:
             result = resp.json()
         except Exception:
-            return models.OperationResult(ok=False, message=f"响应非 JSON: {raw[:200]}", payload=body, response=resp)
+            return models.OperationResult(ok=False, message=f"响应非 JSON: {raw[:200]}", payload=body)
         if result.get("status") is True:
             logger.info("移出域成功")
-            return self._build_result(result, response=resp, default_message="已移出域")
+            return self._build_result(result, default_message="已移出域")
         err = result.get("message") or result.get("error") or str(result)
         logger.error("移出域失败: %s", err)
-        return models.OperationResult(ok=False, message=str(err), payload=result, response=resp)
+        return models.OperationResult(ok=False, message=str(err), payload=result)
 
     async def block_user_in_area(self, uid: str, area: Optional[str] = None) -> models.OperationResult:
         """封禁用户。"""
-        area = area or self._config.default_area
+        area = self._resolve_area(area)
         url_path = f"/client/v1/area/v1/block?area={area}&target={uid}"
         try:
             resp = await self._delete(url_path)
@@ -135,19 +133,18 @@ class Moderation(BaseService):
             return models.OperationResult(
                 ok=False,
                 message=f"HTTP {resp.status_code}" + (f" | {raw[:200]}" if raw else ""),
-                response=resp,
             )
         try:
             result = resp.json()
         except Exception:
-            return models.OperationResult(ok=False, message=f"响应非 JSON: {raw[:200]}", response=resp)
+            return models.OperationResult(ok=False, message=f"响应非 JSON: {raw[:200]}")
         if result.get("status") is True:
             msg = result.get("message") or "已封禁"
             logger.info("封禁成功: %s", msg)
-            return self._build_result(result, response=resp, default_message=msg)
+            return self._build_result(result, default_message=msg)
         err = result.get("message") or result.get("error") or str(result)
         logger.error("封禁失败: %s", err)
-        return models.OperationResult(ok=False, message=str(err), payload=result, response=resp)
+        return models.OperationResult(ok=False, message=str(err), payload=result)
 
     async def get_area_blocks(
         self,
@@ -245,7 +242,7 @@ class Moderation(BaseService):
 
     async def unblock_user_in_area(self, uid: str, area: Optional[str] = None) -> models.OperationResult:
         """解除域内封禁。"""
-        area = area or self._config.default_area
+        area = self._resolve_area(area)
         url_path = "/client/v1/area/v1/unblock"
         query = f"?area={area}&target={uid}"
         body = {"area": area, "target": uid}
@@ -266,18 +263,18 @@ class Moderation(BaseService):
 
         if resp.status_code != 200:
             err = f"HTTP {resp.status_code}" + (f" | {raw[:200]}" if raw else "")
-            return models.OperationResult(ok=False, message=err, payload=body, response=resp)
+            return models.OperationResult(ok=False, message=err, payload=body)
 
         try:
             result = resp.json()
         except Exception:
-            return models.OperationResult(ok=False, message=f"响应非 JSON: {raw[:200]}", payload=body, response=resp)
+            return models.OperationResult(ok=False, message=f"响应非 JSON: {raw[:200]}", payload=body)
 
         if result.get("status") is True:
             msg = result.get("message") or f"{action}成功"
             logger.info("%s成功: %s", action, msg)
-            return self._build_result(result, response=resp, default_message=msg)
+            return self._build_result(result, default_message=msg)
 
         err = result.get("message") or result.get("error") or str(result)
         logger.error("%s失败: %s", action, err)
-        return models.OperationResult(ok=False, message=str(err), payload=result, response=resp)
+        return models.OperationResult(ok=False, message=str(err), payload=result)

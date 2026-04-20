@@ -120,6 +120,7 @@ class AreaService(BaseService):
 
     async def get_area_info(self, area) -> models.AreaInfo:
         """获取域详细信息（含角色列表、主页频道等）。"""
+        area = self._resolve_area(area)
         url_path = "/area/v3/info"
         params = {"area": area}
         data = await self._request_data("GET", url_path, params=params)
@@ -127,6 +128,7 @@ class AreaService(BaseService):
 
     async def enter_area(self, area: str, recover: bool = False) -> dict:
         """进入指定域。"""
+        area = self._resolve_area(area)
         url_path = f"/client/v1/area/v1/enter?area={area}&recover={str(recover).lower()}"
         body = {"area": area, "recover": recover}
 
@@ -144,6 +146,7 @@ class AreaService(BaseService):
 
     async def get_area_channels(self, area: str) -> list[models.ChannelGroupInfo]:
         """Fetch all channel groups in an area."""
+        area = self._resolve_area(area)
         url_path = "/client/v1/area/v1/detail/v1/channels"
         params = {"area": area}
         data = await self._request_data("GET", url_path, params=params)

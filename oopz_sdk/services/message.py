@@ -85,7 +85,7 @@ class Message(BaseService):
 
     @staticmethod
     def _build_operation_result(
-        payload: dict, *, response, message: str
+        payload: dict, *, message: str
     ) -> models.OperationResult:
         return models.OperationResult(
             ok=True,
@@ -255,7 +255,7 @@ class Message(BaseService):
                 response=resp,
             )
 
-        result = self._safe_json(resp)
+        result = safe_json(resp)
         if result is None:
             return models.PrivateSessionResult(
                 channel="",
@@ -455,7 +455,9 @@ class Message(BaseService):
         )
 
     async def send_to_default(self, text: str, **kwargs) -> models.MessageSendResult:
-        return await self.send_message(text, **kwargs)
+        raise ValueError(
+            "send_to_default 已移除默认上下文行为，请改用 send_message(..., area=..., channel=...)"
+        )
 
     async def _schedule_auto_recall(self, message_id: str, area: str, channel: str) -> None:
         if not self._config.auto_recall_enabled:
@@ -494,12 +496,23 @@ class Message(BaseService):
 
     # todo 感觉属于高级实现, 超出了sdk的范围
     async def send_multiple(
-        self, messages: list[str], interval: float = 1.0
+        self,
+        messages: list[str],
+        *,
+        area: Optional[str] = None,
+        channel: Optional[str] = None,
+        interval: float = 1.0,
     ) -> list[models.OperationResult]:
+        resolved_area = self._resolve_area(area)
+        resolved_channel = self._resolve_channel(channel)
         results: list[models.OperationResult] = []
         for index, message in enumerate(messages, 1):
             try:
-                resp = await self.send_to_default(message)
+                resp = await self.send_message(
+                    message,
+                    area=resolved_area,
+                    channel=resolved_channel,
+                )
                 results.append(
                     models.OperationResult(
                         ok=True,
@@ -552,22 +565,21 @@ class Message(BaseService):
 
         if resp.status_code != 200:
             err = f"HTTP {resp.status_code}" + (f" | {raw_text[:200]}" if raw_text else "")
-            return models.OperationResult(ok=False, message=err, payload=body, response=resp)
+            return models.OperationResult(ok=False, message=err, payload=body)
 
-        result = self._safe_json(resp)
+        result = safe_json(resp)
         if result is None:
             return models.OperationResult(
                 ok=False,
                 message=f"响应非 JSON: {raw_text[:200]}",
                 payload=body,
-                response=resp,
             )
 
         if is_success_payload(result):
-            return self._build_operation_result(result, response=resp, message="撤回成功")
+            return self._build_operation_result(result, message="撤回成功")
 
         err = result.get("message") or result.get("error") or str(result)
-        return models.OperationResult(ok=False, message=str(err), payload=result, response=resp)
+        return models.OperationResult(ok=False, message=str(err), payload=result)
 
     async def recall_private_message(
         self,

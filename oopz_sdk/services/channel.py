@@ -151,12 +151,11 @@ class Channel(BaseService):
         )
 
     @staticmethod
-    def _ok_result(payload: dict, *, response=None, message: str = "") -> models.OperationResult:
+    def _ok_result(payload: dict, *, message: str = "") -> models.OperationResult:
         return models.OperationResult(
             ok=True,
             message=str(payload.get("message") or message),
             payload=payload,
-            response=response,
         )
 
     async def get_area_channels(
@@ -443,19 +442,17 @@ class Channel(BaseService):
                 ok=False,
                 message=f"HTTP {resp.status_code}" + (f" | {raw[:200]}" if raw else ""),
                 payload=body,
-                response=resp,
             )
 
         try:
             result = resp.json()
         except Exception:
-            return models.OperationResult(ok=False, message=f"响应非 JSON: {raw[:200]}", payload=body, response=resp)
+            return models.OperationResult(ok=False, message=f"响应非 JSON: {raw[:200]}", payload=body)
         if not isinstance(result, dict):
             return models.OperationResult(
                 ok=False,
                 message="创建频道响应格式异常",
                 payload={"payload": result},
-                response=resp,
             )
 
         if not result.get("status"):
@@ -463,7 +460,7 @@ class Channel(BaseService):
             code = result.get("code") or result.get("errorCode") or ""
             logger.warning("创建频道被拒: %s (code=%s), body=%s", msg, code, body)
             hint = "（可能需要域主/管理员权限）" if "服务" in msg or "权限" in msg else ""
-            return models.OperationResult(ok=False, message=f"{msg}{hint}", payload=result, response=resp)
+            return models.OperationResult(ok=False, message=f"{msg}{hint}", payload=result)
 
         data = result.get("data", {})
         channel_id = self._extract_channel_id(data) or self._extract_channel_id(result)
@@ -473,7 +470,6 @@ class Channel(BaseService):
             ok=True,
             message="频道已创建",
             payload={"channel": channel_id or "", "name": name, "raw": result},
-            response=resp,
         )
 
     async def update_channel(
@@ -567,25 +563,23 @@ class Channel(BaseService):
                 ok=False,
                 message=f"HTTP {resp.status_code}" + (f" | {raw[:200]}" if raw else ""),
                 payload=edit_body,
-                response=resp,
             )
 
         try:
             result = resp.json()
         except Exception:
-            return models.OperationResult(ok=False, message=f"响应非 JSON: {raw[:200]}", payload=edit_body, response=resp)
+            return models.OperationResult(ok=False, message=f"响应非 JSON: {raw[:200]}", payload=edit_body)
         if not isinstance(result, dict):
             return models.OperationResult(
                 ok=False,
                 message="更新频道响应格式异常",
                 payload={"payload": result},
-                response=resp,
             )
 
         if not result.get("status"):
-            return models.OperationResult(ok=False, message=str(result.get("message") or "更新频道失败"), payload=result, response=resp)
+            return models.OperationResult(ok=False, message=str(result.get("message") or "更新频道失败"), payload=result)
 
-        return self._ok_result(result, response=resp, message="频道已更新")
+        return self._ok_result(result, message="频道已更新")
 
     async def create_restricted_text_channel(
         self,
@@ -595,7 +589,7 @@ class Channel(BaseService):
         name: Optional[str] = None,
     ) -> dict:
         """创建仅指定成员可见的文字频道。"""
-        area = area or self._config.default_area
+        area = self._resolve_area(area)
         target_uid = str(target_uid or "").strip()
         if not target_uid:
             return {"error": "缺少 target_uid"}
@@ -728,7 +722,7 @@ class Channel(BaseService):
 
     async def delete_channel(self, channel: str, area: Optional[str] = None) -> models.OperationResult:
         """删除频道。"""
-        area = area or self._config.default_area
+        area = self._resolve_area(area)
         channel = str(channel or "").strip()
         if not channel:
             return models.OperationResult(ok=False, message="缺少 channel")
@@ -747,35 +741,33 @@ class Channel(BaseService):
             return models.OperationResult(
                 ok=False,
                 message=f"HTTP {resp.status_code}" + (f" | {raw[:200]}" if raw else ""),
-                response=resp,
             )
 
         try:
             result = resp.json()
         except Exception:
-            return models.OperationResult(ok=False, message=f"响应非 JSON: {raw[:200]}", response=resp)
+            return models.OperationResult(ok=False, message=f"响应非 JSON: {raw[:200]}")
         if not isinstance(result, dict):
             return models.OperationResult(
                 ok=False,
                 message="删除频道响应格式异常",
                 payload={"payload": result},
-                response=resp,
             )
 
         if result.get("status") is True:
             self._invalidate_voice_ids_cache(area)
-            return self._ok_result(result, response=resp, message="已删除频道")
+            return self._ok_result(result, message="已删除频道")
 
         err = result.get("message") or result.get("error") or str(result)
         logger.error("删除频道失败: %s", err)
-        return models.OperationResult(ok=False, message=str(err), payload=result, response=resp)
+        return models.OperationResult(ok=False, message=str(err), payload=result)
 
     async def enter_channel(self, channel: Optional[str] = None, area: Optional[str] = None,
                       channel_type: str = "TEXT", from_channel: str = "",
                       from_area: str = "", pid: str = "") -> dict:
         """进入指定频道。"""
-        area = area or self._config.default_area
-        channel = channel or self._config.default_channel
+        area = self._resolve_area(area)
+        channel = self._resolve_channel(channel)
         url_path = "/area/v2/channel/enter"
 
         body: dict = {"type": channel_type, "area": area, "channel": channel}
@@ -803,7 +795,7 @@ class Channel(BaseService):
     async def leave_voice_channel(self, channel: str, area: Optional[str] = None,
                             target: Optional[str] = None) -> dict:
         """退出语音频道。"""
-        area = area or self._config.default_area
+        area = self._resolve_area(area)
         target = target or self._config.person_uid
         url_path = "/client/v1/area/v1/member/v1/removeFromChannel"
         query = f"?area={area}&channel={channel}&target={target}"

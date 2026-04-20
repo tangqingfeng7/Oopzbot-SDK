@@ -27,6 +27,7 @@ dependencies = [
   "aiohttp>=3.11,<4",
   "cryptography>=42,<48",
   "pillow>=10,<13",
+  "pydantic>=2,<3",
   "requests>=2.32,<3",
   "websocket-client>=1.8,<2",
 ]

@@ -96,15 +96,15 @@ class BaseService:
 
 
     def _resolve_area(self, area: str | None) -> str:
-        value = str(area or self._config.default_area).strip()
+        value = str(area or "").strip()
         if not value:
-            raise ValueError("缺少 area，且未配置 default_area")
+            raise ValueError("缺少 area")
         return value
 
     def _resolve_channel(self, channel: str | None) -> str:
-        value = str(channel or self._config.default_channel).strip()
+        value = str(channel or "").strip()
         if not value:
-            raise ValueError("缺少 channel，且未配置 default_channel")
+            raise ValueError("缺少 channel")
         return value
 
 
