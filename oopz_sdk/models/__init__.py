@@ -1,4 +1,4 @@
-from .area import Area
+from .area import JoinedAreaInfo, AreaInfo, ChannelGroupInfo, AreaMembersPage
 from .attachment import Attachment, AudioAttachment, ImageAttachment
 from .base import BaseModel
 from .channel import Channel, ChannelGroup
@@ -9,11 +9,9 @@ from .response import (
     ApiResponse,
     AreaBlock,
     AreaBlocksResult,
-    AreaMembersPage,
     ChannelGroupsResult,
     ChannelSetting,
     DailySpeechResult,
-    JoinedAreasResult,
     MessageListResult,
     MessageSendResult,
     OperationResult,
@@ -30,21 +28,20 @@ PersonInfo = Member
 
 __all__ = [
     "ApiResponse",
-    "Area",
+    "JoinedAreaInfo",
+    "AreaInfo",
     "AreaBlock",
     "AreaBlocksResult",
-    "AreaMembersPage",
     "Attachment",
     "AudioAttachment",
+    "AreaMembersPage",
     "BaseModel",
-    "Channel",
-    "ChannelGroup",
     "ChannelGroupsResult",
     "ChannelSetting",
+    "ChannelGroupInfo",
     "DailySpeechResult",
     "Event",
     "ImageAttachment",
-    "JoinedAreasResult",
     "JsonList",
     "JsonObject",
     "Member",

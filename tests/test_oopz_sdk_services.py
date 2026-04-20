@@ -1029,7 +1029,7 @@ def test_oopz_sdk_area_info_as_model_returns_result_object_on_http_failure(monke
 
     result = _run(service.get_area_info(as_model=True))
 
-    assert isinstance(result, models.Area)
+    assert isinstance(result, models.JoinedAreaInfo)
     assert result.payload == {"error": "HTTP 503"}
 
 
@@ -1046,7 +1046,7 @@ def test_oopz_sdk_area_info_as_model_returns_result_object_on_malformed_success(
 
     result = _run(service.get_area_info(as_model=True))
 
-    assert isinstance(result, models.Area)
+    assert isinstance(result, models.JoinedAreaInfo)
     assert result.payload == {"error": "area info响应格式异常"}
 
 

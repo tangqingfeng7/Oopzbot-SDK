@@ -205,19 +205,21 @@ class OopzBot:
     async def _handle_ws_message(self, raw: str) -> None:
         try:
             event = self.parser.parse(raw)
-            if event.event_type != 254:
-                print(json.dumps(event.to_dict(), ensure_ascii=False, indent=2))
+            ctx = self._make_context(event=event)
+
+            if isinstance(event, MessageEvent) and self._should_ignore_self_message(event.message):
+                return
+
+            await self.dispatcher.dispatch("raw_event", event, ctx)
+            await self.dispatcher.dispatch(event.name, event, ctx)
+
         except Exception as exc:
-            logger.exception("解析 WebSocket 消息失败: %s", exc)
-            raise
-
-        ctx = self._make_context(event=event)
-
-        if isinstance(event, MessageEvent) and self._should_ignore_self_message(event.message):
-            return
-
-        await self.dispatcher.dispatch("raw_event", event, ctx)
-        await self.dispatcher.dispatch(event.name, event, ctx)
+            logger.exception("Event handling failed: %s", exc)
+            err_ctx = self._make_context(event=exc)
+            try:
+                await self.dispatcher.dispatch("error", exc, err_ctx)
+            except Exception as e:
+                logger.exception("Error handler execution failed", e)
 
     async def _handle_open(self) -> None:
         ctx = self._make_context()
