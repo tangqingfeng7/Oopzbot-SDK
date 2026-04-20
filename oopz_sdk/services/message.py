@@ -25,19 +25,16 @@ class Message(BaseService):
     def __init__(
         self,
         config_or_bot,
-        config: OopzConfig | None = None,
-        transport: HttpTransport | None = None,
-        signer: Signer | None = None,
+        config: OopzConfig,
+        transport: HttpTransport,
+        signer: Signer,
     ):
         if config is None:
             bot = None
             config = config_or_bot
         else:
             bot = config_or_bot
-
-        resolved_signer = signer or Signer(config)
-        resolved_transport = transport or HttpTransport(config, resolved_signer)
-        super().__init__(config, resolved_transport, resolved_signer, bot=bot)
+        super().__init__(config, transport, signer, bot=bot)
 
     @staticmethod
     def _extract_message_id(payload: dict) -> str:
@@ -66,7 +63,6 @@ class Message(BaseService):
         cls,
         payload: dict,
         *,
-        response,
         area: str,
         channel: str,
         target: str,
@@ -178,19 +174,7 @@ class Message(BaseService):
         timestamp: str,
         auto_recall: bool = False,
     ) -> models.MessageSendResult:
-        logger.info(
-            "send request path=%s channel=%s target=%s",
-            url_path,
-            channel[:24],
-            target[:12],
-        )
-
         resp = await self._post(url_path, body)
-        logger.info("response status: %d", resp.status_code)
-
-        if resp.text:
-            logger.debug("response body: %s", resp.text[:200])
-
         if resp.status_code != 200:
             self._raise_api_error(resp, "send message failed")
 
@@ -206,7 +190,6 @@ class Message(BaseService):
 
         send_result = self._build_send_result(
             result,
-            response=resp,
             area=area,
             channel=channel,
             target=target,
@@ -318,13 +301,13 @@ class Message(BaseService):
     async def send_message(
         self,
         *texts: str | Segment,
-        area: str = "",
-        channel: str = "",
-        attachments: Optional[list] = None,
-        mention_list: Optional[list] = None,
+        area: str,
+        channel: str,
+        attachments: list = None,
+        mention_list: list = None,
         is_mention_all: bool = False,
-        style_tags: Optional[list] = None,
-        reference_message_id: Optional[str] = None,
+        style_tags: list = None,
+        reference_message_id: str = None,
         auto_recall = False,
         animated: bool = False,
         display_name: str = "",
@@ -339,16 +322,13 @@ class Message(BaseService):
             attachments=attachments,
         )
 
-        resolved_area = self._resolve_area(area)
-        resolved_channel = self._resolve_channel(channel)
-
         default_style = ["IMPORTANT"] if self._config.use_announcement_style else []
         final_style_tags = style_tags if style_tags is not None else default_style
 
         body, client_message_id, timestamp = self._build_message_payload(
             text=built_text,
-            area=resolved_area,
-            channel=resolved_channel,
+            area=area,
+            channel=channel,
             target="",
             attachments=built_attachments,
             mention_list=mention_list,
@@ -363,17 +343,11 @@ class Message(BaseService):
 
         url_path = "/im/session/v2/sendGimMessage" if version == "v2" else "/im/session/v1/sendGimMessage"
 
-        logger.info(
-            "send_message channel=%s text=%s",
-            resolved_channel[:24],
-            built_text[:80] + ("..." if len(built_text) > 80 else ""),
-        )
-
         return await self._send_built_message(
             url_path=url_path,
             body=body,
-            area=resolved_area,
-            channel=resolved_channel,
+            area=area,
+            channel=channel,
             target="",
             client_message_id=client_message_id,
             timestamp=timestamp,

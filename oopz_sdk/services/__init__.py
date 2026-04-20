@@ -67,20 +67,10 @@ class BaseService:
             *,
             params: Mapping[str, Any] | None = None,
             body: Mapping[str, Any] | None = None,
-    ) -> dict[str, Any]:
+    ) -> Any:
         return await self.transport.request_json(method, path, params=params, body=body)
 
-    async def _request_data(
-            self,
-            method: str,
-            path: str,
-            *,
-            params: Mapping[str, Any] | None = None,
-            body: Mapping[str, Any] | None = None,
-    ) -> Any:
-        return await self.transport.request_data(method, path, params=params, body=body)
-
-    async def _request_data_with_retry(
+    async def _request_json_with_retry(
             self,
             method: str,
             path: str,
@@ -90,22 +80,9 @@ class BaseService:
             max_attempts: int = 3,
             retry_on_429: bool = False,
     ) -> dict[str, Any]:
-        return await self.transport.request_data_with_retry(
+        return await self.transport.request_json_with_retry(
             method, path, params=params, body=body, max_attempts=max_attempts, retry_on_429=retry_on_429
         )
-
-
-    def _resolve_area(self, area: str | None) -> str:
-        value = str(area or "").strip()
-        if not value:
-            raise ValueError("缺少 area")
-        return value
-
-    def _resolve_channel(self, channel: str | None) -> str:
-        value = str(channel or "").strip()
-        if not value:
-            raise ValueError("缺少 channel")
-        return value
 
 
     @staticmethod

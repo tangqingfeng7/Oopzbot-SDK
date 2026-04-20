@@ -170,7 +170,7 @@ class HttpTransport(BaseTransport):
             data = resp.json()
         except Exception as e:
             raise OopzApiError(
-                f"响应不是合法 JSON: {e}",
+                f"response is not valid JSON: {e}",
                 status_code=resp.status_code,
                 response=resp,
             ) from e
@@ -182,27 +182,9 @@ class HttpTransport(BaseTransport):
                 payload=data,
                 response=resp,
             )
-        return data
+        return data.get("data")
 
-    async def request_data(
-            self,
-            method: str,
-            path: str,
-            *,
-            params: Mapping[str, Any] | None = None,
-            body: Mapping[str, Any] | None = None,
-    ) -> Any:
-        result = await self.request_json(method, path, params=params, body=body)
-
-        if not result.get("status"):
-            raise OopzApiError(
-                result.get("message") or result.get("error") or "未知错误",
-                payload=result,
-            )
-
-        return result.get("data")
-
-    async def request_data_with_retry(
+    async def request_json_with_retry(
             self,
             method: str,
             path: str,
@@ -216,7 +198,7 @@ class HttpTransport(BaseTransport):
 
         for attempt in range(1, max_attempts + 1):
             try:
-                return await self.request_data(method, path, params=params, body=body)
+                return await self.request_json(method, path, params=params, body=body)
             except OopzRateLimitError as e:
                 last_error = e
                 if not retry_on_429 or attempt >= max_attempts:
