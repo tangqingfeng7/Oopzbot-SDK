@@ -148,7 +148,7 @@ class HttpTransport(BaseTransport):
             method,
             path,
             params=params,
-            json_body=body,
+            body=body,
         )
 
         if resp.status_code == 429:
@@ -182,7 +182,7 @@ class HttpTransport(BaseTransport):
                 payload=data,
                 response=resp,
             )
-        return data.get("data")
+        return data
 
     async def request_json_with_retry(
             self,
