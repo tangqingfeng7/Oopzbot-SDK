@@ -177,12 +177,19 @@ class HttpTransport(BaseTransport):
 
         if not isinstance(data, dict):
             raise OopzApiError(
-                "响应格式异常：顶层不是 dict",
+                "response is not valid dict",
                 status_code=resp.status_code,
                 payload=data,
                 response=resp,
             )
-        return data
+        if not data.get("status"):
+            raise OopzApiError(
+                "status is not True",
+                status_code=resp.status_code,
+                payload=data,
+                response=resp,
+            )
+        return data.get("data")
 
     async def request_json_with_retry(
             self,
