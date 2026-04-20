@@ -212,18 +212,6 @@ class HttpTransport(BaseTransport):
             raise last_error
         raise RuntimeError("unreachable")
 
-    @staticmethod
-    def _ensure_dict(value: Any, *, message: str) -> dict[str, Any]:
-        if not isinstance(value, dict):
-            raise OopzApiError(message, payload=value)
-        return value
-
-    @staticmethod
-    def _ensure_list(value: Any, *, message: str) -> list[Any]:
-        if not isinstance(value, list):
-            raise OopzApiError(message, payload=value)
-        return value
-
     async def post(self, url_path: str, body: dict) -> HttpResponse:
         return await self.request("POST", url_path, body=body)
 
