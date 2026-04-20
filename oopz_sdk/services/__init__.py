@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+import asyncio
 import copy
 import inspect
-from typing import Any
+from typing import Any, Mapping, Tuple
 
+from oopz_sdk.utils.payload import safe_json
 from oopz_sdk.auth.signer import Signer
 from oopz_sdk.config.settings import OopzConfig
-from oopz_sdk.transport.http import HttpTransport
+from oopz_sdk.transport.http import HttpTransport, HttpResponse
 
 
 class BaseService:
@@ -58,6 +60,41 @@ class BaseService:
     async def _patch(self, url_path: str, body: dict):
         return await self.transport.patch(url_path, body)
 
+    async def _request_json(
+            self,
+            method: str,
+            path: str,
+            *,
+            params: Mapping[str, Any] | None = None,
+            body: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        return await self.transport.request_json(method, path, params=params, body=body)
+
+    async def _request_data(
+            self,
+            method: str,
+            path: str,
+            *,
+            params: Mapping[str, Any] | None = None,
+            body: Mapping[str, Any] | None = None,
+    ) -> Any:
+        return await self.transport.request_data(method, path, params=params, body=body)
+
+    async def _request_data_with_retry(
+            self,
+            method: str,
+            path: str,
+            *,
+            params: Mapping[str, Any] | None = None,
+            body: Mapping[str, Any] | None = None,
+            max_attempts: int = 3,
+            retry_on_429: bool = False,
+    ) -> dict[str, Any]:
+        return await self.transport.request_data_with_retry(
+            method, path, params=params, body=body, max_attempts=max_attempts, retry_on_429=retry_on_429
+        )
+
+
     def _resolve_area(self, area: str | None) -> str:
         value = str(area or self._config.default_area).strip()
         if not value:
@@ -70,13 +107,6 @@ class BaseService:
             raise ValueError("缺少 channel，且未配置 default_channel")
         return value
 
-    @staticmethod
-    def _safe_json(response) -> dict[str, Any] | None:
-        try:
-            payload = response.json()
-        except ValueError:
-            return None
-        return payload if isinstance(payload, dict) else None
 
     @staticmethod
     def _retry_after_seconds(response) -> int:
@@ -173,7 +203,7 @@ class BaseService:
     @classmethod
     def _raise_api_error(cls, response, default_message: str) -> None:
         from oopz_sdk import OopzRateLimitError, OopzApiError
-        payload = cls._safe_json(response)
+        payload = safe_json(response)
         message = default_message
 
         if response.status_code == 429:

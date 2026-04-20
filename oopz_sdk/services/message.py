@@ -16,6 +16,7 @@ from oopz_sdk.services import BaseService
 from oopz_sdk.transport.http import HttpTransport
 from oopz_sdk.utils.image import get_image_info
 from oopz_sdk.utils.message_builder import build_segments, normalize_message_parts
+from oopz_sdk.utils.payload import safe_json
 
 logger = logging.getLogger("oopz_sdk.services.message")
 
@@ -79,8 +80,7 @@ class Message(BaseService):
             target=target,
             client_message_id=client_message_id,
             timestamp=timestamp,
-            payload=payload,
-            response=response,
+            payload=payload
         )
 
     @staticmethod
@@ -90,8 +90,7 @@ class Message(BaseService):
         return models.OperationResult(
             ok=True,
             message=str(payload.get("message") or message),
-            payload=payload,
-            response=response,
+            payload=payload
         )
 
     @staticmethod
@@ -195,7 +194,7 @@ class Message(BaseService):
         if resp.status_code != 200:
             self._raise_api_error(resp, "send message failed")
 
-        result = self._safe_json(resp)
+        result = safe_json(resp)
         if result is None:
             raise OopzApiError(
                 "send message failed: response is not JSON",

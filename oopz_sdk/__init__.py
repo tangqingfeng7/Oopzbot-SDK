@@ -44,7 +44,7 @@ from .exceptions import (
     OopzTransportError,
 )
 from .models import (
-    Area,
+    JoinedAreaInfo,
     AreaBlock,
     AreaBlocksResult,
     AreaMembersPage,
@@ -61,7 +61,6 @@ from .models import (
     ImageAttachment,
     JsonList,
     JsonObject,
-    JoinedAreasResult,
     Member,
     Message as MessageModel,
     MessageEvent,
@@ -146,7 +145,7 @@ __all__ = [
     "UploadMixin",
     "VoiceChannelMembersResult",
     "__version__",
-    "Area",
+    "JoinedAreaInfo",
     "AreaBlock",
     "AreaBlocksResult",
     "AreaMembersPage",

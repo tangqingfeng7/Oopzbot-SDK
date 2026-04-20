@@ -25,7 +25,6 @@ class OopzBot:
     - 统一管理 REST / WS
     - 统一事件注册入口
     - 统一事件调度
-    - 为 handler 提供可直接使用的上下文（ctx.bot / ctx.reply）
     """
 
     def __init__(
@@ -96,8 +95,16 @@ class OopzBot:
         return self.on("message")
 
     @property
+    def on_message_edit(self):
+        return self.on("message.edit")
+
+    @property
     def on_private_message(self):
         return self.registry.on("message.private")
+
+    @property
+    def on_private_message_edit(self):
+        return self.registry.on("message.private.edit")
 
     @property
     def on_recall(self):
@@ -198,17 +205,21 @@ class OopzBot:
     async def _handle_ws_message(self, raw: str) -> None:
         try:
             event = self.parser.parse(raw)
+            ctx = self._make_context(event=event)
+
+            if isinstance(event, MessageEvent) and self._should_ignore_self_message(event.message):
+                return
+
+            await self.dispatcher.dispatch("raw_event", event, ctx)
+            await self.dispatcher.dispatch(event.name, event, ctx)
+
         except Exception as exc:
-            logger.exception("解析 WebSocket 消息失败: %s", exc)
-            raise
-
-        ctx = self._make_context(event=event)
-
-        if isinstance(event, MessageEvent) and self._should_ignore_self_message(event.message):
-            return
-
-        await self.dispatcher.dispatch("raw_event", event, ctx)
-        await self.dispatcher.dispatch(event.name, event, ctx)
+            logger.exception("Event handling failed: %s", exc)
+            err_ctx = self._make_context(event=exc)
+            try:
+                await self.dispatcher.dispatch("error", exc, err_ctx)
+            except Exception as e:
+                logger.exception("Error handler execution failed", e)
 
     async def _handle_open(self) -> None:
         ctx = self._make_context()

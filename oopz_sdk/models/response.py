@@ -1,17 +1,17 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Mapping, TypeAlias
 
-import requests
 
-from .area import Area
+from .area import JoinedAreaInfo
 from .attachment import Attachment
-from .channel import Channel, ChannelGroup
+from .channel import ChannelGroup
 from .base import BaseModel
 from .member import Member
 from .message import Message
-from ..transport.http import HttpResponse
+from oopz_sdk.transport.http import HttpResponse
+from oopz_sdk.exceptions import OopzApiError
 
 
 @dataclass(slots=True)
@@ -27,7 +27,6 @@ class OperationResult(BaseModel):
     ok: bool = True
     message: str = ""
     payload: dict[str, Any] = field(default_factory=dict)
-    response: requests.Response | None = field(default=None, repr=False)
 
 
 @dataclass(slots=True)
@@ -39,14 +38,14 @@ class MessageSendResult(BaseModel):
     client_message_id: str = ""
     timestamp: str = ""
     payload: dict[str, Any] = field(default_factory=dict)
-    response: requests.Response | None = field(default=None, repr=False)
+    
 
 
 @dataclass(slots=True)
 class UploadResult(BaseModel):
     attachment: Attachment
     payload: dict[str, Any] = field(default_factory=dict)
-    response: requests.Response | None = field(default=None, repr=False)
+    
 
 
 @dataclass(slots=True)
@@ -57,34 +56,12 @@ class PrivateSessionResult(BaseModel):
     response: HttpResponse | None = field(default=None, repr=False)
 
 
-@dataclass(slots=True)
-class AreaMembersPage(BaseModel):
-    members: list[Member] = field(default_factory=list)
-    online_count: int = 0
-    total_count: int = 0
-    user_count: int = 0
-    fetched_count: int = 0
-    stale: bool = False
-    rate_limited: bool = False
-    from_cache: bool = False
-    payload: dict[str, Any] = field(default_factory=dict)
-    response: requests.Response | None = field(default=None, repr=False)
-
-
-@dataclass(slots=True)
-class JoinedAreasResult(BaseModel):
-    areas: list[Area] = field(default_factory=list)
-    from_cache: bool = False
-    payload: dict[str, Any] = field(default_factory=dict)
-    response: requests.Response | None = field(default=None, repr=False)
-
 
 @dataclass(slots=True)
 class ChannelGroupsResult(BaseModel):
     groups: list[ChannelGroup] = field(default_factory=list)
     from_cache: bool = False
     payload: dict[str, Any] = field(default_factory=dict)
-    response: requests.Response | None = field(default=None, repr=False)
 
 
 @dataclass(slots=True)
@@ -95,7 +72,7 @@ class PersonDetail(BaseModel):
     common_id: str = ""
     bio: str = ""
     payload: dict[str, Any] = field(default_factory=dict)
-    response: requests.Response | None = field(default=None, repr=False)
+    
 
 
 @dataclass(slots=True)
@@ -106,7 +83,7 @@ class SelfDetail(BaseModel):
     mobile: str = ""
     from_cache: bool = False
     payload: dict[str, Any] = field(default_factory=dict)
-    response: requests.Response | None = field(default=None, repr=False)
+    
 
 
 @dataclass(slots=True)
@@ -129,7 +106,7 @@ class ChannelSetting(BaseModel):
     has_password: bool = False
     password: str = ""
     payload: dict[str, Any] = field(default_factory=dict)
-    response: requests.Response | None = field(default=None, repr=False)
+    
 
     def to_edit_body(self, *, area: str | None = None) -> dict[str, Any]:
         return {
@@ -157,7 +134,7 @@ class ChannelSetting(BaseModel):
 class VoiceChannelMembersResult(BaseModel):
     channels: dict[str, list[Member]] = field(default_factory=dict)
     payload: dict[str, Any] = field(default_factory=dict)
-    response: requests.Response | None = field(default=None, repr=False)
+    
 
 
 @dataclass(slots=True)
@@ -166,7 +143,7 @@ class DailySpeechResult(BaseModel):
     author: str = ""
     source: str = ""
     payload: dict[str, Any] = field(default_factory=dict)
-    response: requests.Response | None = field(default=None, repr=False)
+    
 
 
 @dataclass(slots=True)
@@ -181,11 +158,11 @@ class AreaBlock(BaseModel):
 class AreaBlocksResult(BaseModel):
     blocks: list[AreaBlock] = field(default_factory=list)
     payload: dict[str, Any] = field(default_factory=dict)
-    response: requests.Response | None = field(default=None, repr=False)
+    
 
 
 @dataclass(slots=True)
 class MessageListResult(BaseModel):
     messages: list[Message] = field(default_factory=list)
     payload: dict[str, Any] = field(default_factory=dict)
-    response: requests.Response | None = field(default=None, repr=False)
+    
