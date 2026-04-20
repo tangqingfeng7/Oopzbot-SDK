@@ -218,8 +218,10 @@ class OopzBot:
             err_ctx = self._make_context(event=exc)
             try:
                 await self.dispatcher.dispatch("error", exc, err_ctx)
+                setattr(exc, "_oopz_error_dispatched", True)
             except Exception as e:
                 logger.exception("Error handler execution failed", e)
+            raise
 
     async def _handle_open(self) -> None:
         ctx = self._make_context()

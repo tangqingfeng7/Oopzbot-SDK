@@ -115,17 +115,18 @@ class Moderation(BaseService):
             return self._build_result(result, default_message="已移出域")
         err = result.get("message") or result.get("error") or str(result)
         logger.error("移出域失败: %s", err)
-        return models.OperationResult(ok=False, message=str(err), payload=result)
+        return models.OperationResult(ok=False, message=str(err), payload={**body, **result})
 
     async def block_user_in_area(self, uid: str, area: Optional[str] = None) -> models.OperationResult:
         """封禁用户。"""
         area = self._resolve_area(area)
         url_path = f"/client/v1/area/v1/block?area={area}&target={uid}"
+        body = {"area": area, "target": uid}
         try:
             resp = await self._delete(url_path)
         except Exception as e:
             logger.error("封禁请求异常: %s", e)
-            return models.OperationResult(ok=False, message=str(e))
+            return models.OperationResult(ok=False, message=str(e), payload=body)
 
         raw = resp.text or ""
         logger.info("封禁 DELETE %s -> HTTP %s, body: %s", url_path, resp.status_code, raw[:300])
@@ -133,18 +134,23 @@ class Moderation(BaseService):
             return models.OperationResult(
                 ok=False,
                 message=f"HTTP {resp.status_code}" + (f" | {raw[:200]}" if raw else ""),
+                payload=body,
             )
         try:
             result = resp.json()
         except Exception:
-            return models.OperationResult(ok=False, message=f"响应非 JSON: {raw[:200]}")
+            return models.OperationResult(
+                ok=False,
+                message=f"响应非 JSON: {raw[:200]}",
+                payload=body,
+            )
         if result.get("status") is True:
             msg = result.get("message") or "已封禁"
             logger.info("封禁成功: %s", msg)
             return self._build_result(result, default_message=msg)
         err = result.get("message") or result.get("error") or str(result)
         logger.error("封禁失败: %s", err)
-        return models.OperationResult(ok=False, message=str(err), payload=result)
+        return models.OperationResult(ok=False, message=str(err), payload={**body, **result})
 
     async def get_area_blocks(
         self,
@@ -157,6 +163,7 @@ class Moderation(BaseService):
         area = self._resolve_area(area)
         url_path = "/client/v1/area/v1/areaSettings/v1/blocks"
         params = {"area": area, "name": name}
+        request_payload = {"area": area, "name": name}
 
         try:
             resp = await self._get(url_path, params=params)
@@ -168,7 +175,10 @@ class Moderation(BaseService):
                         f"HTTP {resp.status_code}",
                         response=resp,
                     )
-                return {"error": f"HTTP {resp.status_code}"}
+                return self._error_payload(
+                    f"HTTP {resp.status_code}",
+                    payload={**request_payload, "error": f"HTTP {resp.status_code}"},
+                )
 
             result = resp.json()
             if not result.get("status"):
@@ -181,7 +191,10 @@ class Moderation(BaseService):
                         response=resp,
                         payload=result,
                     )
-                return {"error": msg}
+                return self._error_payload(
+                    msg,
+                    payload={**request_payload, **result, "error": msg},
+                )
 
             data = result.get("data", {})
             if not isinstance(data, (dict, list)):
@@ -192,7 +205,10 @@ class Moderation(BaseService):
                         response=resp,
                     )
                 logger.error("获取域封禁列表失败: 响应格式异常")
-                return {"error": "area blocks响应格式异常"}
+                return self._error_payload(
+                    "area blocks响应格式异常",
+                    payload={**request_payload, "error": "area blocks响应格式异常"},
+                )
             blocks = data if isinstance(data, list) else data.get("blocks", data.get("list", []))
             if not isinstance(blocks, list):
                 if as_model:
@@ -202,12 +218,15 @@ class Moderation(BaseService):
                         response=resp,
                     )
                 logger.error("获取域封禁列表失败: blocks格式异常")
-                return {"error": "area blocks响应格式异常"}
+                return self._error_payload(
+                    "area blocks响应格式异常",
+                    payload={**request_payload, "error": "area blocks响应格式异常"},
+                )
             invalid_payload = self._invalid_dict_item_payload(
                 blocks,
                 "area blocks响应格式异常",
                 list_key="blocks",
-                payload=result,
+                payload={**request_payload, **result},
             )
             if invalid_payload:
                 if as_model:
@@ -238,7 +257,7 @@ class Moderation(BaseService):
             logger.error("获取域封禁列表异常: %s", e)
             if as_model:
                 return self._model_error(models.AreaBlocksResult, str(e))
-            return {"error": str(e)}
+            return self._error_payload(str(e), payload={**request_payload, "error": str(e)})
 
     async def unblock_user_in_area(self, uid: str, area: Optional[str] = None) -> models.OperationResult:
         """解除域内封禁。"""
@@ -277,4 +296,4 @@ class Moderation(BaseService):
 
         err = result.get("message") or result.get("error") or str(result)
         logger.error("%s失败: %s", action, err)
-        return models.OperationResult(ok=False, message=str(err), payload=result)
+        return models.OperationResult(ok=False, message=str(err), payload={**body, **result})

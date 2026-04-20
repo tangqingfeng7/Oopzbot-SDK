@@ -132,14 +132,21 @@ class AreaService(BaseService):
         try:
             resp = await self._post(url_path, body)
             if resp.status_code != 200:
-                return {"error": f"HTTP {resp.status_code}"}
+                return self._error_payload(
+                    f"HTTP {resp.status_code}",
+                    payload={**body, "error": f"HTTP {resp.status_code}"},
+                )
             result = resp.json()
             if not result.get("status"):
-                return {"error": result.get("message") or result.get("error") or "未知错误"}
+                msg = self._error_message(result)
+                return self._error_payload(
+                    msg,
+                    payload={**body, **result, "error": msg},
+                )
             return result.get("data", {})
         except Exception as e:
             logger.error("进入域异常: %s", e)
-            return {"error": str(e)}
+            return self._error_payload(str(e), payload={**body, "error": str(e)})
 
     async def get_area_channels(self, area: str) -> list[models.ChannelGroupInfo]:
         """Fetch all channel groups in an area."""
