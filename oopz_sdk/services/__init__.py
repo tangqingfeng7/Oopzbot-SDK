@@ -13,12 +13,12 @@ from oopz_sdk.transport.http import HttpTransport, HttpResponse
 
 class BaseService:
     def __init__(
-        self,
-        config: OopzConfig,
-        transport: HttpTransport,
-        signer: Signer,
-        *,
-        bot=None,
+            self,
+            config: OopzConfig,
+            transport: HttpTransport,
+            signer: Signer,
+            *,
+            bot=None,
     ):
         self._bot = bot
         self._config = config
@@ -35,16 +35,15 @@ class BaseService:
             raise RuntimeError(f"{self.__class__.__name__} 缺少 {name} service")
         return service
 
-
     async def _get(self, url_path: str, params: dict | None = None):
         return await self.transport.get(url_path, params=params)
 
     async def _request(
-        self,
-        method: str,
-        url_path: str,
-        body: dict | None = None,
-        params: dict | None = None,
+            self,
+            method: str,
+            url_path: str,
+            body: dict | None = None,
+            params: dict | None = None,
     ):
         return await self.transport.request(method, url_path, body=body, params=params)
 
@@ -84,7 +83,6 @@ class BaseService:
             method, path, params=params, body=body, max_attempts=max_attempts, retry_on_429=retry_on_429
         )
 
-
     @staticmethod
     def _retry_after_seconds(response) -> int:
         try:
@@ -103,11 +101,11 @@ class BaseService:
         return default
 
     def _error_payload(
-        self,
-        message: str,
-        *,
-        payload: dict[str, Any] | None = None,
-        default: str = "未知错误",
+            self,
+            message: str,
+            *,
+            payload: dict[str, Any] | None = None,
+            default: str = "未知错误",
     ) -> dict[str, Any]:
         if isinstance(payload, dict):
             copied = copy.deepcopy(payload)
@@ -118,14 +116,14 @@ class BaseService:
         return {"error": str(message or default)}
 
     def _model_error(
-        self,
-        model_cls,
-        message: str,
-        *,
-        response=None,
-        payload: dict[str, Any] | None = None,
-        default: str = "未知错误",
-        **fields,
+            self,
+            model_cls,
+            message: str,
+            *,
+            response=None,
+            payload: dict[str, Any] | None = None,
+            default: str = "未知错误",
+            **fields,
     ):
         error_payload = self._error_payload(message, payload=payload, default=default)
         build_fields = {"payload": error_payload, **fields}
@@ -145,12 +143,12 @@ class BaseService:
         return model_cls(**build_fields)
 
     def _invalid_dict_item_payload(
-        self,
-        values: object,
-        message: str,
-        *,
-        list_key: str,
-        payload: dict[str, Any] | None = None,
+            self,
+            values: object,
+            message: str,
+            *,
+            list_key: str,
+            payload: dict[str, Any] | None = None,
     ) -> dict[str, Any] | None:
         if not isinstance(values, list):
             error_payload = self._error_payload(message, payload=payload, default=message)
