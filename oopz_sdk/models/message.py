@@ -7,7 +7,7 @@ from typing_extensions import Self
 from pydantic import Field, model_validator
 
 from .attachment import Attachment
-from .base import BaseModel, SDKBaseModel
+from .base import  SDKBaseModel
 from oopz_sdk.exceptions import OopzApiError
 
 class Message(SDKBaseModel):
@@ -53,6 +53,13 @@ class Message(SDKBaseModel):
         attachments_raw = normalized.get("attachments", [])
         if not isinstance(attachments_raw, list):
             normalized["attachments"] = []
+        else:
+            parsed_attachments: list[Attachment] = []
+            for item in attachments_raw:
+                if not isinstance(item, Mapping):
+                    continue
+                parsed_attachments.append(Attachment.parse(item))
+            normalized["attachments"] = parsed_attachments
 
         mention_list = normalized.get("mentionList", [])
         if not isinstance(mention_list, list):

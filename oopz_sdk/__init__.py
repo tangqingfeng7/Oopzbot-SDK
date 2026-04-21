@@ -7,18 +7,6 @@ def _optional_dependency_message(exc: ModuleNotFoundError, *, feature: str) -> s
         raise exc
     return f"{missing_name} is required for {feature}"
 
-
-try:
-    from .services.media import UploadMixin, get_image_info
-except ModuleNotFoundError as exc:  # pragma: no cover - optional runtime dependency
-    _missing_media_dependency_message = _optional_dependency_message(exc, feature="image helpers")
-
-    class UploadMixin:  # type: ignore[override]
-        """Fallback mixin when optional media dependencies are unavailable."""
-
-    def get_image_info(*args, **kwargs):
-        raise ModuleNotFoundError(_missing_media_dependency_message)
-
 from .api import OopzApiMixin
 from .auth import Signer
 from .client import  OopzRESTClient
@@ -141,7 +129,6 @@ __all__ = [
     "SelfDetail",
     "Signer",
     "UploadResult",
-    "UploadMixin",
     "VoiceChannelMembersResult",
     "__version__",
     "JoinedAreaInfo",
@@ -177,5 +164,4 @@ __all__ = [
     "safe_json",
     "safe_json_object",
     "SUCCESS_CODES",
-    "get_image_info",
 ]
