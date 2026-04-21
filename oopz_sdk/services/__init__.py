@@ -83,6 +83,49 @@ class BaseService:
             method, path, params=params, body=body, max_attempts=max_attempts, retry_on_429=retry_on_429
         )
 
+    async def _request_data(
+            self,
+            method: str,
+            path: str,
+            *,
+            params: Mapping[str, Any] | None = None,
+            body: Mapping[str, Any] | None = None,
+    ) -> Any:
+        return await self._request_json(method, path, params=params, body=body)
+
+    async def _request_data_with_retry(
+            self,
+            method: str,
+            path: str,
+            *,
+            params: Mapping[str, Any] | None = None,
+            body: Mapping[str, Any] | None = None,
+            max_attempts: int = 3,
+            retry_on_429: bool = False,
+    ) -> dict[str, Any]:
+        return await self._request_json_with_retry(
+            method,
+            path,
+            params=params,
+            body=body,
+            max_attempts=max_attempts,
+            retry_on_429=retry_on_429,
+        )
+
+    @staticmethod
+    def _resolve_area(area: str | None) -> str:
+        resolved = str(area or "").strip()
+        if not resolved:
+            raise ValueError("缺少 area")
+        return resolved
+
+    @staticmethod
+    def _resolve_channel(channel: str | None) -> str:
+        resolved = str(channel or "").strip()
+        if not resolved:
+            raise ValueError("缺少 channel")
+        return resolved
+
     @staticmethod
     def _retry_after_seconds(response) -> int:
         try:
