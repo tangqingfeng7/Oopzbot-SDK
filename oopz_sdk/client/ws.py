@@ -9,7 +9,7 @@ from typing import Awaitable, Callable, Optional
 
 from oopz_sdk.config.settings import HeartbeatConfig, OopzConfig
 from oopz_sdk.config.constants import EVENT_AUTH, EVENT_HEARTBEAT
-from oopz_sdk.transport.ws import WebSocketTransport
+from oopz_sdk.transport.ws import WebSocketClosedError, WebSocketTransport
 
 logger = logging.getLogger("oopz_sdk.client.ws")
 
@@ -36,7 +36,7 @@ class OopzWSClient:
         on_message: Optional[Callable[[str], Awaitable[None]]] = None,
         on_open: Optional[Callable[[], Awaitable[None]]] = None,
         on_error: Optional[Callable[[object], Awaitable[None]]] = None,
-        on_close: Optional[Callable[[object, object], Awaitable[None]]] = None,
+        on_close: Optional[Callable[[CloseInfo], Awaitable[None] | None]] = None,
         on_reconnect: Optional[Callable[[], Awaitable[None]]] = None,
     ):
         self.config = config
@@ -67,6 +67,7 @@ class OopzWSClient:
                     await self._run_callback("on_reconnect", self.on_reconnect)
 
                 await self.transport.connect()
+                connected_this_round = True
                 self._consecutive_failures = 0
                 self._has_connected_once = True
 
@@ -83,13 +84,17 @@ class OopzWSClient:
                 runtime_error = (
                     exc.original if isinstance(exc, _WebSocketCallbackError) else exc
                 )
-                logger.exception("WebSocket 运行异常: %s", runtime_error)
-                already_dispatched = bool(getattr(runtime_error, "_oopz_error_dispatched", False))
-                if self.on_error and not already_dispatched:
-                    try:
-                        await self._run_callback("on_error", self.on_error, runtime_error)
-                    except _WebSocketCallbackError as callback_exc:
-                        fatal_error = callback_exc.original
+                normal_stop_error = self._is_normal_stop_error(runtime_error)
+                if not normal_stop_error:
+                    logger.exception("WebSocket 运行异常: %s", runtime_error)
+                    already_dispatched = bool(
+                        getattr(runtime_error, "_oopz_error_dispatched", False)
+                    )
+                    if self.on_error and not already_dispatched:
+                        try:
+                            await self._run_callback("on_error", self.on_error, runtime_error)
+                        except _WebSocketCallbackError as callback_exc:
+                            fatal_error = callback_exc.original
                 if fatal_error is None and isinstance(exc, _WebSocketCallbackError):
                     fatal_error = runtime_error
 
@@ -108,9 +113,11 @@ class OopzWSClient:
                     logger.exception("关闭 WebSocketTransport 失败")
 
                 if connected_this_round:
+                    close_code = runtime_error.code if isinstance(runtime_error, WebSocketClosedError) else None
+                    close_reason = self._get_close_reason(runtime_error)
                     close_info = CloseInfo(
-                        code=None,
-                        reason="stopped" if not self._running else "connection closed",
+                        code=close_code,
+                        reason=close_reason,
                         error=runtime_error,
                         reconnecting=self._running and fatal_error is None,
                     )
@@ -139,6 +146,16 @@ class OopzWSClient:
     async def stop(self) -> None:
         self._running = False
         await self.transport.close()
+
+    def _is_normal_stop_error(self, error: Exception) -> bool:
+        return not self._running and isinstance(error, WebSocketClosedError)
+
+    def _get_close_reason(self, error: Exception | None) -> str:
+        if not self._running:
+            return "stopped"
+        if isinstance(error, WebSocketClosedError):
+            return error.reason
+        return "connection closed"
 
     async def _receive_loop(self) -> None:
         while self._running:

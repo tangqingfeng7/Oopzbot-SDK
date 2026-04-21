@@ -1,5 +1,7 @@
 import asyncio
 import io
+import logging
+from aiohttp import WSMessage, WSMsgType
 import oopz_sdk
 import oopz_sdk.client as oopz_client
 import oopz_sdk.services.media as oopz_media_service
@@ -16,7 +18,7 @@ from pydantic import ValidationError
 from oopz_sdk import OopzRESTClient, models
 from oopz_sdk.auth.signer import Signer
 from oopz_sdk.client.bot import OopzBot
-from oopz_sdk.client.ws import OopzWSClient
+from oopz_sdk.client.ws import CloseInfo, OopzWSClient
 from oopz_sdk.config import OopzConfig
 from oopz_sdk.config.constants import EVENT_PRIVATE_MESSAGE
 from oopz_sdk.exceptions import OopzApiError, OopzConnectionError, OopzParseError, OopzRateLimitError
@@ -34,6 +36,7 @@ from oopz_sdk.services.member import Member
 from oopz_sdk.services.message import Message
 from oopz_sdk.services.moderation import Moderation
 from oopz_sdk.transport.http import HttpTransport
+from oopz_sdk.transport.ws import WebSocketClosedError, WebSocketTransport
 
 from tests._oopz_sdk_test_support import _FakeResponse, _make_config, _make_private_key, _run
 
@@ -61,7 +64,7 @@ def test_oopz_sdk_dispatcher_message_handler_receives_message_then_context():
     assert captured["ctx"] is ctx
 
 
-def test_oopz_sdk_dispatcher_forwards_handler_error_to_error_event():
+def test_oopz_sdk_dispatcher_forwards_handler_error_to_error_event_without_raising():
     registry = EventRegistry()
     captured = {}
 
@@ -87,6 +90,32 @@ def test_oopz_sdk_dispatcher_forwards_handler_error_to_error_event():
     assert isinstance(captured["error"], RuntimeError)
     assert str(captured["error"]) == "handler boom"
     assert captured["ctx"].event is captured["error"]
+
+
+def test_oopz_sdk_dispatcher_keeps_running_when_message_handler_raises():
+    registry = EventRegistry()
+    steps = []
+
+    @registry.on("message")
+    def _handler(message, ctx):
+        steps.append("message")
+        raise RuntimeError("handler boom")
+
+    @registry.on("error")
+    def _on_error(ctx, error):
+        steps.append("error")
+
+    dispatcher = EventDispatcher(registry)
+    ctx = EventContext(bot=None, config=_make_config())
+    event = MessageEvent(
+        name="message",
+        event_type=9,
+        message=models.Message(message_id="msg-2", content="hello", text="hello"),
+    )
+
+    asyncio.run(dispatcher.dispatch("message", event, ctx))
+
+    assert steps == ["message", "error"]
 
 
 def test_oopz_sdk_ws_client_does_not_reconnect_on_callback_error():
@@ -170,6 +199,491 @@ def test_oopz_sdk_bot_ws_parse_error_is_not_swallowed():
 
     assert bot.ws.transport.connect_calls == 1
     assert errors == ["Invalid event payload"]
+
+
+def test_oopz_sdk_ws_client_calls_on_close_after_connected_receive_failure():
+    close_infos = []
+
+    class _FakeTransport:
+        def __init__(self):
+            self.connect_calls = 0
+            self.close_calls = 0
+            self.sent = []
+            self.closed = True
+
+        async def connect(self):
+            self.connect_calls += 1
+            self.closed = False
+
+        async def recv(self):
+            raise ConnectionError("socket closed")
+
+        async def send_json(self, data):
+            self.sent.append(data)
+
+        async def close(self):
+            self.close_calls += 1
+            self.closed = True
+
+    async def _on_close(close_info):
+        close_infos.append(close_info)
+        client._running = False
+
+    config = _make_config()
+    config.heartbeat.reconnect_interval = 0.01
+    config.heartbeat.max_reconnect_interval = 0.01
+    client = OopzWSClient(config, on_close=_on_close)
+    client.transport = _FakeTransport()
+
+    async def _exercise():
+        task = asyncio.create_task(client.start())
+        await asyncio.sleep(0.05)
+        if task.done():
+            await task
+            return
+        client._running = False
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+
+    _run(_exercise())
+
+    assert client.transport.connect_calls >= 1
+    assert client.transport.close_calls >= 1
+    assert len(close_infos) == 1
+    assert isinstance(close_infos[0], CloseInfo)
+    assert close_infos[0].reason == "connection closed"
+    assert close_infos[0].reconnecting is True
+
+
+def test_oopz_sdk_ws_transport_close_message_preserves_code_and_reason():
+    transport = WebSocketTransport(_make_config())
+
+    class _WS:
+        close_code = None
+
+        async def receive(self):
+            return WSMessage(WSMsgType.CLOSE, 4001, "remote closed")
+
+    transport._ws = _WS()
+
+    with pytest.raises(WebSocketClosedError) as exc_info:
+        _run(transport.recv())
+
+    assert exc_info.value.code == 4001
+    assert exc_info.value.reason == "remote closed"
+
+
+def test_oopz_sdk_ws_transport_closed_message_uses_close_code_and_default_reason():
+    transport = WebSocketTransport(_make_config())
+
+    class _WS:
+        close_code = 4002
+
+        async def receive(self):
+            return WSMessage(WSMsgType.CLOSED, None, None)
+
+    transport._ws = _WS()
+
+    with pytest.raises(WebSocketClosedError) as exc_info:
+        _run(transport.recv())
+
+    assert exc_info.value.code == 4002
+    assert exc_info.value.reason == "connection closed"
+
+
+def test_oopz_sdk_ws_client_calls_on_close_with_stopped_reason():
+    close_infos = []
+
+    class _FakeTransport:
+        def __init__(self):
+            self.connect_calls = 0
+            self.close_calls = 0
+            self.sent = []
+            self.closed = True
+
+        async def connect(self):
+            self.connect_calls += 1
+            self.closed = False
+
+        async def recv(self):
+            await asyncio.sleep(0.01)
+            raise WebSocketClosedError(code=4003, reason="server shutdown")
+
+        async def send_json(self, data):
+            self.sent.append(data)
+
+        async def close(self):
+            self.close_calls += 1
+            self.closed = True
+
+    async def _on_open():
+        asyncio.create_task(client.stop())
+
+    async def _on_close(close_info):
+        close_infos.append(close_info)
+
+    client = OopzWSClient(_make_config(), on_open=_on_open, on_close=_on_close)
+    client.transport = _FakeTransport()
+
+    _run(client.start())
+
+    assert client.transport.connect_calls == 1
+    assert client.transport.close_calls >= 1
+    assert len(close_infos) == 1
+    assert close_infos[0].code == 4003
+    assert close_infos[0].reason == "stopped"
+    assert close_infos[0].reconnecting is False
+
+
+def test_oopz_sdk_ws_client_stop_does_not_report_normal_close_as_error(caplog):
+    close_infos = []
+    errors = []
+
+    class _FakeTransport:
+        def __init__(self):
+            self.connect_calls = 0
+            self.close_calls = 0
+            self.sent = []
+            self.closed = True
+
+        async def connect(self):
+            self.connect_calls += 1
+            self.closed = False
+
+        async def recv(self):
+            await asyncio.sleep(0.01)
+            raise WebSocketClosedError(code=4004, reason="client stop")
+
+        async def send_json(self, data):
+            self.sent.append(data)
+
+        async def close(self):
+            self.close_calls += 1
+            self.closed = True
+
+    async def _on_open():
+        asyncio.create_task(client.stop())
+
+    async def _on_close(close_info):
+        close_infos.append(close_info)
+
+    async def _on_error(error):
+        errors.append(error)
+
+    client = OopzWSClient(
+        _make_config(),
+        on_open=_on_open,
+        on_close=_on_close,
+        on_error=_on_error,
+    )
+    client.transport = _FakeTransport()
+
+    with caplog.at_level(logging.ERROR, logger="oopz_sdk.client.ws"):
+        _run(client.start())
+
+    assert client.transport.connect_calls == 1
+    assert client.transport.close_calls >= 1
+    assert errors == []
+    assert len(close_infos) == 1
+    assert close_infos[0].code == 4004
+    assert close_infos[0].reason == "stopped"
+    assert not any("WebSocket 运行异常" in record.message for record in caplog.records)
+
+
+def test_oopz_sdk_ws_client_close_info_uses_real_close_reason_and_code():
+    close_infos = []
+
+    class _FakeTransport:
+        def __init__(self):
+            self.connect_calls = 0
+            self.close_calls = 0
+            self.sent = []
+            self.closed = True
+
+        async def connect(self):
+            self.connect_calls += 1
+            self.closed = False
+
+        async def recv(self):
+            raise WebSocketClosedError(code=4010, reason="remote shutdown")
+
+        async def send_json(self, data):
+            self.sent.append(data)
+
+        async def close(self):
+            self.close_calls += 1
+            self.closed = True
+
+    async def _on_close(close_info):
+        close_infos.append(close_info)
+        client._running = False
+
+    config = _make_config()
+    config.heartbeat.reconnect_interval = 0.01
+    config.heartbeat.max_reconnect_interval = 0.01
+    client = OopzWSClient(config, on_close=_on_close)
+    client.transport = _FakeTransport()
+
+    _run(client.start())
+
+    assert len(close_infos) == 1
+    assert close_infos[0].code == 4010
+    assert close_infos[0].reason == "remote shutdown"
+    assert close_infos[0].reconnecting is True
+
+
+def test_oopz_sdk_ws_client_reports_receive_failure_while_running():
+    errors = []
+    close_infos = []
+
+    class _FakeTransport:
+        def __init__(self):
+            self.connect_calls = 0
+            self.close_calls = 0
+            self.sent = []
+            self.closed = True
+
+        async def connect(self):
+            self.connect_calls += 1
+            self.closed = False
+
+        async def recv(self):
+            raise ConnectionError("socket closed")
+
+        async def send_json(self, data):
+            self.sent.append(data)
+
+        async def close(self):
+            self.close_calls += 1
+            self.closed = True
+
+    async def _on_error(error):
+        errors.append(error)
+
+    async def _on_close(close_info):
+        close_infos.append(close_info)
+        client._running = False
+
+    config = _make_config()
+    config.heartbeat.reconnect_interval = 0.01
+    config.heartbeat.max_reconnect_interval = 0.01
+    client = OopzWSClient(config, on_error=_on_error, on_close=_on_close)
+    client.transport = _FakeTransport()
+
+    _run(client.start())
+
+    assert client.transport.connect_calls >= 1
+    assert client.transport.close_calls >= 1
+    assert len(errors) == 1
+    assert isinstance(errors[0], ConnectionError)
+    assert str(errors[0]) == "socket closed"
+    assert len(close_infos) == 1
+    assert close_infos[0].reason == "connection closed"
+    assert close_infos[0].reconnecting is True
+
+
+def test_oopz_sdk_bot_close_handler_receives_payload_from_close_info():
+    seen = {}
+
+    class _FakeTransport:
+        def __init__(self):
+            self.connect_calls = 0
+            self.close_calls = 0
+            self.sent = []
+            self.closed = True
+
+        async def connect(self):
+            self.connect_calls += 1
+            self.closed = False
+
+        async def recv(self):
+            await asyncio.sleep(0.01)
+            raise WebSocketClosedError(code=4999, reason="remote bye")
+
+        async def send_json(self, data):
+            self.sent.append(data)
+
+        async def close(self):
+            self.close_calls += 1
+            self.closed = True
+
+    bot = OopzBot(_make_config())
+
+    @bot.on_close
+    async def _on_close(ctx, event):
+        seen["ctx"] = ctx
+        seen["event"] = event
+
+    async def _on_open():
+        asyncio.create_task(bot.ws.stop())
+
+    bot.ws.on_open = _on_open
+    bot.ws.transport = _FakeTransport()
+
+    _run(bot.ws.start())
+
+    assert bot.ws.transport.connect_calls == 1
+    assert isinstance(seen["ctx"], EventContext)
+    assert seen["event"]["code"] == 4999
+    assert seen["event"]["reason"] == "stopped"
+    assert seen["event"]["error"] is not None
+    assert seen["event"]["reconnecting"] is False
+
+
+def test_oopz_sdk_bot_start_closes_rest_when_ws_start_fails():
+    bot = OopzBot(_make_config())
+    calls = []
+
+    class _Rest:
+        async def start(self):
+            calls.append("rest.start")
+
+        async def close(self):
+            calls.append("rest.close")
+
+    class _Ws:
+        async def start(self):
+            calls.append("ws.start")
+            raise RuntimeError("ws boom")
+
+    bot.rest = _Rest()
+    bot.ws = _Ws()
+
+    with pytest.raises(RuntimeError, match="ws boom"):
+        _run(bot.start())
+
+    assert calls == ["rest.start", "ws.start", "rest.close"]
+
+
+def test_oopz_sdk_bot_start_closes_rest_when_ws_start_is_cancelled():
+    bot = OopzBot(_make_config())
+    calls = []
+
+    class _Rest:
+        async def start(self):
+            calls.append("rest.start")
+
+        async def close(self):
+            calls.append("rest.close")
+
+    class _Ws:
+        async def start(self):
+            calls.append("ws.start")
+            raise asyncio.CancelledError()
+
+    bot.rest = _Rest()
+    bot.ws = _Ws()
+
+    with pytest.raises(asyncio.CancelledError):
+        _run(bot.start())
+
+    assert calls == ["rest.start", "ws.start", "rest.close"]
+
+
+def test_oopz_sdk_bot_start_keeps_original_error_when_rest_close_also_fails(caplog):
+    bot = OopzBot(_make_config())
+    calls = []
+
+    class _Rest:
+        async def start(self):
+            calls.append("rest.start")
+
+        async def close(self):
+            calls.append("rest.close")
+            raise RuntimeError("rest close boom")
+
+    class _Ws:
+        async def start(self):
+            calls.append("ws.start")
+            raise RuntimeError("ws boom")
+
+    bot.rest = _Rest()
+    bot.ws = _Ws()
+
+    with caplog.at_level(logging.ERROR, logger="oopz_sdk.client.bot"):
+        with pytest.raises(RuntimeError, match="ws boom"):
+            _run(bot.start())
+
+    assert calls == ["rest.start", "ws.start", "rest.close"]
+    assert any(
+        "Failed to close REST client after start failure" in record.message
+        for record in caplog.records
+    )
+
+
+def test_oopz_sdk_bot_stop_closes_rest_when_ws_stop_fails():
+    bot = OopzBot(_make_config())
+    calls = []
+
+    class _Rest:
+        async def close(self):
+            calls.append("rest.close")
+
+    class _Ws:
+        async def stop(self):
+            calls.append("ws.stop")
+            raise RuntimeError("ws stop boom")
+
+    bot.rest = _Rest()
+    bot.ws = _Ws()
+
+    with pytest.raises(RuntimeError, match="ws stop boom"):
+        _run(bot.stop())
+
+    assert calls == ["ws.stop", "rest.close"]
+
+
+def test_oopz_sdk_bot_stop_closes_rest_when_ws_stop_is_cancelled():
+    bot = OopzBot(_make_config())
+    calls = []
+
+    class _Rest:
+        async def close(self):
+            calls.append("rest.close")
+
+    class _Ws:
+        async def stop(self):
+            calls.append("ws.stop")
+            raise asyncio.CancelledError()
+
+    bot.rest = _Rest()
+    bot.ws = _Ws()
+
+    with pytest.raises(asyncio.CancelledError):
+        _run(bot.stop())
+
+    assert calls == ["ws.stop", "rest.close"]
+
+
+def test_oopz_sdk_bot_stop_keeps_original_error_when_rest_close_also_fails(caplog):
+    bot = OopzBot(_make_config())
+    calls = []
+
+    class _Rest:
+        async def close(self):
+            calls.append("rest.close")
+            raise RuntimeError("rest close boom")
+
+    class _Ws:
+        async def stop(self):
+            calls.append("ws.stop")
+            raise RuntimeError("ws stop boom")
+
+    bot.rest = _Rest()
+    bot.ws = _Ws()
+
+    with caplog.at_level(logging.ERROR, logger="oopz_sdk.client.bot"):
+        with pytest.raises(RuntimeError, match="ws stop boom"):
+            _run(bot.stop())
+
+    assert calls == ["ws.stop", "rest.close"]
+    assert any(
+        "Failed to close REST client after stop failure" in record.message
+        for record in caplog.records
+    )
 
 
 def test_oopz_sdk_event_registry_deduplicates_same_handler():
@@ -273,6 +787,14 @@ def test_oopz_sdk_http_transport_wraps_timeout_as_connection_error(monkeypatch):
 
     with pytest.raises(OopzConnectionError, match="request failed: boom"):
         _run(transport.request("GET", "/timeout"))
+
+
+def test_oopz_sdk_http_transport_request_json_with_retry_requires_positive_attempts():
+    config = _make_config(rate_limit_interval=0)
+    transport = HttpTransport(config, signer=object())
+
+    with pytest.raises(ValueError, match="max_attempts must be at least 1"):
+        _run(transport.request_json_with_retry("GET", "/test", max_attempts=0))
 
 
 def test_oopz_sdk_event_context_has_single_send_definition():

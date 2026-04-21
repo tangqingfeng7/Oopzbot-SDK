@@ -1,5 +1,6 @@
 import asyncio
 import io
+import logging
 import oopz_sdk
 import oopz_sdk.client as oopz_client
 import oopz_sdk.services.media as oopz_media_service
@@ -327,7 +328,7 @@ def test_oopz_sdk_message_model_accepts_message_id_field():
     assert message.content == "hello"
 
 
-def test_oopz_sdk_event_context_private_recall_raises_runtime_error():
+def test_oopz_sdk_event_context_private_recall_rejects_private_message_context():
     event = MessageEvent(
         name="message.private",
         event_type=EVENT_PRIVATE_MESSAGE,
@@ -346,6 +347,41 @@ def test_oopz_sdk_event_context_private_recall_raises_runtime_error():
 
     with pytest.raises(RuntimeError, match="recall\\(\\) is not supported for private messages"):
         asyncio.run(ctx.recall())
+
+
+def test_oopz_sdk_event_context_recall_uses_channel_message_context():
+    captured = {}
+
+    class _Messages:
+        async def recall_message(self, **kwargs):
+            captured.update(kwargs)
+            return kwargs
+
+    event = MessageEvent(
+        name="message",
+        event_type=9,
+        message=models.Message(
+            message_id="msg-2",
+            area="area-2",
+            channel="channel-2",
+        ),
+    )
+    ctx = EventContext(
+        bot=SimpleNamespace(messages=_Messages()),
+        config=_make_config(),
+        event=event,
+    )
+
+    result = asyncio.run(ctx.recall())
+
+    assert result["message_id"] == "msg-2"
+    assert result["area"] == "area-2"
+    assert result["channel"] == "channel-2"
+    assert captured == {
+        "message_id": "msg-2",
+        "area": "area-2",
+        "channel": "channel-2",
+    }
 
 
 def test_oopz_sdk_event_context_reply_uses_message_id_from_model():
@@ -378,3 +414,87 @@ def test_oopz_sdk_event_context_reply_uses_message_id_from_model():
 
     assert result["reference_message_id"] == "msg-1"
     assert bot.messages.calls[0]["reference_message_id"] == "msg-1"
+
+
+def test_oopz_sdk_auto_recall_logs_single_warning_when_result_is_not_ok(monkeypatch, caplog):
+    service = _make_message_service()
+
+    async def fake_sleep(delay):
+        return None
+
+    async def fake_recall_message(message_id, area, channel):
+        return models.OperationResult(ok=False)
+
+    monkeypatch.setattr(asyncio, "sleep", fake_sleep)
+    monkeypatch.setattr(service, "recall_message", fake_recall_message)
+
+    with caplog.at_level(logging.WARNING, logger="oopz_sdk.services.message"):
+        _run(service._do_auto_recall("msg-1", "area-1", "channel-1", 1))
+
+    warning_records = [record for record in caplog.records if record.levelno == logging.WARNING]
+    error_records = [record for record in caplog.records if record.levelno == logging.ERROR]
+
+    assert len(warning_records) == 1
+    assert len(error_records) == 0
+    assert warning_records[0].message == "auto recall failed: msg-1, area: area-1, channel: channel-1"
+
+
+def test_oopz_sdk_auto_recall_logs_single_error_when_recall_raises(monkeypatch, caplog):
+    service = _make_message_service()
+
+    async def fake_sleep(delay):
+        return None
+
+    async def fake_recall_message(message_id, area, channel):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(asyncio, "sleep", fake_sleep)
+    monkeypatch.setattr(service, "recall_message", fake_recall_message)
+
+    with caplog.at_level(logging.ERROR, logger="oopz_sdk.services.message"):
+        _run(service._do_auto_recall("msg-2", "area-2", "channel-2", 1))
+
+    warning_records = [record for record in caplog.records if record.levelno == logging.WARNING]
+    error_records = [record for record in caplog.records if record.levelno == logging.ERROR]
+
+    assert len(warning_records) == 0
+    assert len(error_records) == 1
+    assert error_records[0].message == "auto recall exception: boom"
+
+
+def test_oopz_sdk_schedule_auto_recall_keeps_single_warning_for_background_task(monkeypatch, caplog):
+    service = _make_message_service()
+    service._config.auto_recall_enabled = True
+    service._config.auto_recall_delay = 1
+    created_tasks = []
+
+    async def fake_sleep(delay):
+        return None
+
+    async def fake_recall_message(message_id, area, channel):
+        return models.OperationResult(ok=False)
+
+    class _Loop:
+        def create_task(self, coro):
+            task = asyncio.create_task(coro)
+            created_tasks.append(task)
+            return task
+
+    monkeypatch.setattr(asyncio, "sleep", fake_sleep)
+    monkeypatch.setattr(asyncio, "get_running_loop", lambda: _Loop())
+    monkeypatch.setattr(service, "recall_message", fake_recall_message)
+
+    async def _exercise():
+        with caplog.at_level(logging.WARNING, logger="oopz_sdk.services.message"):
+            await service._schedule_auto_recall("msg-3", "area-3", "channel-3")
+            assert len(created_tasks) == 1
+            await created_tasks[0]
+
+    _run(_exercise())
+
+    warning_records = [record for record in caplog.records if record.levelno == logging.WARNING]
+    error_records = [record for record in caplog.records if record.levelno == logging.ERROR]
+
+    assert len(warning_records) == 1
+    assert len(error_records) == 0
+    assert warning_records[0].message == "auto recall failed: msg-3, area: area-3, channel: channel-3"

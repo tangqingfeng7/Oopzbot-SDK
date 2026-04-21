@@ -2,6 +2,8 @@ import asyncio
 import io
 import oopz_sdk
 import oopz_sdk.client as oopz_client
+import oopz_sdk.models.base as models_base
+import oopz_sdk.models.response as models_response
 import oopz_sdk.services.media as oopz_media_service
 import oopz_sdk.transport.http as oopz_http_transport
 from pathlib import Path
@@ -115,3 +117,16 @@ def test_oopz_sdk_version_matches_package_version():
 def test_oopz_sdk_all_exports_exist():
     for name in oopz_sdk.__all__:
         assert hasattr(oopz_sdk, name), name
+
+
+def test_oopz_sdk_operation_result_export_points_to_base_model():
+    result = models.OperationResult(ok=False, message="boom", payload={"x": 1})
+
+    assert isinstance(result, models_base.OperationResult)
+    assert result.ok is False
+    assert result.message == "boom"
+    assert result.payload == {"x": 1}
+
+
+def test_oopz_sdk_response_module_does_not_define_own_operation_result():
+    assert not hasattr(models_response, "OperationResult")

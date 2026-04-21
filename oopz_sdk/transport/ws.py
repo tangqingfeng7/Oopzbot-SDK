@@ -10,6 +10,13 @@ from .proxy import build_aiohttp_proxy
 logger = logging.getLogger("oopz_sdk.transport.websocket")
 
 
+class WebSocketClosedError(ConnectionError):
+    def __init__(self, *, code: int | None, reason: str):
+        super().__init__(reason)
+        self.code = code
+        self.reason = reason
+
+
 class WebSocketTransport:
     def __init__(self, config: OopzConfig):
         self.config = config
@@ -44,8 +51,17 @@ class WebSocketTransport:
         if msg.type == aiohttp.WSMsgType.ERROR:
             raise RuntimeError(f"WebSocket error: {self._ws.exception()}")
 
-        if msg.type in (aiohttp.WSMsgType.CLOSE, aiohttp.WSMsgType.CLOSED):
-            raise ConnectionError("WebSocket 已关闭")
+        if msg.type == aiohttp.WSMsgType.CLOSE:
+            raise WebSocketClosedError(
+                code=msg.data if isinstance(msg.data, int) else self._ws.close_code,
+                reason=msg.extra or "connection closed",
+            )
+
+        if msg.type in (aiohttp.WSMsgType.CLOSED, aiohttp.WSMsgType.CLOSING):
+            raise WebSocketClosedError(
+                code=self._ws.close_code,
+                reason="connection closed",
+            )
 
         raise RuntimeError(f"未知 WebSocket 消息类型: {msg.type}")
 

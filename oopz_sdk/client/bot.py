@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-import json
 import logging
-from typing import Any
 
 import oopz_sdk.services.message as message_service
 from oopz_sdk.events.context import EventContext
@@ -11,7 +9,7 @@ from oopz_sdk.events.parser import EventParser
 from oopz_sdk.events.registry import EventRegistry
 
 from .rest import OopzRESTClient
-from .ws import OopzWSClient
+from .ws import CloseInfo, OopzWSClient
 from ..models import MessageEvent, Message
 
 logger = logging.getLogger("oopz_sdk.client.bot")
@@ -131,15 +129,32 @@ class OopzBot:
     # -------------------------
 
     async def start(self):
-        await self.rest.start()
-        await self.ws.start()
+        rest_started = False
+        try:
+            await self.rest.start()
+            rest_started = True
+            await self.ws.start()
+        except BaseException:
+            if rest_started:
+                await self._close_rest_after_start_failure()
+            raise
 
     async def run(self):
         await self.start()
 
     async def stop(self):
-        await self.ws.stop()
-        await self.rest.close()
+        stop_error = None
+        try:
+            await self.ws.stop()
+        except BaseException as exc:
+            stop_error = exc
+
+        if stop_error is None:
+            await self.rest.close()
+            return
+
+        await self._close_rest_after_stop_failure()
+        raise stop_error
 
     # -------------------------
     # 高层便捷方法
@@ -184,20 +199,24 @@ class OopzBot:
     # -------------------------
     # 内部工具
     # -------------------------
-    @staticmethod
-    def _get_message_field(message: Any, name: str, default=None):
-        if message is None:
-            return default
-        if isinstance(message, dict):
-            return message.get(name, default)
-        return getattr(message, name, default)
-
-    def _make_context(self, *, event=None, trace_id: str = "") -> EventContext:
+    def _make_context(self, *, event=None) -> EventContext:
         return EventContext(
             bot=self,
             config=self.config,
             event=event
         )
+
+    async def _close_rest_after_start_failure(self) -> None:
+        try:
+            await self.rest.close()
+        except BaseException as close_exc:
+            logger.exception("Failed to close REST client after start failure: %s", close_exc)
+
+    async def _close_rest_after_stop_failure(self) -> None:
+        try:
+            await self.rest.close()
+        except BaseException as close_exc:
+            logger.exception("Failed to close REST client after stop failure: %s", close_exc)
 
     # -------------------------
     # WS 回调入口
@@ -228,8 +247,13 @@ class OopzBot:
         ctx = self._make_context(event=error)
         await self.dispatcher.dispatch("error", error, ctx)
 
-    async def _handle_close(self, code, reason) -> None:
-        payload = {"code": code, "reason": reason}
+    async def _handle_close(self, close_info: CloseInfo) -> None:
+        payload = {
+            "code": close_info.code,
+            "reason": close_info.reason,
+            "error": close_info.error,
+            "reconnecting": close_info.reconnecting,
+        }
         ctx = self._make_context(event=payload)
         await self.dispatcher.dispatch("close", payload, ctx)
 
