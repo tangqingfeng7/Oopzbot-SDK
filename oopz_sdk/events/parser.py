@@ -61,7 +61,7 @@ class EventParser:
             if not isinstance(msg_data, dict):
                 raise OopzParseError("Invalid chat event data")
 
-            message = Message.from_dict(msg_data)
+            message = Message.from_api(msg_data)
             return MessageEvent(
                 name="message",
                 event_type=event_type,
@@ -78,7 +78,7 @@ class EventParser:
             if not isinstance(msg_data, dict):
                 raise OopzParseError("Invalid private event data")
 
-            message = Message.from_dict(msg_data)
+            message = Message.from_api(msg_data)
             return MessageEvent(
                 name="message.private",
                 event_type=event_type,

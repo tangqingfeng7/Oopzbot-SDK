@@ -1,124 +1,103 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Mapping
+from typing_extensions import Self
+
+from pydantic import Field, model_validator
 
 from .attachment import Attachment
-from .base import BaseModel
+from .base import BaseModel, SDKBaseModel
+from oopz_sdk.exceptions import OopzApiError
 
-
-@dataclass(slots=True)
-class Message(BaseModel):
+class Message(SDKBaseModel):
     target: str = ""
 
     area: str = ""
     channel: str = ""
 
-    message_type: str = ""
-    client_message_id: str = "" # todo
-    message_id: str = ""
+    message_type: str = Field(default="", alias="type")
+    client_message_id: str = Field(default="", alias="clientMessageId")
+    message_id: str = Field(default="", alias="messageId")
     timestamp: str = ""
 
-    person: str = ""
+    sender_id: str = Field(default="", alias="person")
 
     content: str = ""
     text: str = ""
 
-    edit_time: int = 0
-    top_time: str = ""
+    edit_time: int = Field(default=0, alias="editTime")
+    top_time: str = Field(default="", alias="topTime")
 
     cards: Any = None
-    mention_list: list[dict[str, Any]] = field(default_factory=list)
-    is_mention_all: bool = False
-    sender_is_bot: bool = False
-    sender_bot_type: str = ""
+    mention_list: list[dict[str, Any]] = Field(default_factory=list, alias="mentionList")
+    is_mention_all: bool = Field(default=False, alias="isMentionAll")
+    sender_is_bot: bool = Field(default=False, alias="senderIsBot")
+    sender_bot_type: str = Field(default="", alias="senderBotType")
 
-    style_tags: list = field(default_factory=list)
+    style_tags: list[Any] = Field(default_factory=list, alias="styleTags")
 
-    reference_message: Any = None
-    reference_message_id: str = ""
+    reference_message: Any = Field(default=None, alias="referenceMessage")
+    reference_message_id: str = Field(default="", alias="referenceMessageId")
 
-    attachments: list[Attachment] = field(default_factory=list)
+    attachments: list[Attachment] = Field(default_factory=list)
 
-    payload: dict[str, Any] = field(default_factory=dict)
+
+    @model_validator(mode="before")
+    @classmethod
+    def validate_and_fill_payload(cls, data: Any) -> Any:
+        if not isinstance(data, Mapping):
+            raise OopzApiError("invalid message payload: expected dict", payload=data)
+
+        normalized = dict(data)
+        attachments_raw = normalized.get("attachments", [])
+        if not isinstance(attachments_raw, list):
+            normalized["attachments"] = []
+
+        mention_list = normalized.get("mentionList", [])
+        if not isinstance(mention_list, list):
+            normalized["mentionList"] = []
+
+        style_tags = normalized.get("styleTags", [])
+        if not isinstance(style_tags, list):
+            normalized["styleTags"] = []
+        normalized["referenceMessageId"] = str(normalized.get("referenceMessageId") or "")
+
+        return normalized
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "Message":
-        if not isinstance(data, dict):
-            return cls()
+    def from_api(cls, data: Mapping[str, Any]) -> "Message":
+        return cls.model_validate(data)
 
-        attachments_raw = data.get("attachments", [])
-        if not isinstance(attachments_raw, list):
-            attachments_raw = []
 
-        attachments = [
-            Attachment.from_dict(item)
-            for item in attachments_raw
-            if isinstance(item, dict)
-        ]
 
-        mention_list = data.get("mentionList")
-        if mention_list is None:
-            mention_list = data.get("mention_list", [])
-        if not isinstance(mention_list, list):
-            mention_list = []
+class MessageSendResult(SDKBaseModel):
+    message_id: str = Field(alias="messageId")
+    timestamp: str = ""
 
-        style_tags = data.get("styleTags")
-        if style_tags is None:
-            style_tags = data.get("style_tags", [])
-        if not isinstance(style_tags, list):
-            style_tags = []
+    @model_validator(mode="before")
+    @classmethod
+    def validate_and_normalize(cls, data: Any) -> Any:
+        if not isinstance(data, Mapping):
+            raise OopzApiError("invalid message send result payload: expected dict", payload=data)
 
-        content = str(data.get("content") or "")
-        text = str(data.get("text") or content)
-        message_id = str(
-            data.get("messageId")
-            or data.get("message_id")
-            or data.get("id")
-            or ""
-        )
-        client_message_id = str(
-            data.get("clientMessageId")
-            or data.get("client_message_id")
-            or ""
-        )
-        reference_message_id = str(
-            data.get("referenceMessageId")
-            or data.get("reference_message_id")
-            or ""
-        )
-        person = str(data.get("person") or data.get("uid") or "")
+        normalized = dict(data)
+        return normalized
 
-        return cls(
-            target=str(data.get("target") or ""),
-            area=str(data.get("area") or ""),
-            channel=str(data.get("channel") or ""),
+    @classmethod
+    def from_api(cls, data: Mapping[str, Any]) -> "MessageSendResult":
+        if not isinstance(data, Mapping):
+            raise OopzApiError("invalid message send result payload: expected dict", payload=data)
+        return cls.model_validate(data)
 
-            message_type=str(data.get("type") or data.get("message_type") or ""),
-            client_message_id=client_message_id,
-            message_id=message_id,
-            timestamp=str(data.get("timestamp") or ""),
+class PrivateSession(SDKBaseModel):
+    last_time: str = Field(default="", alias="lastTime")
+    mute: bool = False
+    session_id: str = Field(default="", alias="sessionId")
+    uid: str = ""
 
-            person=person,
-
-            content=content,
-            text=text,
-
-            edit_time=int(data.get("editTime") or 0),
-            top_time=str(data.get("topTime") or ""),
-
-            cards=data.get("cards"),
-            mention_list=mention_list,
-            is_mention_all=bool(data.get("isMentionAll", False)),
-            sender_is_bot=bool(data.get("senderIsBot", False)),
-            sender_bot_type=str(data.get("senderBotType") or ""),
-
-            style_tags=style_tags,
-
-            reference_message=data.get("referenceMessage"),
-            reference_message_id=reference_message_id,
-
-            attachments=attachments,
-
-            payload=dict(data),
-        )
+    @classmethod
+    def from_api(cls, data: Mapping[str, Any]) -> "PrivateSession":
+        if not isinstance(data, Mapping):
+            raise OopzApiError("invalid private session payload: expected dict", payload=data)
+        return cls.model_validate(data)

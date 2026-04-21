@@ -36,9 +36,13 @@ class EventDispatcher:
                 result = self._invoke_handler(handler, event_name, event, context)
                 if inspect.isawaitable(result):
                     await result
-            except Exception:
+            except Exception as exc:
                 logger.exception("事件处理器执行失败: event=%s handler=%r", event_name, handler)
-                raise
+                if event_name == "error":
+                    continue
+                # 触发 error 事件
+                error_context = EventContext(bot=context.bot, config=context.config, event=exc)
+                await self.dispatch("error", exc, error_context)
 
 
     @staticmethod

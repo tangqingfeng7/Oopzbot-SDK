@@ -29,17 +29,6 @@ class OperationResult(BaseModel):
     payload: dict[str, Any] = field(default_factory=dict)
 
 
-@dataclass(slots=True)
-class MessageSendResult(BaseModel):
-    message_id: str
-    area: str
-    channel: str
-    target: str = ""
-    client_message_id: str = ""
-    timestamp: str = ""
-    payload: dict[str, Any] = field(default_factory=dict)
-    
-
 
 @dataclass(slots=True)
 class UploadResult(BaseModel):

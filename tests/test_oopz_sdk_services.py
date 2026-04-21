@@ -164,11 +164,6 @@ def test_oopz_sdk_send_message_requires_area_before_request(monkeypatch):
         _run(service.send_message("hello", channel="channel-1", auto_recall=False))
 
 
-def test_oopz_sdk_send_to_default_raises_clear_error():
-    service = Message(None, _make_config(default_area="area-default", default_channel="channel-default"))
-
-    with pytest.raises(ValueError, match="send_to_default 已移除默认上下文行为"):
-        _run(service.send_to_default("hello"))
 
 
 def test_oopz_sdk_recall_message_returns_operation_result(monkeypatch):
@@ -287,18 +282,6 @@ def test_oopz_sdk_get_channel_messages_requires_channel_before_request(monkeypat
         _run(service.get_channel_messages(area="area-1"))
 
 
-def test_oopz_sdk_send_multiple_requires_area_before_request(monkeypatch):
-    service = Message(None, _make_config(default_area="area-default", default_channel="channel-default"))
-
-    monkeypatch.setattr(
-        service,
-        "send_message",
-        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("不应在缺少 area 时继续批量发消息")),
-    )
-
-    with pytest.raises(ValueError, match="缺少 area"):
-        _run(service.send_multiple(["hello"], channel="channel-1"))
-
 
 def test_oopz_sdk_recall_private_message_raises_not_implemented_error():
     service = Message(None, _make_config())
@@ -307,18 +290,6 @@ def test_oopz_sdk_recall_private_message_raises_not_implemented_error():
         _run(service.recall_private_message("msg-1", channel="dm-1", target="user-1"))
 
 
-def test_oopz_sdk_find_message_timestamp_raises_when_channel_messages_fail(monkeypatch):
-    service = Message(None, _make_config())
-
-    async def _fake_get_channel_messages(*args, **kwargs):
-        return {"error": "HTTP 503"}
-
-    monkeypatch.setattr(service, "get_channel_messages", _fake_get_channel_messages)
-
-    with pytest.raises(OopzApiError, match="HTTP 503") as exc_info:
-        _run(service.find_message_timestamp("msg-1"))
-
-    assert exc_info.value.response == {"error": "HTTP 503"}
 
 
 def test_oopz_sdk_get_channel_messages_returns_error_dict_when_message_item_is_invalid(

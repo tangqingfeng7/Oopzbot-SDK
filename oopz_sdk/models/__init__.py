@@ -1,10 +1,10 @@
 from .area import JoinedAreaInfo, AreaInfo, ChannelGroupInfo, AreaMembersPage
 from .attachment import Attachment, AudioAttachment, ImageAttachment
-from .base import BaseModel
+from .base import BaseModel, OperationResult
 from .channel import Channel, ChannelGroup
 from .event import Event, MessageEvent
 from .member import Member
-from .message import Message
+from .message import Message, MessageSendResult, PrivateSession
 from .response import (
     ApiResponse,
     AreaBlock,
@@ -13,8 +13,6 @@ from .response import (
     ChannelSetting,
     DailySpeechResult,
     MessageListResult,
-    MessageSendResult,
-    OperationResult,
     PersonDetail,
     PrivateSessionResult,
     SelfDetail,
@@ -52,7 +50,7 @@ __all__ = [
     "OperationResult",
     "PersonDetail",
     "PersonInfo",
-    "PrivateSessionResult",
+    "PrivateSession",
     "SelfDetail",
     "UploadResult",
     "VoiceChannelMembersResult",
