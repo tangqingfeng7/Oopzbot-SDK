@@ -794,7 +794,7 @@ def test_oopz_sdk_http_transport_request_json_with_retry_requires_positive_attem
     transport = HttpTransport(config, signer=object())
 
     with pytest.raises(ValueError, match="max_attempts must be at least 1"):
-        _run(transport.request_json_with_retry("GET", "/test", max_attempts=0))
+        _run(transport.request_data_with_retry("GET", "/test", max_attempts=0))
 
 
 def test_oopz_sdk_event_context_has_single_send_definition():

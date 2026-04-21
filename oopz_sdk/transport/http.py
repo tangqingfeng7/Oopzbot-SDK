@@ -255,7 +255,7 @@ class HttpTransport(BaseTransport):
             )
         return data
 
-    async def request_json_with_retry(
+    async def request_data_with_retry(
             self,
             method: str,
             path: str,
@@ -270,13 +270,17 @@ class HttpTransport(BaseTransport):
 
         for attempt in range(1, max_attempts + 1):
             try:
-                return await self.request_json(method, path, params=params, body=body)
+                data = await self.request_json(method, path, params=params, body=body)
+                return data.get("data")
             except OopzRateLimitError as e:
                 if not retry_on_429 or attempt >= max_attempts:
                     raise
                 retry_after = e.retry_after if getattr(e, "retry_after", 0) else 0
                 wait_seconds = retry_after if retry_after > 0 else min(attempt, 3)
                 await asyncio.sleep(wait_seconds)
+            except KeyError:
+                raise OopzApiError("response JSON does not contain 'data' field")
+        raise RuntimeError("unreachable code in request_json_with_retry")
 
     async def post(self, url_path: str, body: dict) -> HttpResponse:
         return await self.request("POST", url_path, body=body)

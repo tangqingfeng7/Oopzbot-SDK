@@ -79,7 +79,7 @@ class BaseService:
             max_attempts: int = 3,
             retry_on_429: bool = False,
     ) -> dict[str, Any]:
-        return await self.transport.request_json_with_retry(
+        return await self.transport.request_data_with_retry(
             method, path, params=params, body=body, max_attempts=max_attempts, retry_on_429=retry_on_429
         )
 
