@@ -117,7 +117,6 @@ __all__ = [
     "EVENT_SERVER_ID",
     "HeartbeatConfig",
     "ImageAttachment",
-    "JoinedAreasResult",
     "Member",
     "Message",
     "MessageModel",

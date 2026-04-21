@@ -1,9 +1,11 @@
 """最小收消息并自动回复示例。"""
 
+import asyncio
+
 from oopz_sdk import OopzBot, OopzConfig
 
 
-def main() -> None:
+async def main() -> None:
     config = OopzConfig(
         device_id="你的设备ID",
         person_uid="你的用户UID",
@@ -19,8 +21,8 @@ def main() -> None:
         if content.strip().lower() == "ping":
             await ctx.reply("pong")
 
-    bot.run()
+    await bot.run()
 
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())

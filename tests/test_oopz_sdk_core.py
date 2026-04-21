@@ -110,3 +110,8 @@ def test_oopz_sdk_version_matches_package_version():
     from oopz_sdk import __version__
 
     assert __version__ == "0.5.0"
+
+
+def test_oopz_sdk_all_exports_exist():
+    for name in oopz_sdk.__all__:
+        assert hasattr(oopz_sdk, name), name

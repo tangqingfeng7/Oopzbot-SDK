@@ -264,9 +264,9 @@ def test_oopz_sdk_private_message_returns_result_model(monkeypatch):
 @pytest.mark.parametrize(
     ("method_name", "event"),
     [
-        ("send", MessageEvent(name="message", event_type=9, message=models.Message.from_dict({"id": "msg-1", "area": "area-1", "channel": "channel-1"}))),
-        ("reply", MessageEvent(name="message", event_type=9, message=models.Message.from_dict({"id": "msg-1", "area": "area-1", "channel": "channel-1"}))),
-        ("recall", MessageEvent(name="message", event_type=9, message=models.Message.from_dict({"id": "msg-1", "area": "area-1", "channel": "channel-1"}))),
+        ("send", MessageEvent(name="message", event_type=9, message=models.Message(message_id="msg-1", area="area-1", channel="channel-1"))),
+        ("reply", MessageEvent(name="message", event_type=9, message=models.Message(message_id="msg-1", area="area-1", channel="channel-1"))),
+        ("recall", MessageEvent(name="message", event_type=9, message=models.Message(message_id="msg-1", area="area-1", channel="channel-1"))),
     ],
 )
 def test_oopz_sdk_event_context_async_methods_do_not_block_event_loop(method_name, event):
@@ -315,17 +315,15 @@ def test_oopz_sdk_event_context_async_methods_do_not_block_event_loop(method_nam
     assert order[0] == "tick"
 
 
-def test_oopz_sdk_message_from_dict_accepts_legacy_id_field():
-    message = models.Message.from_dict(
-        {
-            "id": "msg-legacy",
-            "area": "area-1",
-            "channel": "channel-1",
-            "content": "hello",
-        }
+def test_oopz_sdk_message_model_accepts_message_id_field():
+    message = models.Message(
+        message_id="msg-1",
+        area="area-1",
+        channel="channel-1",
+        content="hello",
     )
 
-    assert message.message_id == "msg-legacy"
+    assert message.message_id == "msg-1"
     assert message.content == "hello"
 
 
@@ -333,12 +331,10 @@ def test_oopz_sdk_event_context_private_recall_raises_runtime_error():
     event = MessageEvent(
         name="message.private",
         event_type=EVENT_PRIVATE_MESSAGE,
-        message=models.Message.from_dict(
-            {
-                "id": "msg-private-1",
-                "channel": "dm-1",
-                "person": "user-1",
-            }
+        message=models.Message(
+            message_id="msg-private-1",
+            channel="dm-1",
+            sender_id="user-1",
         ),
         is_private=True,
     )
@@ -352,7 +348,7 @@ def test_oopz_sdk_event_context_private_recall_raises_runtime_error():
         asyncio.run(ctx.recall())
 
 
-def test_oopz_sdk_event_context_reply_uses_message_id_from_legacy_id():
+def test_oopz_sdk_event_context_reply_uses_message_id_from_model():
     class _Messages:
         def __init__(self):
             self.calls = []
@@ -369,18 +365,16 @@ def test_oopz_sdk_event_context_reply_uses_message_id_from_legacy_id():
     event = MessageEvent(
         name="message",
         event_type=9,
-        message=models.Message.from_dict(
-            {
-                "id": "msg-legacy",
-                "area": "area-1",
-                "channel": "channel-1",
-                "content": "hello",
-            }
+        message=models.Message(
+            message_id="msg-1",
+            area="area-1",
+            channel="channel-1",
+            content="hello",
         ),
     )
     ctx = EventContext(bot=bot, config=_make_config(), event=event)
 
     result = asyncio.run(ctx.reply("pong"))
 
-    assert result["reference_message_id"] == "msg-legacy"
-    assert bot.messages.calls[0]["reference_message_id"] == "msg-legacy"
+    assert result["reference_message_id"] == "msg-1"
+    assert bot.messages.calls[0]["reference_message_id"] == "msg-1"

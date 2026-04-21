@@ -16,7 +16,7 @@ async def main() -> None:
     )
 
     async with OopzRESTClient(config) as sender:
-        result: MessageSendResult = await sender.send_message(
+        result: MessageSendResult = await sender.messages.send_message(
             "Hello Oopz!",
             area=area_id,
             channel=channel_id,

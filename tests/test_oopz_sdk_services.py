@@ -35,7 +35,7 @@ from oopz_sdk.services.message import Message
 from oopz_sdk.services.moderation import Moderation
 from oopz_sdk.transport.http import HttpTransport
 
-from tests._oopz_sdk_test_support import _FakeResponse, _make_config, _make_private_key, _run
+from tests._oopz_sdk_test_support import _FakeResponse, _make_config, _make_message_service, _make_private_key, _run
 
 def test_oopz_sdk_upload_file_returns_upload_result(monkeypatch, tmp_path):
     service = Media(None, _make_config())
@@ -509,7 +509,7 @@ def test_oopz_sdk_local_image_segment_uses_injected_media(monkeypatch, tmp_path)
 
 
 def test_oopz_sdk_local_image_segment_requires_injected_media(monkeypatch, tmp_path):
-    service = Message(_make_config())
+    service = _make_message_service()
     sample = tmp_path / "sample.png"
     sample.write_bytes(b"not-an-image")
 

@@ -217,6 +217,8 @@ class OopzBot:
             logger.exception("Unhandled exception while processing websocket event: %s", exc)
             err_ctx = self._make_context(event=exc)
             await self.dispatcher.dispatch("error", exc, err_ctx)
+            setattr(exc, "_oopz_error_dispatched", True)
+            raise
 
     async def _handle_open(self) -> None:
         ctx = self._make_context()
