@@ -110,7 +110,7 @@ class Message(BaseService):
             raise ValueError("target is required for send_private_message()")
 
         url_path = "/client/v1/chat/v1/to"
-        resp = await self._request_json("PATCH", url_path, params={"target": target})
+        resp = await self._request_data("PATCH", url_path, params={"target": target})
         return models.PrivateSession.from_api(resp)
 
     async def send_message(
@@ -158,7 +158,7 @@ class Message(BaseService):
 
         url_path = "/im/session/v2/sendGimMessage" if version == "v2" else "/im/session/v1/sendGimMessage"
 
-        resp = await self._request_json("POST", url_path, body=body)
+        resp = await self._request_data("POST", url_path, body=body)
 
         model = models.MessageSendResult.from_api(resp)
 
@@ -217,7 +217,7 @@ class Message(BaseService):
 
         url_path = "/im/session/v2/sendImMessage" if version == "v2" else "/im/session/v1/sendImMessage"
 
-        resp = await self._request_json("POST", url_path, body=body)
+        resp = await self._request_data("POST", url_path, body=body)
 
         model = models.MessageSendResult.from_api(resp)
         return model
@@ -286,7 +286,7 @@ class Message(BaseService):
             "timestamp": timestamp,
             "target": target,
         }
-        resp = await self._request_json("POST", url_path, body=body)
+        resp = await self._request_data("POST", url_path, body=body)
         return models.OperationResult.from_api(resp)
 
     async def recall_private_message(
@@ -306,7 +306,7 @@ class Message(BaseService):
             "timestamp": timestamp,
             "target": target,
         }
-        resp = await self._request_json("POST", url_path, body=body)
+        resp = await self._request_data("POST", url_path, body=body)
         return models.OperationResult.from_api(resp)
 
     async def get_channel_messages(
@@ -318,7 +318,7 @@ class Message(BaseService):
         url_path = "/im/session/v2/messageBefore"
         params = {"area": area, "channel": channel, "size": str(size)}
 
-        data = await self._request_json("GET", url_path, params=params)
+        data = await self._request_data("GET", url_path, params=params)
 
         if not isinstance(data, dict) and data.get("message", None) is None:
             raise OopzApiError(
@@ -343,22 +343,20 @@ class Message(BaseService):
 
         media_service = self._require_service("media")
 
-        upload = await media_service.upload_file(
+        upload_result = await media_service.upload_file(
             source_path,
             file_type="IMAGE",
             ext=ext,
         )
 
-        attachment = upload.attachment
-
         return Image.from_uploaded(
-            file_key=attachment.file_key,
-            url=attachment.url,
+            file_key=upload_result.file_key,
+            url=upload_result.url,
             width=width,
             height=height,
             file_size=file_size,
-            hash=attachment.hash,
-            animated=attachment.animated,
-            display_name=attachment.display_name,
-            preview_file_key=getattr(attachment, "preview_file_key", ""),
+            hash="",
+            animated=upload_result.animated,
+            display_name=upload_result.display_name,
+            preview_file_key=getattr(upload_result, "preview_file_key", ""),
         )

@@ -111,7 +111,7 @@ class AreaService(BaseService):
     ) -> List[models.JoinedAreaInfo]:
         """获取当前用户已加入（订阅）的域列表。"""
         url_path = "/userSubscribeArea/v1/list"
-        data = await self._request_json("GET", url_path)
+        data = await self._request_data("GET", url_path)
         result: list[models.JoinedAreaInfo] = []
         for i, item in enumerate(data):
             result.append(models.JoinedAreaInfo.from_api(item))
@@ -121,7 +121,7 @@ class AreaService(BaseService):
         """获取域详细信息（含角色列表、主页频道等）。"""
         url_path = "/area/v3/info"
         params = {"area": area}
-        data = await self._request_json("GET", url_path, params=params)
+        data = await self._request_data("GET", url_path, params=params)
         return models.AreaInfo.from_api(data)
 
     async def enter_area(self, area: str, recover: bool = False) -> dict:
@@ -152,7 +152,7 @@ class AreaService(BaseService):
         """Fetch all channel groups in an area."""
         url_path = "/client/v1/area/v1/detail/v1/channels"
         params = {"area": area}
-        data = await self._request_json("GET", url_path, params=params)
+        data = await self._request_data("GET", url_path, params=params)
         return [models.ChannelGroupInfo.from_api(item) for item in data]
 
 

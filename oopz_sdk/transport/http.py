@@ -133,6 +133,52 @@ class HttpTransport(BaseTransport):
         except aiohttp.ClientError as exc:
             raise OopzConnectionError(f"request failed: {exc}") from exc
 
+    async def request_raw(
+            self,
+            method: str,
+            url: str,
+            *,
+            params: Mapping[str, Any] | None = None,
+            data: bytes | str | None = None,
+            headers: Mapping[str, str] | None = None,
+            timeout: float | tuple[float, float] | None = None,
+    ) -> HttpResponse:
+        method = method.upper()
+
+        session = await self._ensure_client_session()
+        req_timeout = _build_timeout(timeout or self.config.request_timeout)
+        proxy = build_aiohttp_proxy(url, self.config.proxy)
+
+        try:
+            async with session.request(
+                    method,
+                    url,
+                    params=params,
+                    data=data,
+                    headers=dict(headers or {}),
+                    timeout=req_timeout,
+                    proxy=proxy,
+            ) as resp:
+                content = await resp.read()
+                try:
+                    text = content.decode(resp.charset or "utf-8")
+                except UnicodeDecodeError:
+                    text = content.decode("utf-8", errors="replace")
+
+                return HttpResponse(
+                    status_code=resp.status,
+                    headers=dict(resp.headers),
+                    content=content,
+                    text=text,
+                )
+
+        except asyncio.TimeoutError as exc:
+            detail = str(exc).strip() or "timeout"
+            raise OopzConnectionError(f"request failed: {detail}") from exc
+        except aiohttp.ClientError as exc:
+            raise OopzConnectionError(f"request failed: {exc}") from exc
+
+
     async def get(self, url_path: str, params: Optional[dict] = None) -> HttpResponse:
         return await self.request("GET", url_path, params=params)
 
@@ -189,7 +235,27 @@ class HttpTransport(BaseTransport):
                 payload=data,
                 response=resp,
             )
-        return data.get("data")
+        return data
+
+    async def request_data(
+            self,
+            method: str,
+            path: str,
+            *,
+            params: Mapping[str, Any] | None = None,
+            body: Mapping[str, Any] | None = None,
+    ) -> Any:
+        json_data = await self.request_json(
+            method, path, params=params,
+            body=body)
+        data = json_data.get("data", None)
+        if data is None:
+            raise OopzApiError(
+                "response JSON does not contain 'data' field",
+                status_code=200,
+                payload=json_data,
+            )
+        return data
 
     async def request_json_with_retry(
             self,

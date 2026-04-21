@@ -55,7 +55,6 @@ class Moderation(BaseService):
 
     async def mute_user(self, uid: str, area: Optional[str] = None, channel: Optional[str] = None, duration: int = 10) -> models.OperationResult:
         """禁言用户。"""
-        area = self._resolve_area(area)
         interval_id = self._minutes_to_interval_id(duration, voice=False)
         url_path = "/client/v1/area/v1/member/v1/disableText"
         query = f"?area={area}&target={uid}&intervalId={interval_id}"
@@ -64,7 +63,6 @@ class Moderation(BaseService):
 
     async def unmute_user(self, uid: str, area: Optional[str] = None, channel: Optional[str] = None) -> models.OperationResult:
         """解除禁言。"""
-        area = self._resolve_area(area)
         url_path = "/client/v1/area/v1/member/v1/recoverText"
         query = f"?area={area}&target={uid}"
         body = {"area": area, "target": uid}
@@ -72,7 +70,6 @@ class Moderation(BaseService):
 
     async def mute_mic(self, uid: str, area: Optional[str] = None, channel: Optional[str] = None, duration: int = 10) -> models.OperationResult:
         """禁麦用户。"""
-        area = self._resolve_area(area)
         interval_id = self._minutes_to_interval_id(duration, voice=True)
         url_path = "/client/v1/area/v1/member/v1/disableVoice"
         query = f"?area={area}&target={uid}&intervalId={interval_id}"
@@ -81,7 +78,6 @@ class Moderation(BaseService):
 
     async def unmute_mic(self, uid: str, area: Optional[str] = None, channel: Optional[str] = None) -> models.OperationResult:
         """解除禁麦。"""
-        area = self._resolve_area(area)
         url_path = "/client/v1/area/v1/member/v1/recoverVoice"
         query = f"?area={area}&target={uid}"
         body = {"area": area, "target": uid}
@@ -89,7 +85,6 @@ class Moderation(BaseService):
 
     async def remove_from_area(self, uid: str, area: Optional[str] = None) -> models.OperationResult:
         """将用户移出当前域（踢出域）。"""
-        area = self._resolve_area(area)
         url_path = f"/area/v3/remove?area={area}&target={uid}"
         body = {"area": area, "target": uid}
         try:
@@ -119,7 +114,6 @@ class Moderation(BaseService):
 
     async def block_user_in_area(self, uid: str, area: Optional[str] = None) -> models.OperationResult:
         """封禁用户。"""
-        area = self._resolve_area(area)
         url_path = f"/client/v1/area/v1/block?area={area}&target={uid}"
         body = {"area": area, "target": uid}
         try:
@@ -160,7 +154,6 @@ class Moderation(BaseService):
         as_model: bool = False,
     ) -> dict | models.AreaBlocksResult:
         """获取域内封禁列表。"""
-        area = self._resolve_area(area)
         url_path = "/client/v1/area/v1/areaSettings/v1/blocks"
         params = {"area": area, "name": name}
         request_payload = {"area": area, "name": name}
@@ -261,7 +254,6 @@ class Moderation(BaseService):
 
     async def unblock_user_in_area(self, uid: str, area: Optional[str] = None) -> models.OperationResult:
         """解除域内封禁。"""
-        area = self._resolve_area(area)
         url_path = "/client/v1/area/v1/unblock"
         query = f"?area={area}&target={uid}"
         body = {"area": area, "target": uid}

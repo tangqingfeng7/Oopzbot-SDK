@@ -147,10 +147,9 @@ class Image(Segment):
         if not self.is_uploaded:
             raise ValueError("ImageSegment has not been uploaded yet and cannot become an attachment")
 
-        return ImageAttachment(
+        return ImageAttachment.from_manually(
             file_key=self.file_key,
             url=self.url,
-            attachment_type="IMAGE",
             display_name=self.display_name,
             file_size=self.file_size,
             animated=self.animated,

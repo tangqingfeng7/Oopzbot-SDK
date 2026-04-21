@@ -1,5 +1,5 @@
 from .area import JoinedAreaInfo, AreaInfo, ChannelGroupInfo, AreaMembersPage
-from .attachment import Attachment, AudioAttachment, ImageAttachment
+from .attachment import Attachment, AudioAttachment, ImageAttachment, UploadTicket, UploadedFileResult
 from .base import BaseModel, OperationResult
 from .channel import Channel, ChannelGroup
 from .event import Event, MessageEvent
@@ -42,6 +42,8 @@ __all__ = [
     "ImageAttachment",
     "JsonList",
     "JsonObject",
+    "UploadTicket",
+    "UploadedFileResult",
     "Member",
     "Message",
     "MessageListResult",

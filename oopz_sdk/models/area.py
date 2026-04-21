@@ -18,7 +18,7 @@ class JoinedAreaInfo(SDKBaseModel):
     owner: str = ""
     group_id: str = Field(default="", alias="groupID")
     group_name: str = Field(default="", alias="groupName")
-    subscript: int = ""
+    subscript: int = 0
 
     @model_validator(mode="after")
     def validate_required_fields(self) -> "JoinedAreaInfo":

@@ -59,7 +59,7 @@ class BaseService:
     async def _patch(self, url_path: str, body: dict):
         return await self.transport.patch(url_path, body)
 
-    async def _request_json(
+    async def _request_data(
             self,
             method: str,
             path: str,
@@ -67,7 +67,7 @@ class BaseService:
             params: Mapping[str, Any] | None = None,
             body: Mapping[str, Any] | None = None,
     ) -> Any:
-        return await self.transport.request_json(method, path, params=params, body=body)
+        return await self.transport.request_data(method, path, params=params, body=body)
 
     async def _request_json_with_retry(
             self,
@@ -81,6 +81,21 @@ class BaseService:
     ) -> dict[str, Any]:
         return await self.transport.request_json_with_retry(
             method, path, params=params, body=body, max_attempts=max_attempts, retry_on_429=retry_on_429
+        )
+
+    async def request_raw(
+            self,
+            method: str,
+            url: str,
+            *,
+            params: Mapping[str, Any] | None = None,
+            data: bytes | str | None = None,
+            headers: Mapping[str, str] | None = None,
+            timeout: float | tuple[float, float] | None = None,
+    ) -> HttpResponse:
+        return await self.transport.request_raw(
+            method, url, params=params, headers=headers, data=data,
+             timeout=timeout
         )
 
     @staticmethod
