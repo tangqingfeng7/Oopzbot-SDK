@@ -1,17 +1,15 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Mapping, TypeAlias
+from typing import Any
 
 
-from .area import JoinedAreaInfo
 from .attachment import Attachment
 from .channel import ChannelGroup
 from .base import BaseModel
 from .member import Member
 from .message import Message
 from oopz_sdk.transport.http import HttpResponse
-from oopz_sdk.exceptions import OopzApiError
 
 
 @dataclass(slots=True)
@@ -20,13 +18,6 @@ class ApiResponse(BaseModel):
     message: str = ""
     data: Any = field(default_factory=dict)
     code: str | int | None = None
-
-
-@dataclass(slots=True)
-class OperationResult(BaseModel):
-    ok: bool = True
-    message: str = ""
-    payload: dict[str, Any] = field(default_factory=dict)
 
 
 

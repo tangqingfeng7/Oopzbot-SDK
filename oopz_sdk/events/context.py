@@ -71,9 +71,6 @@ class EventContext:
             channel=channel,
             **kwargs,
         )
-        # area = self._get_message_field(self.message, "area")
-        # channel = self._get_message_field(self.message, "channel")
-        # return self.bot.messages.send_message(*texts, area=area, channel=channel, **kwargs)
 
     async def recall(self, **kwargs):
         """

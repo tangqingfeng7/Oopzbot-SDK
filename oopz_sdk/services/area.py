@@ -74,6 +74,7 @@ class AreaService(BaseService):
             offset_start: int = 0,
             offset_end: int = 49,
     ) -> models.AreaMembersPage:
+        area = self._resolve_area(area)
         cache_key = (area, offset_start, offset_end)
         cache_ttl = float(getattr(self._config, "area_members_cache_ttl", 2.0))
 
@@ -83,7 +84,7 @@ class AreaService(BaseService):
             model = models.AreaMembersPage.from_api(cached)
             return model
 
-        data = await self._request_json_with_retry(
+        data = await self._request_data_with_retry(
             "GET",
             "/area/v3/members",
             params={
@@ -119,6 +120,7 @@ class AreaService(BaseService):
 
     async def get_area_info(self, area) -> models.AreaInfo:
         """获取域详细信息（含角色列表、主页频道等）。"""
+        area = self._resolve_area(area)
         url_path = "/area/v3/info"
         params = {"area": area}
         data = await self._request_data("GET", url_path, params=params)
@@ -150,6 +152,7 @@ class AreaService(BaseService):
 
     async def get_area_channels(self, area: str) -> list[models.ChannelGroupInfo]:
         """Fetch all channel groups in an area."""
+        area = self._resolve_area(area)
         url_path = "/client/v1/area/v1/detail/v1/channels"
         params = {"area": area}
         data = await self._request_data("GET", url_path, params=params)

@@ -3,20 +3,18 @@ from __future__ import annotations
 import asyncio
 import json
 from dataclasses import dataclass
-from typing import Optional, Any, Mapping, Tuple
+from typing import Any, Mapping, Optional
 from urllib.parse import urlencode
 
 import aiohttp
 
 from oopz_sdk.auth.headers import build_oopz_headers
 from oopz_sdk.auth.signer import Signer
-from oopz_sdk.config.settings import OopzConfig, ProxyConfig
+from oopz_sdk.config.settings import OopzConfig
 from oopz_sdk.exceptions import OopzConnectionError, OopzApiError, OopzRateLimitError
 from oopz_sdk.utils.payload import safe_json
 from .base import BaseTransport
-from .proxy import build_aiohttp_proxy, build_requests_proxies
-
-
+from .proxy import build_aiohttp_proxy
 
 def _build_timeout(timeout: float | tuple[float, float]) -> aiohttp.ClientTimeout:
     if isinstance(timeout, tuple):
@@ -267,23 +265,18 @@ class HttpTransport(BaseTransport):
             max_attempts: int = 3,
             retry_on_429: bool = False,
     ) -> Any:
-        last_error = None
+        if max_attempts < 1:
+            raise ValueError("max_attempts must be at least 1")
 
         for attempt in range(1, max_attempts + 1):
             try:
                 return await self.request_json(method, path, params=params, body=body)
             except OopzRateLimitError as e:
-                last_error = e
                 if not retry_on_429 or attempt >= max_attempts:
                     raise
-                # todo: write logger after global logger refactored
                 retry_after = e.retry_after if getattr(e, "retry_after", 0) else 0
                 wait_seconds = retry_after if retry_after > 0 else min(attempt, 3)
                 await asyncio.sleep(wait_seconds)
-
-        if last_error:
-            raise last_error
-        raise RuntimeError("unreachable")
 
     async def post(self, url_path: str, body: dict) -> HttpResponse:
         return await self.request("POST", url_path, body=body)
