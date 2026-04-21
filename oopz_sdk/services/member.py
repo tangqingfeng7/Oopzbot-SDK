@@ -302,7 +302,6 @@ class Member(BaseService):
 
     async def get_user_area_detail(self, target: str, area: Optional[str] = None) -> dict:
         """获取指定用户在域内的角色列表和禁言/禁麦状态。"""
-        area = self._resolve_area(area)
         url_path = "/area/v3/userDetail"
         params = {"area": area, "target": target}
         request_payload = {"area": area, "target": target}
@@ -337,7 +336,6 @@ class Member(BaseService):
 
     async def get_assignable_roles(self, target: str, area: Optional[str] = None) -> list | dict:
         """获取当前用户可以分配给目标用户的角色列表。"""
-        area = self._resolve_area(area)
         url_path = "/area/v3/role/canGiveList"
         params = {"area": area, "target": target}
         request_payload = {"area": area, "target": target}
@@ -391,10 +389,9 @@ class Member(BaseService):
         target_uid: str,
         role_id: int,
         add: bool,
-        area: Optional[str] = None,
+        area: str = None,
     ) -> dict:
         """给目标用户添加或取消指定身份组。"""
-        area = self._resolve_area(area)
         request_payload = {"area": area, "target": target_uid, "targetRoleIDs": []}
         detail = await self.get_user_area_detail(target_uid, area=area)
         if not isinstance(detail, dict):
@@ -453,7 +450,6 @@ class Member(BaseService):
         as_model: bool = False,
     ) -> list | dict:
         """搜索域内成员。"""
-        area = self._resolve_area(area)
         url_path = "/area/v3/search/areaSettingMembers"
         body = {"area": area, "name": keyword, "offset": 0, "limit": 50}
         request_payload = dict(body)

@@ -166,7 +166,6 @@ class Channel(BaseService):
         as_model: bool = False,
     ) -> list | dict | models.ChannelGroupsResult:
         """获取域内完整频道列表（含分组）。"""
-        area = self._resolve_area(area)
         url_path = "/client/v1/area/v1/detail/v1/channels"
         params = {"area": area}
         request_payload = {"area": area}
@@ -429,7 +428,6 @@ class Channel(BaseService):
         group_id: str = "",
     ) -> models.OperationResult:
         """创建频道。"""
-        area = self._resolve_area(area)
         name = str(name or "").strip()
         if not name:
             return models.OperationResult(ok=False, message="频道名称不能为空")
@@ -513,7 +511,6 @@ class Channel(BaseService):
         name: str = "",
     ) -> models.OperationResult:
         """修改频道设置。"""
-        area = self._resolve_area(area)
         channel_id = str(channel_id or "").strip()
         if not channel_id:
             return models.OperationResult(ok=False, message="缺少 channel_id")
@@ -638,7 +635,6 @@ class Channel(BaseService):
         name: Optional[str] = None,
     ) -> dict:
         """创建仅指定成员可见的文字频道。"""
-        area = self._resolve_area(area)
         target_uid = str(target_uid or "").strip()
         request_payload = {"area": area, "target": target_uid}
         if not target_uid:
@@ -811,7 +807,6 @@ class Channel(BaseService):
 
     async def delete_channel(self, channel: str, area: Optional[str] = None) -> models.OperationResult:
         """删除频道。"""
-        area = self._resolve_area(area)
         channel = str(channel or "").strip()
         if not channel:
             return models.OperationResult(ok=False, message="缺少 channel")
@@ -865,8 +860,6 @@ class Channel(BaseService):
                       channel_type: str = "TEXT", from_channel: str = "",
                       from_area: str = "", pid: str = "") -> dict:
         """进入指定频道。"""
-        area = self._resolve_area(area)
-        channel = self._resolve_channel(channel)
         url_path = "/area/v2/channel/enter"
 
         body: dict = {"type": channel_type, "area": area, "channel": channel}
@@ -901,7 +894,6 @@ class Channel(BaseService):
     async def leave_voice_channel(self, channel: str, area: Optional[str] = None,
                             target: Optional[str] = None) -> dict:
         """退出语音频道。"""
-        area = self._resolve_area(area)
         target = target or self._config.person_uid
         url_path = "/client/v1/area/v1/member/v1/removeFromChannel"
         query = f"?area={area}&channel={channel}&target={target}"
@@ -969,7 +961,6 @@ class Channel(BaseService):
         as_model: bool = False,
     ) -> dict | models.VoiceChannelMembersResult:
         """获取域内各语音频道的在线成员列表。"""
-        area = self._resolve_area(area)
         voice_ids = await self._get_voice_channel_ids(area)
         if isinstance(voice_ids, dict) and voice_ids.get("error"):
             if as_model:
