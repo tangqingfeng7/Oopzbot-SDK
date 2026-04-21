@@ -27,10 +27,10 @@ class EventContext:
         回复当前上下文中的消息。
         """
         if not isinstance(self.event, MessageEvent):
-            raise RuntimeError("当前上下文中没有 message，无法 reply()")
+            raise RuntimeError("reply() requires a message event context")
         channel = kwargs.pop("channel", self.event.message.channel)
         if self.event.is_private:
-            target = kwargs.pop("target", self.event.message.person)
+            target = kwargs.pop("target", self.event.message.sender_id)
             return await self.bot.messages.send_private_message(
                 *text,
                 channel=channel,
@@ -53,10 +53,10 @@ class EventContext:
         在上下文中发送消息
         """
         if not isinstance(self.event, MessageEvent):
-            raise RuntimeError("当前上下文中没有 message，无法 send()")
+            raise RuntimeError("send() requires a message event context")
         channel = kwargs.pop("channel", self.event.message.channel)
         if self.event.is_private:
-            target = kwargs.pop("target", self.event.message.person)
+            target = kwargs.pop("target", self.event.message.sender_id)
             return await self.bot.messages.send_private_message(
                 *texts,
                 channel=channel,
@@ -80,15 +80,9 @@ class EventContext:
         撤回当前上下文中的消息。
         """
         if not isinstance(self.event, MessageEvent):
-            raise RuntimeError("当前上下文中没有 message，无法 recall()")
+            raise RuntimeError("recall() requires a message event context")
         if self.event.is_private:
-            return await self.bot.messages.recall_private_message(
-                message_id=self.event.message.message_id,
-                area=self.event.message.area,
-                channel=self.event.message.channel,
-                target=self.event.message.person or self.event.message.target,
-                **kwargs,
-            )
+            raise RuntimeError("recall() is not supported for private messages")
         return await self.bot.messages.recall_message(
             message_id=self.event.message.message_id,
             area=self.event.message.area,

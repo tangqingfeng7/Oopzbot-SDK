@@ -4,7 +4,7 @@ import json
 import logging
 from typing import Any
 
-from oopz_sdk.config.settings import OopzConfig
+import oopz_sdk.services.message as message_service
 from oopz_sdk.events.context import EventContext
 from oopz_sdk.events.dispatcher import EventDispatcher
 from oopz_sdk.events.parser import EventParser
@@ -43,7 +43,7 @@ class OopzBot:
         self.dispatcher = EventDispatcher(self.registry)
         self.parser = EventParser()
         self.rest = OopzRESTClient(self, config)
-        self.messages = self.rest.messages
+        self.messages: message_service.Message = self.rest.messages
         self.media = self.rest.media
         self.areas = self.rest.areas
         self.channels = self.rest.channels
@@ -214,14 +214,9 @@ class OopzBot:
             await self.dispatcher.dispatch(event.name, event, ctx)
 
         except Exception as exc:
-            logger.exception("Event handling failed: %s", exc)
+            logger.exception("Unhandled exception while processing websocket event: %s", exc)
             err_ctx = self._make_context(event=exc)
-            try:
-                await self.dispatcher.dispatch("error", exc, err_ctx)
-                setattr(exc, "_oopz_error_dispatched", True)
-            except Exception as e:
-                logger.exception("Error handler execution failed", e)
-            raise
+            await self.dispatcher.dispatch("error", exc, err_ctx)
 
     async def _handle_open(self) -> None:
         ctx = self._make_context()
@@ -246,4 +241,4 @@ class OopzBot:
         """
         if not self.config.ignore_self_messages:
             return False
-        return message.person == self.config.person_uid
+        return message.sender_id == self.config.person_uid

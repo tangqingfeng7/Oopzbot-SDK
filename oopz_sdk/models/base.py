@@ -37,3 +37,12 @@ class BaseModel:
         if not isinstance(key, str):
             return False
         return key in self.to_dict()
+
+
+@dataclass(slots=True)
+class OperationResult(SDKBaseModel):
+    ok: bool = True
+
+    @classmethod
+    def from_api(cls, data: bool) -> "OperationResult":
+        return cls.model_validate({"ok": data})
