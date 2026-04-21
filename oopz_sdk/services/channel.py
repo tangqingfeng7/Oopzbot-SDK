@@ -169,6 +169,7 @@ class Channel(BaseService):
         area = self._resolve_area(area)
         url_path = "/client/v1/area/v1/detail/v1/channels"
         params = {"area": area}
+        request_payload = {"area": area}
 
         try:
             resp = await self._get(url_path, params=params)
@@ -180,7 +181,10 @@ class Channel(BaseService):
                         f"HTTP {resp.status_code}",
                         response=resp,
                     )
-                return {"error": f"HTTP {resp.status_code}"}
+                return self._error_payload(
+                    f"HTTP {resp.status_code}",
+                    payload={**request_payload, "error": f"HTTP {resp.status_code}"},
+                )
             result = resp.json()
             if not result.get("status"):
                 msg = self._error_message(result)
@@ -192,7 +196,10 @@ class Channel(BaseService):
                         response=resp,
                         payload=result,
                     )
-                return {"error": msg}
+                return self._error_payload(
+                    msg,
+                    payload={**request_payload, **result, "error": msg},
+                )
             groups = result.get("data", [])
             if not isinstance(groups, list):
                 logger.error("获取频道列表失败: 响应格式异常")
@@ -202,12 +209,15 @@ class Channel(BaseService):
                         "channel groups响应格式异常",
                         response=resp,
                     )
-                return {"error": "channel groups响应格式异常"}
+                return self._error_payload(
+                    "channel groups响应格式异常",
+                    payload={**request_payload, "error": "channel groups响应格式异常"},
+                )
             invalid_payload = self._invalid_dict_item_payload(
                 groups,
                 "channel groups响应格式异常",
                 list_key="groups",
-                payload={"groups": groups},
+                payload={**request_payload, "groups": groups},
             )
             if invalid_payload:
                 if as_model:
@@ -226,7 +236,7 @@ class Channel(BaseService):
                     channels,
                     "channel groups响应格式异常",
                     list_key="channels",
-                    payload={"groups": groups},
+                    payload={**request_payload, "groups": groups},
                 )
                 if invalid_channels_payload:
                     if as_model:
@@ -247,14 +257,13 @@ class Channel(BaseService):
                         for group in groups
                     ],
                     payload={"groups": groups},
-                    response=resp,
                 )
             return groups
         except Exception as e:
             logger.error("获取频道列表异常: %s", e)
             if as_model:
                 return self._model_error(models.ChannelGroupsResult, str(e))
-            return {"error": str(e)}
+            return self._error_payload(str(e), payload={**request_payload, "error": str(e)})
 
     async def get_channel_setting_info(self, channel: str, *, as_model: bool = False) -> dict | models.ChannelSetting:
         """获取频道设置详情（名称、访问权限等）。"""
@@ -270,6 +279,7 @@ class Channel(BaseService):
 
         url_path = "/area/v3/channel/setting/info"
         params = {"channel": channel}
+        request_payload = {"channel": channel}
         try:
             resp = await self._get(url_path, params=params)
             if resp.status_code != 200:
@@ -281,7 +291,10 @@ class Channel(BaseService):
                         response=resp,
                         channel=channel,
                     )
-                return {"error": f"HTTP {resp.status_code}"}
+                return self._error_payload(
+                    f"HTTP {resp.status_code}",
+                    payload={**request_payload, "error": f"HTTP {resp.status_code}"},
+                )
             result = resp.json()
             if not result.get("status"):
                 msg = self._error_message(result)
@@ -294,7 +307,10 @@ class Channel(BaseService):
                         payload=result,
                         channel=channel,
                     )
-                return {"error": msg}
+                return self._error_payload(
+                    msg,
+                    payload={**request_payload, **result, "error": msg},
+                )
             data = result.get("data", {})
             if not isinstance(data, dict):
                 if as_model:
@@ -304,7 +320,10 @@ class Channel(BaseService):
                         response=resp,
                         channel=channel,
                     )
-                return {"error": "频道设置响应格式异常"}
+                return self._error_payload(
+                    "频道设置响应格式异常",
+                    payload={**request_payload, "error": "频道设置响应格式异常"},
+                )
             try:
                 model = self._to_channel_setting_model(data)
             except ValueError:
@@ -315,7 +334,10 @@ class Channel(BaseService):
                         response=resp,
                         channel=channel,
                 )
-                return {"error": "频道设置响应格式异常"}
+                return self._error_payload(
+                    "频道设置响应格式异常",
+                    payload={**request_payload, "error": "频道设置响应格式异常"},
+                )
             if as_model:
                 return model
             return data
@@ -327,7 +349,7 @@ class Channel(BaseService):
                     str(e),
                     channel=channel,
                 )
-            return {"error": str(e)}
+            return self._error_payload(str(e), payload={**request_payload, "error": str(e)})
 
     async def _pick_channel_group(
         self,
@@ -365,7 +387,16 @@ class Channel(BaseService):
         channel_id: str,
         area: str,
         message: str,
+        context: dict | None = None,
     ) -> dict[str, str]:
+        def _error_with_context(error_message: str, cleanup_error: str = "") -> dict[str, str]:
+            payload = {"error": error_message}
+            if cleanup_error:
+                payload["cleanup_error"] = cleanup_error
+            if isinstance(context, dict):
+                payload.update(context)
+            return payload
+
         cleanup_error = ""
         try:
             rollback_result = await self.delete_channel(channel_id, area=area)
@@ -374,7 +405,7 @@ class Channel(BaseService):
         else:
             if isinstance(rollback_result, models.OperationResult):
                 if rollback_result.ok:
-                    return {"error": message}
+                    return _error_with_context(message)
                 cleanup_error = str(rollback_result.message or "删除新建频道失败")
             elif isinstance(rollback_result, dict):
                 cleanup_error = str(
@@ -383,15 +414,12 @@ class Channel(BaseService):
                     or "删除新建频道失败"
                 )
             elif rollback_result:
-                return {"error": message}
+                return _error_with_context(message)
             else:
                 cleanup_error = "删除新建频道失败"
 
         logger.error("回滚新建频道失败: channel=%s reason=%s", channel_id[:24], cleanup_error)
-        return {
-            "error": f"{message}；删除新建频道失败: {cleanup_error}",
-            "cleanup_error": cleanup_error,
-        }
+        return _error_with_context(f"{message}；删除新建频道失败: {cleanup_error}", cleanup_error)
 
     async def create_channel(
         self,
@@ -460,7 +488,11 @@ class Channel(BaseService):
             code = result.get("code") or result.get("errorCode") or ""
             logger.warning("创建频道被拒: %s (code=%s), body=%s", msg, code, body)
             hint = "（可能需要域主/管理员权限）" if "服务" in msg or "权限" in msg else ""
-            return models.OperationResult(ok=False, message=f"{msg}{hint}", payload=result)
+            return models.OperationResult(
+                ok=False,
+                message=f"{msg}{hint}",
+                payload={**body, **result},
+            )
 
         data = result.get("data", {})
         channel_id = self._extract_channel_id(data) or self._extract_channel_id(result)
@@ -485,14 +517,27 @@ class Channel(BaseService):
         channel_id = str(channel_id or "").strip()
         if not channel_id:
             return models.OperationResult(ok=False, message="缺少 channel_id")
+        request_payload = {"area": area, "channel": channel_id}
 
         setting = await self.get_channel_setting_info(channel_id, as_model=True)
         if isinstance(setting, dict):
             if setting.get("error"):
-                return models.OperationResult(ok=False, message=f"获取频道设置失败: {setting['error']}")
-            return models.OperationResult(ok=False, message="获取频道设置失败: 频道设置响应格式异常")
+                return models.OperationResult(
+                    ok=False,
+                    message=f"获取频道设置失败: {setting['error']}",
+                    payload=request_payload,
+                )
+            return models.OperationResult(
+                ok=False,
+                message="获取频道设置失败: 频道设置响应格式异常",
+                payload=request_payload,
+            )
         if setting.payload.get("error"):
-            return models.OperationResult(ok=False, message=f"获取频道设置失败: {setting.payload['error']}")
+            return models.OperationResult(
+                ok=False,
+                message=f"获取频道设置失败: {setting.payload['error']}",
+                payload=request_payload,
+            )
 
         _BOOL_FIELDS = ("secret", "hasPassword", "voiceControlEnabled",
                         "textControlEnabled", "accessControlEnabled")
@@ -577,7 +622,11 @@ class Channel(BaseService):
             )
 
         if not result.get("status"):
-            return models.OperationResult(ok=False, message=str(result.get("message") or "更新频道失败"), payload=result)
+            return models.OperationResult(
+                ok=False,
+                message=str(result.get("message") or "更新频道失败"),
+                payload={**edit_body, **result},
+            )
 
         return self._ok_result(result, message="频道已更新")
 
@@ -591,15 +640,25 @@ class Channel(BaseService):
         """创建仅指定成员可见的文字频道。"""
         area = self._resolve_area(area)
         target_uid = str(target_uid or "").strip()
+        request_payload = {"area": area, "target": target_uid}
         if not target_uid:
-            return {"error": "缺少 target_uid"}
+            return self._error_payload(
+                "缺少 target_uid",
+                payload={**request_payload, "error": "缺少 target_uid"},
+            )
 
         picked_group = await self._pick_channel_group(area, preferred_channel=preferred_channel)
         if isinstance(picked_group, dict) and picked_group.get("error"):
-            return {"error": f"获取频道分组失败: {picked_group['error']}"}
+            return self._error_payload(
+                f"获取频道分组失败: {picked_group['error']}",
+                payload={**request_payload, "error": f"获取频道分组失败: {picked_group['error']}"},
+            )
         group_id = str(picked_group or "")
         if not group_id:
-            return {"error": "未找到可用频道分组"}
+            return self._error_payload(
+                "未找到可用频道分组",
+                payload={**request_payload, "error": "未找到可用频道分组"},
+            )
 
         default_name = f"登录-{target_uid[-4:]}-{time.strftime('%H%M%S')}"
         channel_name = (name or default_name).strip() or "登录"
@@ -611,33 +670,47 @@ class Channel(BaseService):
             "type": "TEXT",
             "secret": True,
         }
+        request_payload = {**request_payload, **body}
 
         try:
             resp = await self._post(url_path, body)
         except Exception as e:
             logger.error("创建受限频道异常: %s", e)
-            return {"error": str(e)}
+            return self._error_payload(str(e), payload={**request_payload, "error": str(e)})
 
         raw = resp.text or ""
         logger.info("创建受限频道 POST %s -> HTTP %d, body: %s", url_path, resp.status_code, raw[:300])
         if resp.status_code != 200:
-            return {"error": f"HTTP {resp.status_code}" + (f" | {raw[:200]}" if raw else "")}
+            message = f"HTTP {resp.status_code}" + (f" | {raw[:200]}" if raw else "")
+            return self._error_payload(message, payload={**request_payload, "error": message})
 
         try:
             result = resp.json()
         except Exception:
-            return {"error": f"响应非 JSON: {raw[:200]}"}
+            return self._error_payload(
+                f"响应非 JSON: {raw[:200]}",
+                payload={**request_payload, "error": f"响应非 JSON: {raw[:200]}"},
+            )
         if not isinstance(result, dict):
-            return {"error": "创建频道响应格式异常"}
+            return self._error_payload(
+                "创建频道响应格式异常",
+                payload={**request_payload, "error": "创建频道响应格式异常"},
+            )
 
         if not result.get("status"):
             msg = result.get("message") or result.get("error") or "创建频道失败"
-            return {"error": str(msg)}
+            return self._error_payload(
+                str(msg),
+                payload={**request_payload, **result, "error": str(msg)},
+            )
 
         data = result.get("data", {})
         channel_id = self._extract_channel_id(data) or self._extract_channel_id(result)
         if not channel_id:
-            return {"error": "创建频道成功，但未能提取频道 ID"}
+            return self._error_payload(
+                "创建频道成功，但未能提取频道 ID",
+                payload={**request_payload, **result, "error": "创建频道成功，但未能提取频道 ID"},
+            )
 
         setting = await self.get_channel_setting_info(channel_id, as_model=True)
         if isinstance(setting, dict):
@@ -647,12 +720,14 @@ class Channel(BaseService):
                     channel_id,
                     area,
                     f"获取频道设置失败: {setting['error']}",
+                    context={"area": area, "target": target_uid},
                 )
             logger.warning("获取新频道设置失败，回滚新建频道: 频道设置响应格式异常")
             return await self._rollback_created_channel(
                 channel_id,
                 area,
                 "获取频道设置失败: 频道设置响应格式异常",
+                context={"area": area, "target": target_uid},
             )
         if setting.payload.get("error"):
             logger.warning("获取新频道设置失败，回滚新建频道: %s", setting.payload["error"])
@@ -660,6 +735,7 @@ class Channel(BaseService):
                 channel_id,
                 area,
                 f"获取频道设置失败: {setting.payload['error']}",
+                context={"area": area, "target": target_uid},
             )
 
         edit_body = setting.to_edit_body(area=area)
@@ -682,7 +758,12 @@ class Channel(BaseService):
             edit_resp = await self._post(edit_path, edit_body)
         except Exception as e:
             logger.error("设置受限频道权限异常: %s", e)
-            return await self._rollback_created_channel(channel_id, area, str(e))
+            return await self._rollback_created_channel(
+                channel_id,
+                area,
+                str(e),
+                context={"area": area, "target": target_uid},
+            )
 
         edit_raw = edit_resp.text or ""
         logger.info("设置受限频道权限 POST %s -> HTTP %d, body: %s", edit_path, edit_resp.status_code, edit_raw[:300])
@@ -691,6 +772,7 @@ class Channel(BaseService):
                 channel_id,
                 area,
                 f"HTTP {edit_resp.status_code}" + (f" | {edit_raw[:200]}" if edit_raw else ""),
+                context={"area": area, "target": target_uid},
             )
 
         try:
@@ -700,17 +782,24 @@ class Channel(BaseService):
                 channel_id,
                 area,
                 f"权限设置响应非 JSON: {edit_raw[:200]}",
+                context={"area": area, "target": target_uid},
             )
         if not isinstance(edit_result, dict):
             return await self._rollback_created_channel(
                 channel_id,
                 area,
                 "权限设置响应格式异常",
+                context={"area": area, "target": target_uid},
             )
 
         if not edit_result.get("status"):
             msg = edit_result.get("message") or edit_result.get("error") or "权限设置失败"
-            return await self._rollback_created_channel(channel_id, area, str(msg))
+            return await self._rollback_created_channel(
+                channel_id,
+                area,
+                str(msg),
+                context={"area": area, "target": target_uid},
+            )
 
         logger.info("创建受限频道成功: channel=%s target=%s", channel_id[:24], target_uid[:12])
         return {
@@ -726,6 +815,7 @@ class Channel(BaseService):
         channel = str(channel or "").strip()
         if not channel:
             return models.OperationResult(ok=False, message="缺少 channel")
+        request_payload = {"channel": channel, "area": area}
 
         url_path = f"/client/v1/area/v1/channel/v1/delete?channel={channel}&area={area}"
 
@@ -733,7 +823,7 @@ class Channel(BaseService):
             resp = await self._delete(url_path)
         except Exception as e:
             logger.error("删除频道异常: %s", e)
-            return models.OperationResult(ok=False, message=str(e))
+            return models.OperationResult(ok=False, message=str(e), payload=request_payload)
 
         raw = resp.text or ""
         logger.info("删除频道 DELETE %s -> HTTP %d, body: %s", url_path, resp.status_code, raw[:300])
@@ -741,12 +831,17 @@ class Channel(BaseService):
             return models.OperationResult(
                 ok=False,
                 message=f"HTTP {resp.status_code}" + (f" | {raw[:200]}" if raw else ""),
+                payload=request_payload,
             )
 
         try:
             result = resp.json()
         except Exception:
-            return models.OperationResult(ok=False, message=f"响应非 JSON: {raw[:200]}")
+            return models.OperationResult(
+                ok=False,
+                message=f"响应非 JSON: {raw[:200]}",
+                payload=request_payload,
+            )
         if not isinstance(result, dict):
             return models.OperationResult(
                 ok=False,
@@ -760,7 +855,11 @@ class Channel(BaseService):
 
         err = result.get("message") or result.get("error") or str(result)
         logger.error("删除频道失败: %s", err)
-        return models.OperationResult(ok=False, message=str(err), payload=result)
+        return models.OperationResult(
+            ok=False,
+            message=str(err),
+            payload={**request_payload, **result},
+        )
 
     async def enter_channel(self, channel: Optional[str] = None, area: Optional[str] = None,
                       channel_type: str = "TEXT", from_channel: str = "",
@@ -783,14 +882,21 @@ class Channel(BaseService):
         try:
             resp = await self._post(url_path, body)
             if resp.status_code != 200:
-                return {"error": f"HTTP {resp.status_code}"}
+                return self._error_payload(
+                    f"HTTP {resp.status_code}",
+                    payload={**body, "error": f"HTTP {resp.status_code}"},
+                )
             result = resp.json()
             if not result.get("status"):
-                return {"error": result.get("message") or "未知错误"}
+                msg = self._error_message(result)
+                return self._error_payload(
+                    msg,
+                    payload={**body, **result, "error": msg},
+                )
             return result.get("data", {})
         except Exception as e:
             logger.error("进入频道异常: %s", e)
-            return {"error": str(e)}
+            return self._error_payload(str(e), payload={**body, "error": str(e)})
 
     async def leave_voice_channel(self, channel: str, area: Optional[str] = None,
                             target: Optional[str] = None) -> dict:
@@ -800,6 +906,7 @@ class Channel(BaseService):
         url_path = "/client/v1/area/v1/member/v1/removeFromChannel"
         query = f"?area={area}&channel={channel}&target={target}"
         full_path = url_path + query
+        request_payload = {"area": area, "channel": channel, "target": target}
 
         try:
             resp = await self._request(
@@ -809,18 +916,22 @@ class Channel(BaseService):
             )
         except Exception as e:
             logger.error("退出语音频道异常: %s", e)
-            return {"error": str(e)}
+            return self._error_payload(str(e), payload={**request_payload, "error": str(e)})
 
         raw = resp.text or ""
         logger.info("退出语音频道 DELETE %s -> HTTP %d", full_path, resp.status_code)
 
         if resp.status_code != 200:
-            return {"error": f"HTTP {resp.status_code}" + (f" | {raw[:200]}" if raw else "")}
+            message = f"HTTP {resp.status_code}" + (f" | {raw[:200]}" if raw else "")
+            return self._error_payload(message, payload={**request_payload, "error": message})
 
         try:
             result = resp.json()
         except Exception:
-            return {"error": f"响应非 JSON: {raw[:200]}"}
+            return self._error_payload(
+                f"响应非 JSON: {raw[:200]}",
+                payload={**request_payload, "error": f"响应非 JSON: {raw[:200]}"},
+            )
 
         if result.get("status") is True:
             logger.info("已退出语音频道")
@@ -828,7 +939,10 @@ class Channel(BaseService):
 
         err = result.get("message") or result.get("error") or str(result)
         logger.error("退出语音频道失败: %s", err)
-        return {"error": err}
+        return self._error_payload(
+            str(err),
+            payload={**request_payload, **result, "error": str(err)},
+        )
 
     async def _get_voice_channel_ids(self, area: str) -> list[str] | dict[str, str]:
         cache_store = self._get_voice_ids_cache_store()
@@ -872,6 +986,7 @@ class Channel(BaseService):
 
         url_path = "/area/v3/channel/membersByChannels"
         body = {"area": area, "channels": voice_ids}
+        request_payload = dict(body)
         max_retries = 3
         for attempt in range(max_retries):
             try:
@@ -889,7 +1004,10 @@ class Channel(BaseService):
                             f"HTTP {resp.status_code}",
                             response=resp,
                         )
-                    return {"error": f"HTTP {resp.status_code}"}
+                    return self._error_payload(
+                        f"HTTP {resp.status_code}",
+                        payload={**request_payload, "error": f"HTTP {resp.status_code}"},
+                    )
                 result = resp.json()
                 if not result.get("status"):
                     if as_model:
@@ -899,7 +1017,11 @@ class Channel(BaseService):
                             response=resp,
                             payload=result,
                         )
-                    return {"error": self._error_message(result)}
+                    msg = self._error_message(result)
+                    return self._error_payload(
+                        msg,
+                        payload={**request_payload, **result, "error": msg},
+                    )
                 payload_data = result.get("data", {})
                 if not isinstance(payload_data, dict):
                     if as_model:
@@ -909,7 +1031,10 @@ class Channel(BaseService):
                             response=resp,
                         )
                     logger.error("获取语音频道成员失败: 响应格式异常")
-                    return {"error": "voice channel members响应格式异常"}
+                    return self._error_payload(
+                        "voice channel members响应格式异常",
+                        payload={**request_payload, "error": "voice channel members响应格式异常"},
+                    )
                 data = payload_data.get("channelMembers", {})
                 if not isinstance(data, dict):
                     if as_model:
@@ -919,13 +1044,16 @@ class Channel(BaseService):
                             response=resp,
                         )
                     logger.error("获取语音频道成员失败: channelMembers格式异常")
-                    return {"error": "voice channel members响应格式异常"}
+                    return self._error_payload(
+                        "voice channel members响应格式异常",
+                        payload={**request_payload, "error": "voice channel members响应格式异常"},
+                    )
                 for channel_id, members in data.items():
                     invalid_members_payload = self._invalid_dict_item_payload(
                         members,
                         "voice channel members响应格式异常",
                         list_key=f"channelMembers.{channel_id}",
-                        payload=result,
+                        payload={**request_payload, **result},
                     )
                     if invalid_members_payload:
                         if as_model:
@@ -960,11 +1088,17 @@ class Channel(BaseService):
                 logger.error("获取语音频道成员异常: %s", e)
                 if as_model:
                     return self._model_error(models.VoiceChannelMembersResult, str(e))
-                return {"error": str(e)}
+                return self._error_payload(
+                    str(e),
+                    payload={**request_payload, "error": str(e)},
+                )
         logger.error("获取语音频道成员失败: 重试次数用尽")
         if as_model:
             return self._model_error(models.VoiceChannelMembersResult, "重试次数用尽")
-        return {"error": "重试次数用尽"}
+        return self._error_payload(
+            "重试次数用尽",
+            payload={**request_payload, "error": "重试次数用尽"},
+        )
 
     async def get_voice_channel_for_user(self, user_uid: str, area: Optional[str] = None) -> Optional[str]:
         """获取用户当前所在的语音频道 ID，不在任何语音频道则返回 None。"""

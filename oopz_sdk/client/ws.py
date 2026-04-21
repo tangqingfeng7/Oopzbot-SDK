@@ -84,7 +84,8 @@ class OopzWSClient:
                     exc.original if isinstance(exc, _WebSocketCallbackError) else exc
                 )
                 logger.exception("WebSocket 运行异常: %s", runtime_error)
-                if self.on_error:
+                already_dispatched = bool(getattr(runtime_error, "_oopz_error_dispatched", False))
+                if self.on_error and not already_dispatched:
                     try:
                         await self._run_callback("on_error", self.on_error, runtime_error)
                     except _WebSocketCallbackError as callback_exc:

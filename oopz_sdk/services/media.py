@@ -263,7 +263,7 @@ class Media(BaseService):
             display_name=os.path.basename(file_path),
             file_size=os.path.getsize(file_path) if os.path.exists(file_path) else 0,
         )
-        return models.UploadResult(attachment=attachment, payload=payload, response=resp)
+        return models.UploadResult(attachment=attachment, payload=payload)
 
     async def upload_file_from_url(self, image_url: str) -> models.UploadResult:
         """从网络地址下载图片并上传到 Oopz。"""

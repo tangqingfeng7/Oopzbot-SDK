@@ -134,6 +134,7 @@ class Member(BaseService):
         uid = uid or self._config.person_uid
         url_path = "/client/v1/person/v1/personInfos"
         body = {"persons": [uid], "commonIds": []}
+        request_payload = {"uid": uid}
 
         try:
             resp = await self._post(url_path, body)
@@ -145,7 +146,10 @@ class Member(BaseService):
                         f"HTTP {resp.status_code}",
                         response=resp,
                     )
-                return {"error": f"HTTP {resp.status_code}"}
+                return self._error_payload(
+                    f"HTTP {resp.status_code}",
+                    payload={**request_payload, "error": f"HTTP {resp.status_code}"},
+                )
 
             result = resp.json()
             if not result.get("status"):
@@ -158,7 +162,10 @@ class Member(BaseService):
                         response=resp,
                         payload=result,
                     )
-                return {"error": msg}
+                return self._error_payload(
+                    msg,
+                    payload={**request_payload, **result, "error": msg},
+                )
 
             data_list = result.get("data", [])
             if not isinstance(data_list, list):
@@ -169,11 +176,17 @@ class Member(BaseService):
                         response=resp,
                     )
                 logger.error("获取个人信息失败: 响应格式异常")
-                return {"error": "person detail响应格式异常"}
+                return self._error_payload(
+                    "person detail响应格式异常",
+                    payload={**request_payload, "error": "person detail响应格式异常"},
+                )
             if not data_list:
                 if as_model:
                     return self._model_error(models.PersonDetail, "未找到该用户", response=resp)
-                return {"error": "未找到该用户"}
+                return self._error_payload(
+                    "未找到该用户",
+                    payload={**request_payload, "error": "未找到该用户"},
+                )
 
             person = data_list[0]
             if not isinstance(person, dict):
@@ -184,7 +197,10 @@ class Member(BaseService):
                         response=resp,
                     )
                 logger.error("获取个人信息失败: 用户条目格式异常")
-                return {"error": "person detail响应格式异常"}
+                return self._error_payload(
+                    "person detail响应格式异常",
+                    payload={**request_payload, "error": "person detail响应格式异常"},
+                )
             logger.info("获取个人信息成功: %s", person.get("name", "未知"))
             if as_model:
                 return self._to_person_detail_model(person)
@@ -193,29 +209,38 @@ class Member(BaseService):
             logger.error("获取个人信息异常: %s", e)
             if as_model:
                 return self._model_error(models.PersonDetail, str(e))
-            return {"error": str(e)}
+            return self._error_payload(str(e), payload={**request_payload, "error": str(e)})
 
     async def get_person_detail_full(self, uid: str) -> dict:
         """获取他人完整详细资料（含 VIP、IP 属地等）。"""
         url_path = "/client/v1/person/v1/personDetail"
         params = {"uid": uid}
+        request_payload = {"uid": uid}
         try:
             resp = await self._get(url_path, params=params)
             if resp.status_code != 200:
-                return {"error": f"HTTP {resp.status_code}"}
+                return self._error_payload(
+                    f"HTTP {resp.status_code}",
+                    payload={**request_payload, "error": f"HTTP {resp.status_code}"},
+                )
             result = resp.json()
             if not result.get("status"):
-                return {"error": result.get("message") or "未知错误"}
+                msg = self._error_message(result)
+                return self._error_payload(
+                    msg,
+                    payload={**request_payload, **result, "error": msg},
+                )
             return result.get("data", {})
         except Exception as e:
             logger.error("获取他人详细资料异常: %s", e)
-            return {"error": str(e)}
+            return self._error_payload(str(e), payload={**request_payload, "error": str(e)})
 
     async def get_self_detail(self, *, as_model: bool = False) -> dict | models.SelfDetail:
         """获取当前登录用户的完整详细资料。"""
         uid = self._config.person_uid
         url_path = "/client/v1/person/v2/selfDetail"
         params = {"uid": uid}
+        request_payload = {"uid": uid}
         try:
             resp = await self._get(url_path, params=params)
             if resp.status_code != 200:
@@ -225,7 +250,10 @@ class Member(BaseService):
                         f"HTTP {resp.status_code}",
                         response=resp,
                     )
-                return {"error": f"HTTP {resp.status_code}"}
+                return self._error_payload(
+                    f"HTTP {resp.status_code}",
+                    payload={**request_payload, "error": f"HTTP {resp.status_code}"},
+                )
             result = resp.json()
             if not result.get("status"):
                 msg = self._error_message(result)
@@ -236,7 +264,10 @@ class Member(BaseService):
                         response=resp,
                         payload=result,
                     )
-                return {"error": msg}
+                return self._error_payload(
+                    msg,
+                    payload={**request_payload, **result, "error": msg},
+                )
             data = result.get("data", {})
             if as_model:
                 if not isinstance(data, dict):
@@ -251,7 +282,7 @@ class Member(BaseService):
             logger.error("获取自身详细资料异常: %s", e)
             if as_model:
                 return self._model_error(models.SelfDetail, str(e))
-            return {"error": str(e)}
+            return self._error_payload(str(e), payload={**request_payload, "error": str(e)})
 
     async def get_level_info(self) -> dict:
         """获取当前用户等级、积分信息。"""
@@ -259,47 +290,65 @@ class Member(BaseService):
         try:
             resp = await self._get(url_path)
             if resp.status_code != 200:
-                return {"error": f"HTTP {resp.status_code}"}
+                return self._error_payload(f"HTTP {resp.status_code}")
             result = resp.json()
             if not result.get("status"):
-                return {"error": result.get("message") or "未知错误"}
+                msg = self._error_message(result)
+                return self._error_payload(msg, payload={**result, "error": msg})
             return result.get("data", {})
         except Exception as e:
             logger.error("获取等级信息异常: %s", e)
-            return {"error": str(e)}
+            return self._error_payload(str(e))
 
     async def get_user_area_detail(self, target: str, area: Optional[str] = None) -> dict:
         """获取指定用户在域内的角色列表和禁言/禁麦状态。"""
         area = self._resolve_area(area)
         url_path = "/area/v3/userDetail"
         params = {"area": area, "target": target}
+        request_payload = {"area": area, "target": target}
         try:
             resp = await self._get(url_path, params=params)
             if resp.status_code != 200:
-                return {"error": f"HTTP {resp.status_code}"}
+                return self._error_payload(
+                    f"HTTP {resp.status_code}",
+                    payload={**request_payload, "error": f"HTTP {resp.status_code}"},
+                )
             result = resp.json()
             if not isinstance(result, dict):
-                return {"error": "user area detail响应格式异常"}
+                return self._error_payload(
+                    "user area detail响应格式异常",
+                    payload={**request_payload, "error": "user area detail响应格式异常"},
+                )
             if not result.get("status"):
-                return {"error": result.get("message") or "未知错误"}
+                return self._error_payload(
+                    self._error_message(result),
+                    payload={**request_payload, **result, "error": self._error_message(result)},
+                )
             data = result.get("data", {})
             if not isinstance(data, dict):
-                return {"error": "user area detail响应格式异常"}
+                return self._error_payload(
+                    "user area detail响应格式异常",
+                    payload={**request_payload, "error": "user area detail响应格式异常"},
+                )
             return data
         except Exception as e:
             logger.error("获取用户域内详情异常: %s", e)
-            return {"error": str(e)}
+            return self._error_payload(str(e), payload={**request_payload, "error": str(e)})
 
     async def get_assignable_roles(self, target: str, area: Optional[str] = None) -> list | dict:
         """获取当前用户可以分配给目标用户的角色列表。"""
         area = self._resolve_area(area)
         url_path = "/area/v3/role/canGiveList"
         params = {"area": area, "target": target}
+        request_payload = {"area": area, "target": target}
         try:
             resp = await self._get(url_path, params=params)
             if resp.status_code != 200:
                 logger.error("获取可分配角色失败: HTTP %d", resp.status_code)
-                error_payload = self._error_payload(f"HTTP {resp.status_code}")
+                error_payload = self._error_payload(
+                    f"HTTP {resp.status_code}",
+                    payload={**request_payload, "error": f"HTTP {resp.status_code}"},
+                )
                 if resp.status_code == 429:
                     error_payload["status_code"] = 429
                     error_payload["retry_after"] = self._retry_after_seconds(resp)
@@ -308,20 +357,26 @@ class Member(BaseService):
             if not result.get("status"):
                 msg = self._error_message(result)
                 logger.error("获取可分配角色失败: %s", msg)
-                return self._error_payload(msg, payload=result)
+                return self._error_payload(msg, payload={**request_payload, **result, "error": msg})
             data = result.get("data")
             if not isinstance(data, dict):
                 logger.error("获取可分配角色失败: 响应格式异常")
-                return self._error_payload("assignable roles响应格式异常")
+                return self._error_payload(
+                    "assignable roles响应格式异常",
+                    payload={**request_payload, "error": "assignable roles响应格式异常"},
+                )
             roles = data.get("roles", [])
             if not isinstance(roles, list):
                 logger.error("获取可分配角色失败: roles格式异常")
-                return self._error_payload("assignable roles响应格式异常")
+                return self._error_payload(
+                    "assignable roles响应格式异常",
+                    payload={**request_payload, "roles": roles, "error": "assignable roles响应格式异常"},
+                )
             invalid_payload = self._invalid_dict_item_payload(
                 roles,
                 "assignable roles响应格式异常",
                 list_key="roles",
-                payload={"roles": roles},
+                payload={**request_payload, "roles": roles},
             )
             if invalid_payload:
                 logger.error("获取可分配角色失败: roles条目格式异常")
@@ -329,7 +384,7 @@ class Member(BaseService):
             return roles
         except Exception as e:
             logger.error("获取可分配角色异常: %s", e)
-            return self._error_payload(str(e))
+            return self._error_payload(str(e), payload={**request_payload, "error": str(e)})
 
     async def edit_user_role(
         self,
@@ -340,18 +395,28 @@ class Member(BaseService):
     ) -> dict:
         """给目标用户添加或取消指定身份组。"""
         area = self._resolve_area(area)
+        request_payload = {"area": area, "target": target_uid, "targetRoleIDs": []}
         detail = await self.get_user_area_detail(target_uid, area=area)
         if not isinstance(detail, dict):
-            return {"error": "user area detail响应格式异常"}
+            return self._error_payload(
+                "user area detail响应格式异常",
+                payload={**request_payload, "error": "user area detail响应格式异常"},
+            )
         if detail.get("error"):
-            return {"error": str(detail["error"])}
+            return detail
         current_list = detail.get("list")
         if current_list is None:
             current_list = []
         if not isinstance(current_list, list):
-            return {"error": "user area detail响应格式异常"}
+            return self._error_payload(
+                "user area detail响应格式异常",
+                payload={**request_payload, "error": "user area detail响应格式异常"},
+            )
         if any(not isinstance(role, dict) for role in current_list):
-            return {"error": "user area detail响应格式异常"}
+            return self._error_payload(
+                "user area detail响应格式异常",
+                payload={**request_payload, "error": "user area detail响应格式异常"},
+            )
         current_ids = [int(r["roleID"]) for r in current_list if r.get("roleID") is not None]
         role_id = int(role_id)
         if add:
@@ -366,14 +431,19 @@ class Member(BaseService):
             raw = resp.text or ""
             logger.info("editUserRole POST %s add=%s -> %d, body: %s", url_path, add, resp.status_code, raw[:200])
             if resp.status_code != 200:
-                return {"error": f"HTTP {resp.status_code}" + (f" | {raw[:150]}" if raw else "")}
+                message = f"HTTP {resp.status_code}" + (f" | {raw[:150]}" if raw else "")
+                return self._error_payload(message, payload={**body, "error": message})
             result = resp.json()
             if result.get("status") is True:
                 return {"status": True, "message": result.get("message") or ("已给身份组" if add else "已取消身份组")}
-            return {"error": result.get("message") or result.get("error") or str(result)}
+            message = result.get("message") or result.get("error") or str(result)
+            return self._error_payload(
+                str(message),
+                payload={**body, **result, "error": str(message)},
+            )
         except Exception as e:
             logger.error("editUserRole 异常: %s", e)
-            return {"error": str(e)}
+            return self._error_payload(str(e), payload={**body, "error": str(e)})
 
     async def search_area_members(
         self,
@@ -386,6 +456,7 @@ class Member(BaseService):
         area = self._resolve_area(area)
         url_path = "/area/v3/search/areaSettingMembers"
         body = {"area": area, "name": keyword, "offset": 0, "limit": 50}
+        request_payload = dict(body)
         try:
             resp = await self._post(url_path, body)
             if resp.status_code != 200:
@@ -396,7 +467,10 @@ class Member(BaseService):
                         status_code=resp.status_code,
                         response={"error": f"HTTP {resp.status_code}"},
                     )
-                error_payload = self._error_payload(f"HTTP {resp.status_code}")
+                error_payload = self._error_payload(
+                    f"HTTP {resp.status_code}",
+                    payload={**request_payload, "error": f"HTTP {resp.status_code}"},
+                )
                 if resp.status_code == 429:
                     error_payload["status_code"] = 429
                     error_payload["retry_after"] = self._retry_after_seconds(resp)
@@ -406,7 +480,10 @@ class Member(BaseService):
                 msg = self._error_message(result)
                 if as_model:
                     raise OopzApiError(msg, status_code=resp.status_code, response={"error": msg})
-                return self._error_payload(msg, payload=result)
+                return self._error_payload(
+                    msg,
+                    payload={**request_payload, **result, "error": msg},
+                )
             data = result.get("data", {})
             if not isinstance(data, dict):
                 if as_model:
@@ -416,7 +493,10 @@ class Member(BaseService):
                         response={"error": "search area members响应格式异常"},
                     )
                 logger.error("搜索域成员失败: 响应格式异常")
-                return self._error_payload("search area members响应格式异常")
+                return self._error_payload(
+                    "search area members响应格式异常",
+                    payload={**request_payload, "error": "search area members响应格式异常"},
+                )
             members = data.get("members", [])
             if not isinstance(members, list):
                 if as_model:
@@ -426,14 +506,17 @@ class Member(BaseService):
                         response={"error": "search area members响应格式异常"},
                     )
                 logger.error("搜索域成员失败: members格式异常")
-                return self._error_payload("search area members响应格式异常")
-            if as_model:
-                invalid_payload = self._invalid_dict_item_payload(
-                    members,
+                return self._error_payload(
                     "search area members响应格式异常",
-                    list_key="members",
-                    payload={"members": members},
+                    payload={**request_payload, "error": "search area members响应格式异常"},
                 )
+            invalid_payload = self._invalid_dict_item_payload(
+                members,
+                "search area members响应格式异常",
+                list_key="members",
+                payload={**request_payload, "members": members},
+            )
+            if as_model:
                 if invalid_payload:
                     raise OopzApiError(
                         "search area members响应格式异常",
@@ -441,6 +524,9 @@ class Member(BaseService):
                         response=invalid_payload,
                     )
                 return [self._to_member_model(m) for m in members]
+            if invalid_payload:
+                logger.error("搜索域成员失败: members条目格式异常")
+                return invalid_payload
             return members
         except OopzApiError:
             raise
@@ -448,4 +534,4 @@ class Member(BaseService):
             logger.error("搜索域成员异常: %s", e)
             if as_model:
                 raise OopzApiError(str(e), response={"error": str(e)})
-            return self._error_payload(str(e))
+            return self._error_payload(str(e), payload={**request_payload, "error": str(e)})
