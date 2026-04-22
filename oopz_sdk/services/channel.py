@@ -10,7 +10,6 @@ from typing import Optional, Any, List
 from oopz_sdk import models
 from oopz_sdk.auth.signer import Signer
 from oopz_sdk.config.settings import OopzConfig
-from oopz_sdk.exceptions import OopzApiError
 from oopz_sdk.transport.http import HttpTransport
 
 from . import BaseService

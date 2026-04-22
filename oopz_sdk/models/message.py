@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from typing import Any, Mapping
 from typing_extensions import Self
@@ -9,6 +10,8 @@ from pydantic import Field, model_validator
 from .attachment import Attachment
 from .base import  SDKBaseModel
 from oopz_sdk.exceptions import OopzApiError
+
+logger = logging.getLogger("oopz_sdk.models.message")
 
 class Message(SDKBaseModel):
     target: str = ""
@@ -58,7 +61,16 @@ class Message(SDKBaseModel):
             for item in attachments_raw:
                 if not isinstance(item, Mapping):
                     continue
-                parsed_attachments.append(Attachment.parse(item))
+                try:
+                    parsed_attachments.append(Attachment.parse(item))
+                except OopzApiError as exc:
+                    # 不认识的附件类型（如 STICKER/VIDEO/FILE 等）不应让整条消息/整页拉取失败
+                    logger.warning(
+                        "跳过未识别的附件 attachmentType=%r: %s",
+                        item.get("attachmentType"),
+                        exc,
+                    )
+                    continue
             normalized["attachments"] = parsed_attachments
 
         mention_list = normalized.get("mentionList", [])

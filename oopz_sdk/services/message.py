@@ -209,6 +209,7 @@ class Message(BaseService):
             animated=animated,
             display_name=display_name,
             duration=duration,
+            version=version,
         )
 
         url_path = "/im/session/v2/sendImMessage" if version == "v2" else "/im/session/v1/sendImMessage"
@@ -272,6 +273,12 @@ class Message(BaseService):
             timestamp: str = None,
             target: str = "",
     ) -> models.OperationResult:
+        if message_id.strip() == "":
+            raise ValueError("message_id is required for recall_message")
+        if area.strip() == "":
+            raise ValueError("area is required for recall_message")
+        if channel.strip() == "":
+            raise ValueError("channel is required for recall_message")
         timestamp = timestamp or self.signer.timestamp_us()
 
         url_path = "/im/session/v1/recallGim"
@@ -293,6 +300,12 @@ class Message(BaseService):
             area: Optional[str] = None,
             timestamp: Optional[str] = None,
     ) -> models.OperationResult:
+        if message_id.strip() == "":
+            raise ValueError("message_id is required for recall_private_message")
+        if channel.strip() == "":
+            raise ValueError("channel is required for recall_private_message")
+        if target.strip() == "":
+            raise ValueError("target is required for recall_private_message")
         timestamp = timestamp or self.signer.timestamp_us()
         url_path = "/im/session/v1/recallIm"
         body = {
@@ -318,7 +331,7 @@ class Message(BaseService):
 
         if not isinstance(data, dict) and data.get("message", None) is None:
             raise OopzApiError(
-                "response format error: expected dict with 'message' key",
+                "response format error: expected dict with 'messages' list",
                 response=data,
             )
         messages = data.get("messages")

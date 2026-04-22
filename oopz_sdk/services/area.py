@@ -7,9 +7,6 @@ import time
 from typing import Optional, List
 
 from oopz_sdk import models
-from oopz_sdk.auth.signer import Signer
-from oopz_sdk.config.settings import OopzConfig
-from oopz_sdk.transport.http import HttpTransport
 
 from . import BaseService
 
@@ -71,7 +68,7 @@ class AreaService(BaseService):
         if area.strip() == "":
             raise ValueError("area cannot be empty")
         cache_key = (area, offset_start, offset_end)
-        cache_ttl = float(getattr(self._config, "area_members_cache_ttl", 2.0))
+        cache_ttl = float(getattr(self._config, "area_members_cache_ttl", 15.0))
 
         cached = self._get_cached_area_members(cache_key, max_age=cache_ttl)
         if cached is not None:
