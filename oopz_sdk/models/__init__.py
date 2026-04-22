@@ -1,31 +1,29 @@
-from .area import JoinedAreaInfo, AreaInfo, ChannelGroupInfo, AreaMembersPage
+from .area import JoinedAreaInfo, AreaInfo, ChannelGroupInfo, AreaMembersPage, AreaUserDetail, RoleInfo
 from .attachment import Attachment, AudioAttachment, ImageAttachment, UploadTicket, UploadedFileResult
 from .base import BaseModel, OperationResult
-from .channel import (Channel, ChannelGroup, ChannelSetting, ChannelType,
+from .channel import ( ChannelSetting, ChannelType,
                       CreateChannelResult, ChannelEdit, ChannelSign, VoiceChannelMembersResult)
 from .event import Event, MessageEvent
-from .member import Member
+from .member import UserInfo, Profile, UserLevelInfo
 from .message import Message, MessageSendResult, PrivateSession
-from .moderation import TextMuteInterval, VoiceMuteInterval, AreaBlockUserInfo
-from .response import (
-    PersonDetail,
-    SelfDetail,
-)
+from .moderation import TextMuteInterval, VoiceMuteInterval
 
 JsonObject = dict[str, object]
 JsonList = list[object]
-PersonInfo = Member
+
 
 __all__ = [
     "JoinedAreaInfo",
     "AreaInfo",
     "Attachment",
+    "RoleInfo",
     "AudioAttachment",
     "AreaMembersPage",
     "BaseModel",
     "ChannelSetting",
     "ChannelGroupInfo",
     "ChannelEdit",
+    "AreaUserDetail",
     "CreateChannelResult",
     "ChannelType",
     "ChannelSign",
@@ -35,17 +33,15 @@ __all__ = [
     "JsonObject",
     "UploadTicket",
     "UploadedFileResult",
-    "Member",
+    "UserInfo",
     "Message",
     "MessageEvent",
     "MessageSendResult",
     "OperationResult",
-    "PersonDetail",
     "VoiceChannelMembersResult",
-    "PersonInfo",
     "PrivateSession",
-    "SelfDetail",
     "TextMuteInterval",
     "VoiceMuteInterval",
-    "AreaBlockUserInfo"
+    "Profile",
+    "UserLevelInfo"
 ]

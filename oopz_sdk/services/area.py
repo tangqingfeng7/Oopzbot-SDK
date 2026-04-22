@@ -144,6 +144,80 @@ class AreaService(BaseService):
         data = await self._request_data("GET", url_path, params=params)
         return [models.ChannelGroupInfo.from_api(item) for item in data]
 
+    async def get_area_user_detail(self, area: str, target: str) -> models.AreaUserDetail:
+        """获取指定用户在域内的角色列表和禁言/禁麦状态。"""
+        if not target:
+            raise ValueError("target is required for get_user_area_detail()")
+        if not area:
+            raise ValueError("area is required for get_user_area_detail()")
+
+        url_path = "/area/v3/userDetail"
+        params = {"area": area, "target": target}
+        data = await self._request_data("GET", url_path, params=params)
+        return models.AreaUserDetail.from_api(data)
+
+
+    async def get_area_can_give_list(self, area: str, target: str) -> list[models.RoleInfo]:
+        """获取当前用户可以分配给目标用户的角色列表。"""
+        if not target:
+            raise ValueError("target is required for get_assignable_roles()")
+        if not area:
+            raise ValueError("area is required for get_assignable_roles()")
+
+        url_path = "/area/v3/role/canGiveList"
+
+        data = await self._request_data("GET", url_path, params={"area": area, "target": target})
+
+        roles = data.get('roles')
+        if roles is None:
+            raise ValueError("Invalid API response: 'roles' field is missing or not a list")
+
+        return [models.RoleInfo.from_api(role) for role in roles]
+
+
+    async def edit_user_role(
+            self,
+            target_uid: str,
+            role_id: int,
+            area: str,
+            add: bool = True,
+    ) -> models.OperationResult:
+        """给目标用户添加或取消指定身份组。"""
+        if target_uid.strip() == "":
+            raise ValueError("target_uid is required for edit_user_role()")
+        if area.strip() == "":
+            raise ValueError("area is required for edit_user_role()")
+
+        area_info = await self.get_area_user_detail(area, target_uid)
+
+        current_ids = [role.role_id for role in area_info.roles]
+        if add:
+            if role_id not in current_ids:
+                current_ids.append(role_id)
+        else:
+            current_ids = [x for x in current_ids if x != role_id]
+
+        body = {"area": area, "target": target_uid, "targetRoleIDs": current_ids}
+        resp = await self._request_data("POST", "/area/v3/role/editUserRole", body=body)
+        return models.OperationResult.from_api(resp)
+
+    # async def search_area_members(
+    #         self,
+    #         area: str,
+    #         keyword: str = "",
+    #         *,
+    #         offset: int = 0,
+    #         limit: int = 50,
+    # ) -> None:
+    #     """搜索域内成员。"""
+    #     if not area:
+    #         raise ValueError("area is required for search_area_members()")
+    #
+    #     url_path = "/area/v3/search/areaSettingMembers"
+    #     body = {"area": area, "name": keyword, "offset": offset, "limit": limit}
+    #
+    #     raise NotImplementedError("unknown usage method")
+
 
     async def populate_names(self, *, set_area=None, set_channel=None) -> dict:
         """从 API 获取已加入域列表及各域频道列表，通过回调填充名称。

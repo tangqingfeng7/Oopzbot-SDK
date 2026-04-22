@@ -8,9 +8,6 @@ import time
 from typing import Optional, Any, List
 
 from oopz_sdk import models
-from oopz_sdk.auth.signer import Signer
-from oopz_sdk.config.settings import OopzConfig
-from oopz_sdk.transport.http import HttpTransport
 
 from . import BaseService
 
@@ -37,46 +34,6 @@ class Channel(BaseService):
         params = {"channel": channel}
         data = await self._request_data("GET", url_path, params=params)
         return models.ChannelSetting.from_api(data)
-
-
-    async def _rollback_created_channel(
-        self,
-        channel_id: str,
-        area: str,
-        message: str,
-        context: dict | None = None,
-    ) -> dict[str, str]:
-        def _error_with_context(error_message: str, cleanup_error: str = "") -> dict[str, str]:
-            payload = {"error": error_message}
-            if cleanup_error:
-                payload["cleanup_error"] = cleanup_error
-            if isinstance(context, dict):
-                payload.update(context)
-            return payload
-
-        cleanup_error = ""
-        try:
-            rollback_result = await self.delete_channel(channel_id, area=area)
-        except Exception as exc:
-            cleanup_error = str(exc)
-        else:
-            if isinstance(rollback_result, models.OperationResult):
-                if rollback_result.ok:
-                    return _error_with_context(message)
-                cleanup_error = str(rollback_result.message or "删除新建频道失败")
-            elif isinstance(rollback_result, dict):
-                cleanup_error = str(
-                    rollback_result.get("error")
-                    or rollback_result.get("message")
-                    or "删除新建频道失败"
-                )
-            elif rollback_result:
-                return _error_with_context(message)
-            else:
-                cleanup_error = "删除新建频道失败"
-
-        logger.error("回滚新建频道失败: channel=%s reason=%s", channel_id[:24], cleanup_error)
-        return _error_with_context(f"{message}；删除新建频道失败: {cleanup_error}", cleanup_error)
 
     async def create_channel(
         self,
@@ -513,7 +470,7 @@ class Channel(BaseService):
         """获取用户当前所在的语音频道 ID，不在任何语音频道则返回 None。"""
         members = await self.get_voice_channel_members(area=area)
 
-        for ch_id, ch_members in members.channel_members.items():
+        for ch_id, ch_members in members.channel_members.roles():
             if not ch_members:
                 continue
             for m in ch_members:

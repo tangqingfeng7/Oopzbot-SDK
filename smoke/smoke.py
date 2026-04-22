@@ -167,7 +167,7 @@ async def rest_smoke(sender: OopzRESTClient, env: dict[str, str]) -> None:
     if target:
         await step(
             "members.get_user_area_detail",
-            lambda: sender.members.get_user_area_detail(target, area=area),
+            lambda: sender.members.get_area_user_detail(target, area=area),
             summarize=lambda r: f"keys={list(r.keys()) if isinstance(r, dict) else type(r).__name__}",
         )
 

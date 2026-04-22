@@ -1,10 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Optional
-
 from oopz_sdk import models
-from oopz_sdk.exceptions import OopzApiError
 
 from . import BaseService
 from ..models import TextMuteInterval, VoiceMuteInterval
@@ -131,7 +128,7 @@ class Moderation(BaseService):
         self,
         area: str,
         name: str = ""
-    ) -> list[models.AreaBlockUserInfo]:
+    ) -> list[models.UserInfo]:
         """Get the block list for an area."""
         if area.strip() == "":
             raise ValueError("area is required for get_area_blocks")
@@ -141,7 +138,7 @@ class Moderation(BaseService):
             params={"area": area, "name": name},
         )
 
-        return [models.AreaBlockUserInfo.from_api(d) for d in data]
+        return [models.UserInfo.from_api(d) for d in data]
 
 
     async def unblock_user_in_area(self, area: str, uid: str) -> models.OperationResult:

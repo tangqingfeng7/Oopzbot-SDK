@@ -172,7 +172,7 @@ class Attachment(SDKBaseModel, ABC):
 
     def to_payload(self) -> dict[str, Any]:
         payload = self.model_dump(by_alias=True, exclude_none=True)
-        return {key: value for key, value in payload.items() if value not in ("", 0, False)}
+        return {key: value for key, value in payload.roles() if value not in ("", 0, False)}
 
     @classmethod
     def parse(cls, data: Mapping[str, Any]) -> "Attachment":

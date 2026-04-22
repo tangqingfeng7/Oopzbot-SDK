@@ -198,3 +198,74 @@ class ChannelGroupInfo(SDKBaseModel):
             raise OopzApiError("invalid channel group payload: expected dict", payload=data)
         return cls.model_validate(data)
 
+class AreaUserDetail(SDKBaseModel):
+    disable_text_to: Any = Field(default=None, alias="disableTextTo")
+    disable_voice_to: Any = Field(default=None, alias="disableVoiceTo")
+    higher_uid: str = Field(default="", alias="higherUid")
+    roles: list[RoleInfo] = Field(default_factory=list, alias="list")
+    now: int = 0
+
+    @model_validator(mode="before")
+    @classmethod
+    def validate_and_normalize(cls, data: Any) -> Any:
+        if not isinstance(data, Mapping):
+            raise OopzApiError("invalid higher uid info payload: expected dict", payload=data)
+
+        normalized = dict(data)
+
+        normalized["higherUid"] = str(normalized.get("higherUid") or "")
+
+        raw_list = normalized.get("list", [])
+        normalized["list"] = raw_list if isinstance(raw_list, list) else []
+
+        try:
+            normalized["now"] = int(normalized.get("now") or 0)
+        except (TypeError, ValueError):
+            normalized["now"] = 0
+
+        normalized["disableTextTo"] = normalized.get("disableTextTo")
+        normalized["disableVoiceTo"] = normalized.get("disableVoiceTo")
+
+        return normalized
+
+    @classmethod
+    def from_api(cls, data: Mapping[str, Any]) -> "AreaUserDetail":
+        return cls.model_validate(data)
+
+
+class RoleInfo(SDKBaseModel):
+    description: str = ""
+    name: str = ""
+    owned: bool = False
+    role_id: int = Field(default=0, alias="roleID")
+    sort: int = 0
+
+    @model_validator(mode="before")
+    @classmethod
+    def validate_and_normalize(cls, data: Any) -> Any:
+        if not isinstance(data, Mapping):
+            raise OopzApiError("invalid role info payload: expected dict", payload=data)
+
+        normalized = dict(data)
+
+        normalized["description"] = str(normalized.get("description") or "")
+        normalized["name"] = str(normalized.get("name") or "")
+        normalized["owned"] = bool(normalized.get("owned", False))
+
+        try:
+            normalized["roleID"] = int(normalized.get("roleID") or 0)
+        except (TypeError, ValueError):
+            normalized["roleID"] = 0
+
+        try:
+            normalized["sort"] = int(normalized.get("sort") or 0)
+        except (TypeError, ValueError):
+            normalized["sort"] = 0
+
+        return normalized
+
+
+    @classmethod
+    def from_api(cls, data: Mapping[str, Any]) -> "RoleInfo":
+        return cls.model_validate(data)
+
