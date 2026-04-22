@@ -111,8 +111,8 @@ def test_oopz_sdk_get_user_area_detail_requires_area_before_request(monkeypatch)
 
     monkeypatch.setattr(service, "_get", _fake_get)
 
-    with pytest.raises(ValueError, match="缺少 area"):
-        _run(service.get_user_area_detail("target-1"))
+    with pytest.raises(ValueError, match="area cannot be empty"):
+        _run(service.get_user_area_detail("target-1", ""))
 
 
 def test_oopz_sdk_get_person_infos_batch_returns_error_on_failed_payload(monkeypatch):

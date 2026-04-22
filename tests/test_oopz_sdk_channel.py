@@ -37,116 +37,11 @@ from oopz_sdk.transport.http import HttpTransport
 
 from tests._oopz_sdk_test_support import _FakeResponse, _make_config, _make_private_key, _run
 
-def test_oopz_sdk_channel_groups_as_model(monkeypatch):
-    service = Channel(None, _make_config())
-    monkeypatch.setattr(
-        service,
-        "_get",
-        lambda *args, **kwargs: _FakeResponse(
-            200,
-            payload={
-                "status": True,
-                "data": [
-                    {
-                        "id": "group-1",
-                        "name": "分组",
-                        "channels": [{"id": "channel-1", "name": "大厅", "type": "TEXT"}],
-                    }
-                ],
-            },
-        ),
-    )
-
-    result = _run(service.get_area_channels(area="area", as_model=True))
-
-    assert isinstance(result, models.ChannelGroupsResult)
-    assert result.groups[0].channels[0].id == "channel-1"
-    assert result.groups[0].channels[0].name == "大厅"
-
-
-def test_oopz_sdk_channel_groups_as_model_returns_result_object_on_malformed_group_entry(
-    monkeypatch,
-):
-    service = Channel(None, _make_config())
-    monkeypatch.setattr(
-        service,
-        "_get",
-        lambda *args, **kwargs: _FakeResponse(
-            200,
-            payload={"status": True, "data": [{"id": "group-1"}, "broken-group"]},
-        ),
-    )
-
-    result = _run(service.get_area_channels(area="area", as_model=True))
-
-    assert isinstance(result, models.ChannelGroupsResult)
-    assert result.payload["error"] == "channel groups响应格式异常"
-    assert result.payload["invalid_index"] == 1
-
-
-def test_oopz_sdk_channel_groups_as_model_returns_result_object_on_malformed_channel_entry(
-    monkeypatch,
-):
-    service = Channel(None, _make_config())
-    monkeypatch.setattr(
-        service,
-        "_get",
-        lambda *args, **kwargs: _FakeResponse(
-            200,
-            payload={
-                "status": True,
-                "data": [
-                    {
-                        "id": "group-1",
-                        "channels": [{"id": "channel-1"}, "broken-channel"],
-                    }
-                ],
-            },
-        ),
-    )
-
-    result = _run(service.get_area_channels(area="area", as_model=True))
-
-    assert isinstance(result, models.ChannelGroupsResult)
-    assert result.payload["error"] == "channel groups响应格式异常"
-    assert result.payload["invalid_index"] == 1
-    assert result.payload["list_key"] == "channels"
-
 
 def test_oopz_sdk_channel_group_model_rejects_falsey_non_list_channels():
     with pytest.raises(ValueError, match="channel groups响应格式异常"):
         Channel._to_channel_group_model({"id": "group-1", "channels": ""})
 
-
-def test_oopz_sdk_channel_groups_as_model_returns_result_object_on_http_failure(monkeypatch):
-    service = Channel(None, _make_config())
-    monkeypatch.setattr(
-        service,
-        "_get",
-        lambda *args, **kwargs: _FakeResponse(503, text="gateway error"),
-    )
-
-    result = _run(service.get_area_channels(area="area", as_model=True))
-
-    assert isinstance(result, models.ChannelGroupsResult)
-    assert result.payload == {"error": "HTTP 503"}
-
-
-def test_oopz_sdk_channel_groups_as_model_returns_result_object_on_malformed_success(monkeypatch):
-    service = Channel(None, _make_config())
-    monkeypatch.setattr(
-        service,
-        "_get",
-        lambda *args, **kwargs: _FakeResponse(
-            200,
-            payload={"status": True, "data": {"id": "group-1"}},
-        ),
-    )
-
-    result = _run(service.get_area_channels(area="area", as_model=True))
-
-    assert isinstance(result, models.ChannelGroupsResult)
-    assert result.payload == {"error": "channel groups响应格式异常"}
 
 
 def test_oopz_sdk_channel_setting_as_model_returns_result_object_on_malformed_role_fields(

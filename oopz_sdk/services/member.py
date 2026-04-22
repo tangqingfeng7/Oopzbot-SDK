@@ -18,19 +18,12 @@ class Member(BaseService):
 
     def __init__(
         self,
-        config_or_bot,
+        bot,
         config: OopzConfig | None = None,
         transport: HttpTransport | None = None,
         signer: Signer | None = None,
     ):
-        if config is None:
-            bot = None
-            config = config_or_bot
-        else:
-            bot = config_or_bot
-        resolved_signer = signer or Signer(config)
-        resolved_transport = transport or HttpTransport(config, resolved_signer)
-        super().__init__(config, resolved_transport, resolved_signer, bot=bot)
+        super().__init__(config, transport, signer, bot=bot)
 
     @staticmethod
     def _to_member_model(payload: dict) -> models.Member:
@@ -300,8 +293,12 @@ class Member(BaseService):
             logger.error("获取等级信息异常: %s", e)
             return self._error_payload(str(e))
 
-    async def get_user_area_detail(self, target: str, area: Optional[str] = None) -> dict:
+    async def get_user_area_detail(self, target: str, area: str) -> dict:
         """获取指定用户在域内的角色列表和禁言/禁麦状态。"""
+        if target == "":
+            raise ValueError("target cannot be empty")
+        elif area == "":
+            raise ValueError("area cannot be empty")
         url_path = "/area/v3/userDetail"
         params = {"area": area, "target": target}
         request_payload = {"area": area, "target": target}

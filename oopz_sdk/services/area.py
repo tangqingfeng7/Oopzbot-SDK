@@ -21,19 +21,13 @@ class AreaService(BaseService):
 
     def __init__(
         self,
-        config_or_bot,
+        bot,
         config: OopzConfig | None = None,
         transport: HttpTransport | None = None,
         signer: Signer | None = None,
     ):
-        if config is None:
-            bot = None
-            config = config_or_bot
-        else:
-            bot = config_or_bot
-        resolved_signer = signer or Signer(config)
-        resolved_transport = transport or HttpTransport(config, resolved_signer)
-        super().__init__(config, resolved_transport, resolved_signer, bot=bot)
+
+        super().__init__(config, transport, signer, bot=bot)
 
     def _get_area_members_cache_store(self) -> dict:
         store = getattr(self, "_area_members_cache", None)
@@ -70,7 +64,7 @@ class AreaService(BaseService):
 
     async def get_area_members(
             self,
-            area: str | None = None,
+            area: str,
             offset_start: int = 0,
             offset_end: int = 49,
     ) -> models.AreaMembersPage:
@@ -119,6 +113,8 @@ class AreaService(BaseService):
 
     async def get_area_info(self, area: str) -> models.AreaInfo:
         """获取域详细信息（含角色列表、主页频道等）。"""
+        if area == "":
+            raise ValueError("area cannot be empty")
         url_path = "/area/v3/info"
         params = {"area": area}
         data = await self._request_data("GET", url_path, params=params)

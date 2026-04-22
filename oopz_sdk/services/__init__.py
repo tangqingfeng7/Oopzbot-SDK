@@ -69,7 +69,7 @@ class BaseService:
     ) -> Any:
         return await self.transport.request_data(method, path, params=params, body=body)
 
-    async def _request_json_with_retry(
+    async def _request_data_with_retry(
             self,
             method: str,
             path: str,

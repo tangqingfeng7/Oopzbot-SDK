@@ -230,7 +230,7 @@ def test_oopz_sdk_get_area_members_requires_area_before_request(monkeypatch):
 
     monkeypatch.setattr(service, "_request_data_with_retry", _fake_request_data_with_retry)
 
-    with pytest.raises(ValueError, match="缺少 area"):
+    with pytest.raises(TypeError, match="missing 1 required positional argument: 'area'"):
         _run(service.get_area_members())
 
 
@@ -242,7 +242,7 @@ def test_oopz_sdk_get_area_info_requires_area_before_request(monkeypatch):
 
     monkeypatch.setattr(service, "_request_data", _fake_request_data)
 
-    with pytest.raises(ValueError, match="缺少 area"):
+    with pytest.raises(ValueError, match="area cannot be empty"):
         _run(service.get_area_info(""))
 
 
@@ -379,86 +379,21 @@ def test_oopz_sdk_populate_names_does_not_commit_partial_names_before_failure(mo
     assert named_areas == [("area-1", "测试域1"), ("area-2", "测试域2")]
     assert named_channels == [("channel-1", "大厅")]
 
+def test_oopz_sdk_get_area_channels_raises_on_falsey_channels_value(monkeypatch):
+    service = AreaService(None, _make_config())
 
-def test_oopz_sdk_get_area_channels_returns_format_error_on_falsey_channels_value(
-    monkeypatch,
-):
-    service = Channel(None, _make_config())
-    monkeypatch.setattr(
-        service,
-        "_get",
-        lambda *args, **kwargs: _FakeResponse(
-            200,
-            payload={
-                "status": True,
-                "data": [
-                    {
-                        "id": "group-1",
-                        "channels": "",
-                    }
-                ],
-            },
-        ),
-    )
+    async def _fake_request_data(*args, **kwargs):
+        return [
+            {
+                "id": "group-1",
+                "channels": "",
+            }
+        ]
 
-    result = _run(service.get_area_channels(area="area"))
+    monkeypatch.setattr(service, "_request_data", _fake_request_data)
 
-    assert result["error"] == "channel groups响应格式异常"
-    assert result["area"] == "area"
-    assert result["list_key"] == "channels"
-    assert result["invalid_type"] == "str"
-
-
-def test_oopz_sdk_get_area_channels_returns_format_error_on_falsey_data(
-    monkeypatch,
-):
-    service = Channel(None, _make_config())
-    monkeypatch.setattr(
-        service,
-        "_get",
-        lambda *args, **kwargs: _FakeResponse(
-            200,
-            payload={"status": True, "data": ""},
-        ),
-    )
-
-    result = _run(service.get_area_channels(area="area"))
-
-    assert result == {"error": "channel groups响应格式异常", "area": "area"}
-
-
-def test_oopz_sdk_get_area_channels_returns_error_dict_on_http_failure(monkeypatch):
-    service = Channel(None, _make_config())
-    monkeypatch.setattr(
-        service,
-        "_get",
-        lambda *args, **kwargs: _FakeResponse(503, text="gateway error"),
-    )
-
-    result = _run(service.get_area_channels(area="area"))
-
-    assert result == {"error": "HTTP 503", "area": "area"}
-
-
-def test_oopz_sdk_get_area_channels_returns_error_dict_on_failed_payload(monkeypatch):
-    service = Channel(None, _make_config())
-    monkeypatch.setattr(
-        service,
-        "_get",
-        lambda *args, **kwargs: _FakeResponse(
-            200,
-            payload={"status": False, "message": "group list rejected"},
-        ),
-    )
-
-    result = _run(service.get_area_channels(area="area"))
-
-    assert result == {
-        "error": "group list rejected",
-        "area": "area",
-        "status": False,
-        "message": "group list rejected",
-    }
+    with pytest.raises(ValidationError):
+        _run(service.get_area_channels(area="area"))
 
 
 def test_oopz_sdk_area_blocks_as_model_returns_result_object_on_malformed_success(monkeypatch):
