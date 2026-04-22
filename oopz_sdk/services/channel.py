@@ -8,10 +8,7 @@ import time
 from typing import Optional
 
 from oopz_sdk import models
-from oopz_sdk.auth.signer import Signer
-from oopz_sdk.config.settings import OopzConfig
 from oopz_sdk.exceptions import OopzApiError
-from oopz_sdk.transport.http import HttpTransport
 
 from . import BaseService
 
@@ -20,22 +17,6 @@ logger = logging.getLogger("oopz_sdk.services.channel")
 
 class Channel(BaseService):
     """Channel-related platform capabilities."""
-
-    def __init__(
-        self,
-        config_or_bot,
-        config: OopzConfig | None = None,
-        transport: HttpTransport | None = None,
-        signer: Signer | None = None,
-    ):
-        if config is None:
-            bot = None
-            config = config_or_bot
-        else:
-            bot = config_or_bot
-        resolved_signer = signer or Signer(config)
-        resolved_transport = transport or HttpTransport(config, resolved_signer)
-        super().__init__(config, resolved_transport, resolved_signer, bot=bot)
 
     @staticmethod
     def _extract_channel_id(payload: object) -> Optional[str]:
@@ -428,6 +409,8 @@ class Channel(BaseService):
         group_id: str = "",
     ) -> models.OperationResult:
         """创建频道。"""
+        if not area:
+            return self._missing_arg_result("area")
         name = str(name or "").strip()
         if not name:
             return models.OperationResult(ok=False, message="频道名称不能为空")
@@ -511,9 +494,11 @@ class Channel(BaseService):
         name: str = "",
     ) -> models.OperationResult:
         """修改频道设置。"""
+        if not area:
+            return self._missing_arg_result("area")
         channel_id = str(channel_id or "").strip()
         if not channel_id:
-            return models.OperationResult(ok=False, message="缺少 channel_id")
+            return self._missing_arg_result("channel_id")
         request_payload = {"area": area, "channel": channel_id}
 
         setting = await self.get_channel_setting_info(channel_id, as_model=True)
@@ -807,9 +792,11 @@ class Channel(BaseService):
 
     async def delete_channel(self, channel: str, area: Optional[str] = None) -> models.OperationResult:
         """删除频道。"""
+        if not area:
+            return self._missing_arg_result("area")
         channel = str(channel or "").strip()
         if not channel:
-            return models.OperationResult(ok=False, message="缺少 channel")
+            return self._missing_arg_result("channel")
         request_payload = {"channel": channel, "area": area}
 
         url_path = f"/client/v1/area/v1/channel/v1/delete?channel={channel}&area={area}"

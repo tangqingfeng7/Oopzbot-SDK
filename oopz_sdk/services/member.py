@@ -3,10 +3,7 @@ import logging
 from typing import Any, Optional
 
 from oopz_sdk import models
-from oopz_sdk.auth.signer import Signer
-from oopz_sdk.config.settings import OopzConfig
 from oopz_sdk.exceptions import OopzApiError
-from oopz_sdk.transport.http import HttpTransport
 
 from . import BaseService
 
@@ -15,22 +12,6 @@ logger = logging.getLogger("oopz_sdk.services.member")
 
 class Member(BaseService):
     """Member-related platform capabilities."""
-
-    def __init__(
-        self,
-        config_or_bot,
-        config: OopzConfig | None = None,
-        transport: HttpTransport | None = None,
-        signer: Signer | None = None,
-    ):
-        if config is None:
-            bot = None
-            config = config_or_bot
-        else:
-            bot = config_or_bot
-        resolved_signer = signer or Signer(config)
-        resolved_transport = transport or HttpTransport(config, resolved_signer)
-        super().__init__(config, resolved_transport, resolved_signer, bot=bot)
 
     @staticmethod
     def _to_member_model(payload: dict) -> models.Member:
@@ -302,6 +283,8 @@ class Member(BaseService):
 
     async def get_user_area_detail(self, target: str, area: Optional[str] = None) -> dict:
         """获取指定用户在域内的角色列表和禁言/禁麦状态。"""
+        if not area:
+            raise ValueError("缺少 area")
         url_path = "/area/v3/userDetail"
         params = {"area": area, "target": target}
         request_payload = {"area": area, "target": target}

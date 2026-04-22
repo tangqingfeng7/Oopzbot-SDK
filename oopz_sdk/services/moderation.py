@@ -5,9 +5,6 @@ from typing import Optional
 from urllib.parse import parse_qsl
 
 from oopz_sdk import models
-from oopz_sdk.auth.signer import Signer
-from oopz_sdk.config.settings import OopzConfig
-from oopz_sdk.transport.http import HttpTransport
 
 from . import BaseService
 
@@ -16,22 +13,6 @@ logger = logging.getLogger("oopz_sdk.services.moderation")
 
 class Moderation(BaseService):
     """Moderation capabilities."""
-
-    def __init__(
-        self,
-        config_or_bot,
-        config: OopzConfig | None = None,
-        transport: HttpTransport | None = None,
-        signer: Signer | None = None,
-    ):
-        if config is None:
-            bot = None
-            config = config_or_bot
-        else:
-            bot = config_or_bot
-        resolved_signer = signer or Signer(config)
-        resolved_transport = transport or HttpTransport(config, resolved_signer)
-        super().__init__(config, resolved_transport, resolved_signer, bot=bot)
 
     _TEXT_INTERVALS = {1: "60秒", 2: "5分钟", 3: "1小时", 4: "1天", 5: "3天", 6: "7天"}
     _VOICE_INTERVALS = {7: "60秒", 8: "5分钟", 9: "1小时", 10: "1天", 11: "3天", 12: "7天"}
@@ -55,6 +36,10 @@ class Moderation(BaseService):
 
     async def mute_user(self, uid: str, area: Optional[str] = None, channel: Optional[str] = None, duration: int = 10) -> models.OperationResult:
         """禁言用户。"""
+        if not area:
+            return self._missing_arg_result("area")
+        if not uid:
+            return self._missing_arg_result("uid")
         interval_id = self._minutes_to_interval_id(duration, voice=False)
         url_path = "/client/v1/area/v1/member/v1/disableText"
         query = f"?area={area}&target={uid}&intervalId={interval_id}"
@@ -63,6 +48,10 @@ class Moderation(BaseService):
 
     async def unmute_user(self, uid: str, area: Optional[str] = None, channel: Optional[str] = None) -> models.OperationResult:
         """解除禁言。"""
+        if not area:
+            return self._missing_arg_result("area")
+        if not uid:
+            return self._missing_arg_result("uid")
         url_path = "/client/v1/area/v1/member/v1/recoverText"
         query = f"?area={area}&target={uid}"
         body = {"area": area, "target": uid}
@@ -70,6 +59,10 @@ class Moderation(BaseService):
 
     async def mute_mic(self, uid: str, area: Optional[str] = None, channel: Optional[str] = None, duration: int = 10) -> models.OperationResult:
         """禁麦用户。"""
+        if not area:
+            return self._missing_arg_result("area")
+        if not uid:
+            return self._missing_arg_result("uid")
         interval_id = self._minutes_to_interval_id(duration, voice=True)
         url_path = "/client/v1/area/v1/member/v1/disableVoice"
         query = f"?area={area}&target={uid}&intervalId={interval_id}"
@@ -78,6 +71,10 @@ class Moderation(BaseService):
 
     async def unmute_mic(self, uid: str, area: Optional[str] = None, channel: Optional[str] = None) -> models.OperationResult:
         """解除禁麦。"""
+        if not area:
+            return self._missing_arg_result("area")
+        if not uid:
+            return self._missing_arg_result("uid")
         url_path = "/client/v1/area/v1/member/v1/recoverVoice"
         query = f"?area={area}&target={uid}"
         body = {"area": area, "target": uid}
@@ -85,6 +82,10 @@ class Moderation(BaseService):
 
     async def remove_from_area(self, uid: str, area: Optional[str] = None) -> models.OperationResult:
         """将用户移出当前域（踢出域）。"""
+        if not area:
+            return self._missing_arg_result("area")
+        if not uid:
+            return self._missing_arg_result("uid")
         url_path = f"/area/v3/remove?area={area}&target={uid}"
         body = {"area": area, "target": uid}
         try:
@@ -114,6 +115,10 @@ class Moderation(BaseService):
 
     async def block_user_in_area(self, uid: str, area: Optional[str] = None) -> models.OperationResult:
         """封禁用户。"""
+        if not area:
+            return self._missing_arg_result("area")
+        if not uid:
+            return self._missing_arg_result("uid")
         url_path = f"/client/v1/area/v1/block?area={area}&target={uid}"
         body = {"area": area, "target": uid}
         try:
@@ -253,6 +258,10 @@ class Moderation(BaseService):
 
     async def unblock_user_in_area(self, uid: str, area: Optional[str] = None) -> models.OperationResult:
         """解除域内封禁。"""
+        if not area:
+            return self._missing_arg_result("area")
+        if not uid:
+            return self._missing_arg_result("uid")
         url_path = "/client/v1/area/v1/unblock"
         query = f"?area={area}&target={uid}"
         body = {"area": area, "target": uid}

@@ -40,7 +40,7 @@ class OopzBot:
         self.registry = EventRegistry()
         self.dispatcher = EventDispatcher(self.registry)
         self.parser = EventParser()
-        self.rest = OopzRESTClient(self, config)
+        self.rest = OopzRESTClient(config, bot=self)
         self.messages: message_service.Message = self.rest.messages
         self.media = self.rest.media
         self.areas = self.rest.areas

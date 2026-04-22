@@ -4,10 +4,7 @@ import logging
 import os
 
 from oopz_sdk import models
-from oopz_sdk.auth.signer import Signer
-from oopz_sdk.config.settings import OopzConfig
-from oopz_sdk.exceptions import OopzApiError, OopzConnectionError, OopzRateLimitError
-from oopz_sdk.transport.http import HttpTransport
+from oopz_sdk.exceptions import OopzApiError
 
 from . import BaseService
 
@@ -16,21 +13,6 @@ logger = logging.getLogger("oopz_sdk.services.media")
 
 class Media(BaseService):
     """Media upload capabilities."""
-
-    def __init__(
-            self,
-            config_or_bot,
-            config: OopzConfig | None = None,
-            transport: HttpTransport | None = None,
-            signer: Signer | None = None,
-    ):
-        if config is None:
-            bot = None
-            config = config_or_bot
-        else:
-            bot = config_or_bot
-        super().__init__(config, transport, signer, bot=bot)
-
 
     async def upload_file(
             self,

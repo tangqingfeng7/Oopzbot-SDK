@@ -6,12 +6,9 @@ import os
 from typing import Optional, Any, List
 
 from oopz_sdk import models
-from oopz_sdk.auth.signer import Signer
-from oopz_sdk.config.settings import OopzConfig
 from oopz_sdk.exceptions import OopzApiError
 from oopz_sdk.models.segment import Image, Segment, Text
 from oopz_sdk.services import BaseService
-from oopz_sdk.transport.http import HttpTransport
 from oopz_sdk.utils.image import get_image_info
 from oopz_sdk.utils.message_builder import build_segments, normalize_message_parts
 
@@ -19,20 +16,6 @@ logger = logging.getLogger("oopz_sdk.services.message")
 
 
 class Message(BaseService):
-    def __init__(
-            self,
-            config_or_bot,
-            config: OopzConfig,
-            transport: HttpTransport,
-            signer: Signer,
-    ):
-        if config is None:
-            bot = None
-            config = config_or_bot
-        else:
-            bot = config_or_bot
-        super().__init__(config, transport, signer, bot=bot)
-
     async def _prepare_message_content(
             self,
             *parts: str | Segment,
@@ -277,6 +260,12 @@ class Message(BaseService):
             timestamp: str = None,
             target: str = "",
     ) -> models.OperationResult:
+        if not area:
+            return self._missing_arg_result("area")
+        if not channel:
+            return self._missing_arg_result("channel")
+        if not message_id:
+            return self._missing_arg_result("message_id")
         timestamp = timestamp or self.signer.timestamp_us()
 
         url_path = "/im/session/v1/recallGim"
@@ -298,6 +287,12 @@ class Message(BaseService):
             area: Optional[str] = None,
             timestamp: Optional[str] = None,
     ) -> models.OperationResult:
+        if not channel:
+            return self._missing_arg_result("channel")
+        if not target:
+            return self._missing_arg_result("target")
+        if not message_id:
+            return self._missing_arg_result("message_id")
         timestamp = timestamp or self.signer.timestamp_us()
         url_path = "/im/session/v1/recallIm"
         body = {

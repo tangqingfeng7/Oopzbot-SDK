@@ -7,9 +7,6 @@ import time
 from typing import Optional, List
 
 from oopz_sdk import models
-from oopz_sdk.auth.signer import Signer
-from oopz_sdk.config.settings import OopzConfig
-from oopz_sdk.transport.http import HttpTransport
 
 from . import BaseService
 
@@ -18,22 +15,6 @@ logger = logging.getLogger("oopz_sdk.services.area")
 
 class AreaService(BaseService):
     """Area-related platform capabilities."""
-
-    def __init__(
-        self,
-        config_or_bot,
-        config: OopzConfig | None = None,
-        transport: HttpTransport | None = None,
-        signer: Signer | None = None,
-    ):
-        if config is None:
-            bot = None
-            config = config_or_bot
-        else:
-            bot = config_or_bot
-        resolved_signer = signer or Signer(config)
-        resolved_transport = transport or HttpTransport(config, resolved_signer)
-        super().__init__(config, resolved_transport, resolved_signer, bot=bot)
 
     def _get_area_members_cache_store(self) -> dict:
         store = getattr(self, "_area_members_cache", None)
@@ -74,8 +55,10 @@ class AreaService(BaseService):
             offset_start: int = 0,
             offset_end: int = 49,
     ) -> models.AreaMembersPage:
+        if not area:
+            raise ValueError("缺少 area")
         cache_key = (area, offset_start, offset_end)
-        cache_ttl = float(getattr(self._config, "area_members_cache_ttl", 2.0))
+        cache_ttl = float(getattr(self._config, "area_members_cache_ttl", 15.0))
 
         cached = self._get_cached_area_members(cache_key, max_age=cache_ttl)
         if cached is not None:
@@ -119,6 +102,8 @@ class AreaService(BaseService):
 
     async def get_area_info(self, area: str) -> models.AreaInfo:
         """获取域详细信息（含角色列表、主页频道等）。"""
+        if not area:
+            raise ValueError("缺少 area")
         url_path = "/area/v3/info"
         params = {"area": area}
         data = await self._request_data("GET", url_path, params=params)
