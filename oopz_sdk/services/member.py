@@ -16,15 +16,6 @@ logger = logging.getLogger("oopz_sdk.services.member")
 class Member(BaseService):
     """Member-related platform capabilities."""
 
-    def __init__(
-        self,
-        bot,
-        config: OopzConfig | None = None,
-        transport: HttpTransport | None = None,
-        signer: Signer | None = None,
-    ):
-        super().__init__(config, transport, signer, bot=bot)
-
     @staticmethod
     def _to_member_model(payload: dict) -> models.Member:
         return models.Member(

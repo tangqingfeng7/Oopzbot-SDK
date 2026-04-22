@@ -17,16 +17,6 @@ logger = logging.getLogger("oopz_sdk.services.media")
 class Media(BaseService):
     """Media upload capabilities."""
 
-    def __init__(
-            self,
-            bot,
-            config: OopzConfig | None = None,
-            transport: HttpTransport | None = None,
-            signer: Signer | None = None,
-    ):
-        super().__init__(config, transport, signer, bot=bot)
-
-
     async def upload_file(
             self,
             file: str,

@@ -20,16 +20,6 @@ logger = logging.getLogger("oopz_sdk.services.channel")
 class Channel(BaseService):
     """Channel-related platform capabilities."""
 
-    def __init__(
-        self,
-        bot,
-        config: OopzConfig | None = None,
-        transport: HttpTransport | None = None,
-        signer: Signer | None = None,
-    ):
-        super().__init__(config, transport, signer, bot=bot)
-
-
     def _get_voice_ids_cache_store(self) -> dict[str, dict]:
         store = getattr(self, "_voice_ids_cache", None)
         if not isinstance(store, dict):

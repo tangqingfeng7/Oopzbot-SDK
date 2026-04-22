@@ -16,16 +16,6 @@ logger = logging.getLogger("oopz_sdk.services.area")
 class AreaService(BaseService):
     """Area-related platform capabilities."""
 
-    def __init__(
-        self,
-        bot,
-        config: OopzConfig | None = None,
-        transport: HttpTransport | None = None,
-        signer: Signer | None = None,
-    ):
-
-        super().__init__(config, transport, signer, bot=bot)
-
     def _get_area_members_cache_store(self) -> dict:
         store = getattr(self, "_area_members_cache", None)
         if not isinstance(store, dict):

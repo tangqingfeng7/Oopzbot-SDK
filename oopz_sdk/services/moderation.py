@@ -17,16 +17,6 @@ logger = logging.getLogger("oopz_sdk.services.moderation")
 class Moderation(BaseService):
     """Moderation capabilities."""
 
-    def __init__(
-        self,
-        bot,
-        config: OopzConfig | None = None,
-        transport: HttpTransport | None = None,
-        signer: Signer | None = None,
-    ):
-
-        super().__init__(config, transport, signer, bot=bot)
-
     _TEXT_INTERVALS = {1: "60秒", 2: "5分钟", 3: "1小时", 4: "1天", 5: "3天", 6: "7天"}
     _VOICE_INTERVALS = {7: "60秒", 8: "5分钟", 9: "1小时", 10: "1天", 11: "3天", 12: "7天"}
 

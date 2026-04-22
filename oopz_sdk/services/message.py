@@ -6,12 +6,9 @@ import os
 from typing import Optional, Any, List
 
 from oopz_sdk import models
-from oopz_sdk.auth.signer import Signer
-from oopz_sdk.config.settings import OopzConfig
 from oopz_sdk.exceptions import OopzApiError
 from oopz_sdk.models.segment import Image, Segment, Text
 from oopz_sdk.services import BaseService
-from oopz_sdk.transport.http import HttpTransport
 from oopz_sdk.utils.image import get_image_info
 from oopz_sdk.utils.message_builder import build_segments, normalize_message_parts
 
@@ -19,16 +16,6 @@ logger = logging.getLogger("oopz_sdk.services.message")
 
 
 class Message(BaseService):
-    def __init__(
-            self,
-            bot,
-            config: OopzConfig,
-            transport: HttpTransport,
-            signer: Signer,
-    ):
-
-        super().__init__(config, transport, signer, bot=bot)
-
     async def _prepare_message_content(
             self,
             *parts: str | Segment,
@@ -350,9 +337,7 @@ class Message(BaseService):
 
         ext = os.path.splitext(source_path)[1] or ".jpg"
 
-        media_service = self._require_service("media")
-
-        upload_result = await media_service.upload_file(
+        upload_result = await self._bot.media.upload_file(
             source_path,
             file_type="IMAGE",
             ext=ext,
