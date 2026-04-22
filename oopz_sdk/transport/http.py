@@ -227,8 +227,9 @@ class HttpTransport(BaseTransport):
                 response=resp,
             )
         if not data.get("status"):
+            message = data.get("message", "")
             raise OopzApiError(
-                "status is not True",
+                f"status is not True: {message}",
                 status_code=resp.status_code,
                 payload=data,
                 response=resp,

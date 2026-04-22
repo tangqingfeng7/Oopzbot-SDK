@@ -63,33 +63,3 @@ class SelfDetail(BaseModel):
 
 
 
-
-@dataclass(slots=True)
-class DailySpeechResult(BaseModel):
-    words: str
-    author: str = ""
-    source: str = ""
-    payload: dict[str, Any] = field(default_factory=dict)
-    
-
-
-@dataclass(slots=True)
-class AreaBlock(BaseModel):
-    uid: str = ""
-    name: str = ""
-    reason: str = ""
-    payload: dict[str, Any] = field(default_factory=dict)
-
-
-@dataclass(slots=True)
-class AreaBlocksResult(BaseModel):
-    blocks: list[AreaBlock] = field(default_factory=list)
-    payload: dict[str, Any] = field(default_factory=dict)
-    
-
-
-@dataclass(slots=True)
-class MessageListResult(BaseModel):
-    messages: list[Message] = field(default_factory=list)
-    payload: dict[str, Any] = field(default_factory=dict)
-    

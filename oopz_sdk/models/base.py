@@ -44,7 +44,6 @@ class BaseModel:
 class OperationResult(SDKBaseModel):
     ok: bool = True
     message: str = ""
-    payload: dict[str, Any] = Field(default_factory=dict)
 
     @classmethod
     def from_api(cls, data: Any) -> "OperationResult":
@@ -60,12 +59,10 @@ class OperationResult(SDKBaseModel):
                 "message",
                 str(normalized.get("message") or normalized.get("error") or ""),
             )
-            normalized.setdefault("payload", dict(data))
             return cls.model_validate(normalized)
         return cls.model_validate(
             {
                 "ok": bool(data),
-                "message": "",
-                "payload": {"raw": data} if data is not None else {},
+                "message": ""
             }
         )
