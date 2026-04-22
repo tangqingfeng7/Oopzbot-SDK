@@ -6,8 +6,6 @@ from typing import Any, Mapping
 from pydantic import BaseModel as Bm, ConfigDict, Field
 
 
-# todo 我想慢慢把模型迁移到pydantic上面, 这样就能少很多判断逻辑了
-# todo 慢慢迁移然后把SDKBaseModel命名冬奥BaseModel上, Bm只是暂时命名
 class BaseModel(Bm):
     model_config = ConfigDict(
         extra="ignore",
