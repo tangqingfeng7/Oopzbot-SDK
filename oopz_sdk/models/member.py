@@ -4,14 +4,14 @@ from typing import Any, Mapping
 
 from pydantic import Field, model_validator
 
-from .base import SDKBaseModel
+from .base import BaseModel
 
 from oopz_sdk.exceptions import OopzApiError
 
 
 
 
-class UserInfo(SDKBaseModel):
+class UserInfo(BaseModel):
     avatar: str = ""
     avatar_frame: str = Field(default="", alias="avatarFrame")
     avatar_frame_animation: str = Field(default="", alias="avatarFrameAnimation")
@@ -77,7 +77,7 @@ class UserInfo(SDKBaseModel):
         return cls.model_validate(data)
 
 
-class Profile(SDKBaseModel):
+class Profile(BaseModel):
     area_avatar: str = Field(default="", alias="areaAvatar")
     area_max_num: int = Field(default=0, alias="areaMaxNum")
     area_name: str = Field(default="", alias="areaName")
@@ -231,7 +231,7 @@ class Profile(SDKBaseModel):
         return cls.model_validate(data)
 
 
-class UserLevelInfo(SDKBaseModel):
+class UserLevelInfo(BaseModel):
     auth_desc: str = Field(default="", alias="authDesc")
     auth_state: int = Field(default=0, alias="authState")
 

@@ -5,9 +5,8 @@ from dataclasses import dataclass, field
 from typing import Any, Mapping
 
 from pydantic import Field, model_validator
-from .base import SDKBaseModel
-from oopz_sdk.exceptions import OopzApiError
 from .base import BaseModel
+from oopz_sdk.exceptions import OopzApiError
 from enum import Enum
 
 class ChannelType(Enum):
@@ -16,7 +15,7 @@ class ChannelType(Enum):
 
 
 
-class ChannelSetting(SDKBaseModel):
+class ChannelSetting(BaseModel):
     channel: str
 
     area_id: str = Field(default="", alias="areaId")
@@ -103,7 +102,7 @@ class ChannelSetting(SDKBaseModel):
 
 
 
-class ChannelEdit(SDKBaseModel):
+class ChannelEdit(BaseModel):
     channel: str
     area: str = ""
     name: str = ""
@@ -160,7 +159,7 @@ class ChannelEdit(SDKBaseModel):
 
 
 
-class ChannelSign(SDKBaseModel):
+class ChannelSign(BaseModel):
     agora_sign: str = Field(default="", alias="agoraSign")
     agora_sign_pid: str = Field(default="", alias="agoraSignPid")
     app_id: int = Field(default=0, alias="appId")
@@ -230,7 +229,7 @@ class ChannelSign(SDKBaseModel):
         return self.model_dump(by_alias=True, exclude_none=False)
 
 
-class CreateChannelResult(SDKBaseModel):
+class CreateChannelResult(BaseModel):
     area: str = ""
     group_id: str = Field(default="", alias="group")
     max_member: int = Field(default=100, alias="maxMember")
@@ -278,7 +277,7 @@ class CreateChannelResult(SDKBaseModel):
 
 
 
-class VoiceChanelMemberInfo(SDKBaseModel):
+class VoiceChanelMemberInfo(BaseModel):
     uid: str = ""
 
     bot_type: str = Field(default="", alias="botType")
@@ -328,7 +327,7 @@ class VoiceChanelMemberInfo(SDKBaseModel):
     def from_api(cls, data: Mapping[str, Any]) -> "VoiceChanelMemberInfo":
         return cls.model_validate(data)
 
-class VoiceChannelMembersResult(SDKBaseModel):
+class VoiceChannelMembersResult(BaseModel):
     channel_members: dict[str, list[VoiceChanelMemberInfo]] = Field(default_factory=dict, alias="channelMembers")
 
     @model_validator(mode="before")

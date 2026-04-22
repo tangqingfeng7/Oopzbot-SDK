@@ -1,6 +1,6 @@
 from .area import JoinedAreaInfo, AreaInfo, ChannelGroupInfo, AreaMembersPage, AreaUserDetail, RoleInfo
 from .attachment import Attachment, AudioAttachment, ImageAttachment, UploadTicket, UploadedFileResult
-from .base import BaseModel, OperationResult
+from .base import OperationResult
 from .channel import ( ChannelSetting, ChannelType,
                       CreateChannelResult, ChannelEdit, ChannelSign, VoiceChannelMembersResult)
 from .event import Event, MessageEvent
@@ -19,7 +19,6 @@ __all__ = [
     "RoleInfo",
     "AudioAttachment",
     "AreaMembersPage",
-    "BaseModel",
     "ChannelSetting",
     "ChannelGroupInfo",
     "ChannelEdit",

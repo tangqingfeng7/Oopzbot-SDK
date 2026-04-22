@@ -8,12 +8,12 @@ from typing_extensions import Self
 from pydantic import Field, model_validator
 
 from .attachment import Attachment
-from .base import  SDKBaseModel
+from .base import  BaseModel
 from oopz_sdk.exceptions import OopzApiError
 
 logger = logging.getLogger("oopz_sdk.models.message")
 
-class Message(SDKBaseModel):
+class Message(BaseModel):
     target: str = ""
 
     area: str = ""
@@ -90,7 +90,7 @@ class Message(SDKBaseModel):
 
 
 
-class MessageSendResult(SDKBaseModel):
+class MessageSendResult(BaseModel):
     message_id: str = Field(alias="messageId")
     timestamp: str = ""
 
@@ -109,7 +109,7 @@ class MessageSendResult(SDKBaseModel):
             raise OopzApiError("invalid message send result payload: expected dict", payload=data)
         return cls.model_validate(data)
 
-class PrivateSession(SDKBaseModel):
+class PrivateSession(BaseModel):
     last_time: str = Field(default="", alias="lastTime")
     mute: bool = False
     session_id: str = Field(default="", alias="sessionId")

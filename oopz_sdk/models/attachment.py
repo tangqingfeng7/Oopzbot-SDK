@@ -5,11 +5,11 @@ from typing import Any, Mapping
 
 from pydantic import Field, model_validator
 
-from .base import SDKBaseModel
+from .base import BaseModel
 from oopz_sdk.exceptions import OopzApiError
 
 
-class UploadTicket(SDKBaseModel):
+class UploadTicket(BaseModel):
     auth: str = ""
     expire_in_second: int = Field(default=0, alias="expireInSecond")
     file_key: str = Field(default="", alias="file")
@@ -60,7 +60,7 @@ class UploadTicket(SDKBaseModel):
         return cls.model_validate(data)
 
 
-class UploadedFileResult(SDKBaseModel):
+class UploadedFileResult(BaseModel):
     file_key: str = Field(default="", alias="fileKey")
     url: str = ""
     file_type: str = Field(default="", alias="fileType")
@@ -131,7 +131,7 @@ class UploadedFileResult(SDKBaseModel):
         )
 
 
-class Attachment(SDKBaseModel, ABC):
+class Attachment(BaseModel, ABC):
     file_key: str = Field(default="", alias="fileKey")
     url: str = ""
     attachment_type: str = Field(default="", alias="attachmentType")

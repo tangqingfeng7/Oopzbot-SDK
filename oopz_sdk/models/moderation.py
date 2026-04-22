@@ -4,7 +4,7 @@ from typing import Mapping, Any
 from pydantic import Field, model_validator
 
 from oopz_sdk.exceptions import OopzApiError
-from oopz_sdk.models.base import SDKBaseModel
+from oopz_sdk.models.base import BaseModel
 
 
 class TextMuteInterval(Enum):

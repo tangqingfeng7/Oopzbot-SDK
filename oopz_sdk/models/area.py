@@ -5,10 +5,10 @@ from typing import Any, Mapping
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from oopz_sdk.exceptions import OopzApiError
-from .base import SDKBaseModel
+from .base import BaseModel
 
 
-class JoinedAreaInfo(SDKBaseModel):
+class JoinedAreaInfo(BaseModel):
     area_id: str = Field(default="", alias="id")
     code: str = ""
     name: str = ""
@@ -37,7 +37,7 @@ class JoinedAreaInfo(SDKBaseModel):
         return cls.model_validate(data)
 
 
-class AreaRoleInfo(SDKBaseModel):
+class AreaRoleInfo(BaseModel):
     category_keys: list[str] = Field(default_factory=list, alias="categoryKeys")
     is_owner: bool = Field(default=False, alias="isOwner")
     max_role: int = Field(default=0, alias="maxRole")
@@ -49,7 +49,7 @@ class AreaRoleInfo(SDKBaseModel):
         return cls.model_validate(data or {})
 
 
-class AreaRole(SDKBaseModel):
+class AreaRole(BaseModel):
     description: str = ""
     is_display: bool = Field(default=False, alias="isDisplay")
     name: str = ""
@@ -62,7 +62,7 @@ class AreaRole(SDKBaseModel):
         return cls.model_validate(data or {})
 
 
-class AreaInfo(SDKBaseModel):
+class AreaInfo(BaseModel):
     area_role_infos: AreaRoleInfo = Field(default_factory=AreaRoleInfo, alias="areaRoleInfos")
     avatar: str = ""
     banner: str = ""
@@ -86,7 +86,7 @@ class AreaInfo(SDKBaseModel):
             raise OopzApiError("invalid area detail payload: expected dict", payload=data)
         return cls.model_validate(data)
 
-class AreaMemberInfo(SDKBaseModel):
+class AreaMemberInfo(BaseModel):
     display_type: str = Field(default="", alias="displayType")
     online: int = 0
     playing_state: str = Field(default="", alias="playingState")
@@ -102,7 +102,7 @@ class AreaMemberInfo(SDKBaseModel):
         return cls.model_validate(data)
 
 
-class AreaRoleCountInfo(SDKBaseModel):
+class AreaRoleCountInfo(BaseModel):
     count: int = 0
     role: int = 0
 
@@ -112,7 +112,7 @@ class AreaRoleCountInfo(SDKBaseModel):
             raise OopzApiError("invalid area role count payload: expected dict", payload=data)
         return cls.model_validate(data)
 
-class AreaMembersPage(SDKBaseModel):
+class AreaMembersPage(BaseModel):
     members: list[AreaMemberInfo] = Field(default_factory=list)
     role_count: list[AreaRoleCountInfo] = Field(default_factory=list, alias="roleCount")
     total_count: int = Field(default=0, alias="totalCount")
@@ -143,7 +143,7 @@ class AreaMembersPage(SDKBaseModel):
 
 
 
-class ChannelSettings(SDKBaseModel):
+class ChannelSettings(BaseModel):
     disable_text_levels: list[int] | None = Field(default=None, alias="disableTextLevels")
     disable_voice_levels: list[int] | None = Field(default=None, alias="disableVoiceLevels")
     max_member: int = Field(default=0, alias="maxMember")
@@ -161,7 +161,7 @@ class ChannelSettings(SDKBaseModel):
         return cls.model_validate(data or {})
 
 
-class ChannelInfo(SDKBaseModel):
+class ChannelInfo(BaseModel):
     area_id: str = Field(default="", alias="areaId")
     group_id: str = Field(default="", alias="groupId")
     channel_id: str = Field(default="", alias="id")
@@ -181,7 +181,7 @@ class ChannelInfo(SDKBaseModel):
         return cls.model_validate(data)
 
 
-class ChannelGroupInfo(SDKBaseModel):
+class ChannelGroupInfo(BaseModel):
     is_enable_temp: bool = Field(default=False, alias="IsEnableTemp")
     area: str = ""
     channels: list[ChannelInfo] = Field(default_factory=list)
@@ -198,7 +198,7 @@ class ChannelGroupInfo(SDKBaseModel):
             raise OopzApiError("invalid channel group payload: expected dict", payload=data)
         return cls.model_validate(data)
 
-class AreaUserDetail(SDKBaseModel):
+class AreaUserDetail(BaseModel):
     disable_text_to: Any = Field(default=None, alias="disableTextTo")
     disable_voice_to: Any = Field(default=None, alias="disableVoiceTo")
     higher_uid: str = Field(default="", alias="higherUid")
@@ -233,7 +233,7 @@ class AreaUserDetail(SDKBaseModel):
         return cls.model_validate(data)
 
 
-class RoleInfo(SDKBaseModel):
+class RoleInfo(BaseModel):
     description: str = ""
     name: str = ""
     owned: bool = False
