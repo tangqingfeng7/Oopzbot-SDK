@@ -686,7 +686,7 @@ def test_oopz_sdk_delete_channel_invalidates_voice_ids_cache(monkeypatch):
         lambda *args, **kwargs: _FakeResponse(200, payload={"status": True, "message": "ok"}),
     )
 
-    result = _run(service.delete_channel("channel-1", area="area"))
+    result = _run(service.delete_channel(channel="channel-1", area="area"))
 
     assert result.ok is True
     assert "area" not in service._voice_ids_cache
@@ -701,7 +701,7 @@ def test_oopz_sdk_delete_channel_returns_error_when_root_payload_is_not_dict(mon
         lambda *args, **kwargs: _FakeResponse(200, payload=[], text="[]"),
     )
 
-    result = _run(service.delete_channel("channel-1", area="area"))
+    result = _run(service.delete_channel(channel="channel-1", area="area"))
 
     assert isinstance(result, models.OperationResult)
     assert result.ok is False
@@ -716,7 +716,7 @@ def test_oopz_sdk_delete_channel_returns_http_error_result(monkeypatch):
         lambda *args, **kwargs: _FakeResponse(503, text="upstream timeout"),
     )
 
-    result = _run(service.delete_channel("channel-1", area="area"))
+    result = _run(service.delete_channel(channel="channel-1", area="area"))
 
     assert isinstance(result, models.OperationResult)
     assert result.ok is False
@@ -735,7 +735,7 @@ def test_oopz_sdk_delete_channel_returns_request_payload_on_failed_payload(monke
         ),
     )
 
-    result = _run(service.delete_channel("channel-1", area="area"))
+    result = _run(service.delete_channel(channel="channel-1", area="area"))
 
     assert isinstance(result, models.OperationResult)
     assert result.ok is False
@@ -754,7 +754,7 @@ def test_oopz_sdk_delete_channel_returns_request_payload_on_request_error(monkey
 
     monkeypatch.setattr(service, "_delete", _fake_delete)
 
-    result = _run(service.delete_channel("channel-1", area="area"))
+    result = _run(service.delete_channel(channel="channel-1", area="area"))
 
     assert isinstance(result, models.OperationResult)
     assert result.ok is False
