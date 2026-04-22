@@ -19,19 +19,13 @@ class Moderation(BaseService):
 
     def __init__(
         self,
-        config_or_bot,
+        bot,
         config: OopzConfig | None = None,
         transport: HttpTransport | None = None,
         signer: Signer | None = None,
     ):
-        if config is None:
-            bot = None
-            config = config_or_bot
-        else:
-            bot = config_or_bot
-        resolved_signer = signer or Signer(config)
-        resolved_transport = transport or HttpTransport(config, resolved_signer)
-        super().__init__(config, resolved_transport, resolved_signer, bot=bot)
+
+        super().__init__(config, transport, signer, bot=bot)
 
     _TEXT_INTERVALS = {1: "60秒", 2: "5分钟", 3: "1小时", 4: "1天", 5: "3天", 6: "7天"}
     _VOICE_INTERVALS = {7: "60秒", 8: "5分钟", 9: "1小时", 10: "1天", 11: "3天", 12: "7天"}

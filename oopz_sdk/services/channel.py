@@ -23,19 +23,12 @@ class Channel(BaseService):
 
     def __init__(
         self,
-        config_or_bot,
+        bot,
         config: OopzConfig | None = None,
         transport: HttpTransport | None = None,
         signer: Signer | None = None,
     ):
-        if config is None:
-            bot = None
-            config = config_or_bot
-        else:
-            bot = config_or_bot
-        resolved_signer = signer or Signer(config)
-        resolved_transport = transport or HttpTransport(config, resolved_signer)
-        super().__init__(config, resolved_transport, resolved_signer, bot=bot)
+        super().__init__(config, transport, signer, bot=bot)
 
     @staticmethod
     def _extract_channel_id(payload: object) -> Optional[str]:

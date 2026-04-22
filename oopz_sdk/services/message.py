@@ -21,16 +21,12 @@ logger = logging.getLogger("oopz_sdk.services.message")
 class Message(BaseService):
     def __init__(
             self,
-            config_or_bot,
+            bot,
             config: OopzConfig,
             transport: HttpTransport,
             signer: Signer,
     ):
-        if config is None:
-            bot = None
-            config = config_or_bot
-        else:
-            bot = config_or_bot
+
         super().__init__(config, transport, signer, bot=bot)
 
     async def _prepare_message_content(
