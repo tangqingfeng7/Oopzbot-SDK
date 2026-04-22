@@ -243,7 +243,7 @@ class Channel(BaseService):
         preferred_channel: Optional[str] = None,
         preferred_group_name: Optional[str] = None,
     ) -> Optional[str] | dict[str, str]:
-        groups = await self.get_area_channels(area=area, quiet=True)
+        groups = await self._bot.area.get_area_channels(area=area, quiet=True)
         if isinstance(groups, dict) and groups.get("error"):
             return {"error": str(groups["error"])}
         if not isinstance(groups, list):
