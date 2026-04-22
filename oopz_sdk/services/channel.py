@@ -1072,7 +1072,6 @@ class Channel(BaseService):
                             for channel_id, members in data.items()
                         },
                         payload=result,
-                        response=resp,
                     )
                 return data
             except Exception as e:

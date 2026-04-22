@@ -258,6 +258,118 @@ def test_oopz_sdk_ws_client_calls_on_close_after_connected_receive_failure():
     assert close_infos[0].reconnecting is True
 
 
+def test_oopz_sdk_ws_client_stop_interrupts_reconnect_wait():
+    class _FailTransport:
+        def __init__(self):
+            self.close_calls = 0
+            self.closed = True
+
+        async def connect(self):
+            raise RuntimeError("connect boom")
+
+        async def close(self):
+            self.close_calls += 1
+            self.closed = True
+
+    config = _make_config()
+    config.heartbeat.reconnect_interval = 1
+    config.heartbeat.max_reconnect_interval = 1
+    client = OopzWSClient(config)
+    client.transport = _FailTransport()
+
+    async def _exercise():
+        task = asyncio.create_task(client.start())
+        await asyncio.sleep(0.05)
+        await client.stop()
+        await asyncio.sleep(0.05)
+
+        assert task.done() is True
+
+        await task
+
+    _run(_exercise())
+
+
+def test_oopz_sdk_ws_client_restart_after_stop_clears_stop_signal():
+    connect_attempts = []
+
+    class _FailTransport:
+        def __init__(self):
+            self.closed = True
+
+        async def connect(self):
+            connect_attempts.append(1)
+            raise RuntimeError("connect boom")
+
+        async def close(self):
+            self.closed = True
+
+    config = _make_config()
+    config.heartbeat.reconnect_interval = 0.2
+    config.heartbeat.max_reconnect_interval = 0.2
+    client = OopzWSClient(config)
+    client.transport = _FailTransport()
+
+    async def _exercise():
+        task1 = asyncio.create_task(client.start())
+        await asyncio.sleep(0.05)
+        await client.stop()
+        await task1
+        first_round_attempts = len(connect_attempts)
+
+        task2 = asyncio.create_task(client.start())
+        await asyncio.sleep(0.1)
+        attempts_during_window = len(connect_attempts) - first_round_attempts
+        await client.stop()
+        await task2
+
+        # 若 _stop_event.clear() 缺失，第二轮 wait_for 会立刻返回，
+        # 0.1s 内将看到大量 connect 重试；clear() 正常时仅 1 次。
+        assert attempts_during_window == 1
+
+    _run(_exercise())
+
+
+def test_oopz_sdk_ws_client_stop_during_pre_connect_phase_exits_cleanly():
+    connect_started = asyncio.Event()
+    release_connect = asyncio.Event()
+
+    class _SlowTransport:
+        def __init__(self):
+            self.closed = True
+            self.close_calls = 0
+
+        async def connect(self):
+            self.closed = False
+            connect_started.set()
+            try:
+                await release_connect.wait()
+            except asyncio.CancelledError:
+                self.closed = True
+                raise
+            raise WebSocketClosedError(1000, "stopped")
+
+        async def close(self):
+            self.close_calls += 1
+            self.closed = True
+            release_connect.set()
+
+    config = _make_config()
+    client = OopzWSClient(config)
+    client.transport = _SlowTransport()
+
+    async def _exercise():
+        task = asyncio.create_task(client.start())
+        await connect_started.wait()
+        await client.stop()
+        await asyncio.wait_for(task, timeout=1.0)
+
+        assert client._running is False
+        assert client.transport.close_calls >= 1
+
+    _run(_exercise())
+
+
 def test_oopz_sdk_ws_transport_close_message_preserves_code_and_reason():
     transport = WebSocketTransport(_make_config())
 

@@ -468,6 +468,14 @@ def test_oopz_sdk_media_service_reuses_sender_message_service():
     assert sender.media._message_service() is sender.messages
 
 
+def test_oopz_sdk_rest_client_exposes_single_public_config_reference():
+    config = _make_config()
+    sender = OopzRESTClient(config)
+
+    assert sender.config is config
+    assert hasattr(sender, "_config") is False
+
+
 def test_oopz_sdk_local_image_segment_uses_injected_media(monkeypatch, tmp_path):
     sender = OopzRESTClient(_make_config())
     sample = tmp_path / "sample.png"

@@ -593,6 +593,45 @@ def test_oopz_sdk_voice_channel_members_as_model_returns_result_object_on_malfor
     assert result.payload == {"error": "voice channel members响应格式异常"}
 
 
+def test_oopz_sdk_voice_channel_members_as_model_returns_result_object_on_success(
+    monkeypatch,
+):
+    service = Channel(None, _make_config())
+
+    async def _fake_get_voice_channel_ids(area):
+        return ["voice-1"]
+
+    monkeypatch.setattr(service, "_get_voice_channel_ids", _fake_get_voice_channel_ids)
+    monkeypatch.setattr(
+        service,
+        "_post",
+        lambda *args, **kwargs: _FakeResponse(
+            200,
+            payload={
+                "status": True,
+                "data": {
+                    "channelMembers": {
+                        "voice-1": [
+                            {"uid": "u1", "name": "Alice", "avatar": "a.png", "online": 1},
+                            {"id": "u2", "nickname": "Bob", "avatarUrl": "b.png", "online": False},
+                        ]
+                    }
+                },
+            },
+        ),
+    )
+
+    result = _run(service.get_voice_channel_members(area="area", as_model=True))
+
+    assert isinstance(result, models.VoiceChannelMembersResult)
+    assert list(result.channels.keys()) == ["voice-1"]
+    assert [member.uid for member in result.channels["voice-1"]] == ["u1", "u2"]
+    assert [member.name for member in result.channels["voice-1"]] == ["Alice", "Bob"]
+    assert [member.avatar for member in result.channels["voice-1"]] == ["a.png", "b.png"]
+    assert [member.online for member in result.channels["voice-1"]] == [True, False]
+    assert result.payload["status"] is True
+
+
 def test_oopz_sdk_voice_channel_members_as_model_returns_result_object_on_malformed_channel_members_entry(
     monkeypatch,
 ):

@@ -232,7 +232,27 @@ def test_oopz_sdk_get_channel_messages_returns_error_dict_when_root_payload_is_i
 
     monkeypatch.setattr(service, "_request_json", fake_request_json)
 
-    with pytest.raises(AttributeError, match="'list' object has no attribute 'get'"):
+    with pytest.raises(
+        OopzApiError,
+        match="response format error: expected dict with 'messages' list",
+    ):
+        _run(service.get_channel_messages(area="area", channel="channel"))
+
+
+def test_oopz_sdk_get_channel_messages_returns_error_when_messages_key_is_missing(
+    monkeypatch,
+):
+    service = _make_message_service()
+
+    async def fake_request_data(method, path, params=None, body=None):
+        return {"message": []}
+
+    monkeypatch.setattr(service, "_request_data", fake_request_data)
+
+    with pytest.raises(
+        OopzApiError,
+        match="response format error: expected dict with 'messages' list",
+    ):
         _run(service.get_channel_messages(area="area", channel="channel"))
 
 
@@ -260,6 +280,32 @@ def test_oopz_sdk_private_message_returns_result_model(monkeypatch):
     assert calls[1]["path"] == "/im/session/v2/sendImMessage"
     assert calls[1]["body"]["message"]["channel"] == dm_channel
     assert calls[1]["body"]["message"]["target"] == "target-1"
+
+
+def test_oopz_sdk_private_message_v1_uses_v1_body_shape(monkeypatch):
+    service = _make_message_service()
+    dm_channel = "DM12345678901234567890"
+    calls = []
+
+    async def fake_request_data(method, path, params=None, body=None):
+        calls.append({"method": method, "path": path, "params": params, "body": body})
+        if path == "/client/v1/chat/v1/to":
+            return {"sessionId": dm_channel}
+        if path == "/im/session/v1/sendImMessage":
+            return {"messageId": "dm-v1", "timestamp": "123"}
+        raise AssertionError(f"unexpected path: {path}")
+
+    monkeypatch.setattr(service, "_request_data", fake_request_data)
+
+    result = _run(service.send_private_message("hello", target="target-1", version="v1"))
+
+    assert isinstance(result, models.MessageSendResult)
+    assert result.message_id == "dm-v1"
+    assert [call["method"] for call in calls] == ["PATCH", "POST"]
+    assert calls[1]["path"] == "/im/session/v1/sendImMessage"
+    assert calls[1]["body"]["channel"] == dm_channel
+    assert calls[1]["body"]["target"] == "target-1"
+    assert "message" not in calls[1]["body"]
 
 
 @pytest.mark.parametrize(

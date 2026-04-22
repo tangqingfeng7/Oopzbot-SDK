@@ -243,7 +243,6 @@ class Moderation(BaseService):
                         for item in blocks
                     ],
                     payload=result,
-                    response=resp,
                 )
             return {"blocks": blocks}
         except Exception as e:

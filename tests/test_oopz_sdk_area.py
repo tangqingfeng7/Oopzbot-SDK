@@ -478,6 +478,34 @@ def test_oopz_sdk_area_blocks_as_model_returns_result_object_on_malformed_succes
     assert result.payload == {"error": "area blocks响应格式异常"}
 
 
+def test_oopz_sdk_area_blocks_as_model_returns_result_object_on_success(monkeypatch):
+    service = Moderation(None, _make_config())
+    monkeypatch.setattr(
+        service,
+        "_get",
+        lambda *args, **kwargs: _FakeResponse(
+            200,
+            payload={
+                "status": True,
+                "data": {
+                    "blocks": [
+                        {"uid": "u1", "name": "Alice", "reason": "spam"},
+                        {"id": "u2", "nickname": "Bob"},
+                    ]
+                },
+            },
+        ),
+    )
+
+    result = _run(service.get_area_blocks(area="area", as_model=True))
+
+    assert isinstance(result, models.AreaBlocksResult)
+    assert [block.uid for block in result.blocks] == ["u1", "u2"]
+    assert [block.name for block in result.blocks] == ["Alice", "Bob"]
+    assert [block.reason for block in result.blocks] == ["spam", ""]
+    assert result.payload["status"] is True
+
+
 def test_oopz_sdk_area_blocks_as_model_returns_result_object_on_malformed_block_list(monkeypatch):
     service = Moderation(None, _make_config())
     monkeypatch.setattr(

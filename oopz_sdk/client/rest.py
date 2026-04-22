@@ -21,7 +21,6 @@ class OopzRESTClient:
         else:
             bot = config_or_bot
         self._bot = bot
-        self._config = config # todo ?????
         self.config = config
         self.signer = Signer(config)
         self.transport = HttpTransport(config, self.signer)

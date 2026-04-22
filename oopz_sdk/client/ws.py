@@ -49,6 +49,7 @@ class OopzWSClient:
         self.transport = WebSocketTransport(config)
 
         self._running = False
+        self._stop_event = asyncio.Event()
         self._receive_task: asyncio.Task | None = None
         self._heartbeat_task: asyncio.Task | None = None
         self._consecutive_failures = 0
@@ -56,6 +57,7 @@ class OopzWSClient:
 
     async def start(self) -> None:
         self._running = True
+        self._stop_event.clear()
 
         while self._running:
             fatal_error: Exception | None = None
@@ -141,10 +143,14 @@ class OopzWSClient:
             self._consecutive_failures += 1
 
             logger.warning("WebSocket 将在 %.2f 秒后尝试重连", delay)
-            await asyncio.sleep(delay)
+            try:
+                await asyncio.wait_for(self._stop_event.wait(), timeout=delay)
+            except asyncio.TimeoutError:
+                pass
 
     async def stop(self) -> None:
         self._running = False
+        self._stop_event.set()
         await self.transport.close()
 
     def _is_normal_stop_error(self, error: Exception) -> bool:

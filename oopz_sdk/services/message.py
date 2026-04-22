@@ -213,6 +213,7 @@ class Message(BaseService):
             animated=animated,
             display_name=display_name,
             duration=duration,
+            version=version,
         )
 
         url_path = "/im/session/v2/sendImMessage" if version == "v2" else "/im/session/v1/sendImMessage"
@@ -320,12 +321,17 @@ class Message(BaseService):
 
         data = await self._request_data("GET", url_path, params=params)
 
-        if not isinstance(data, dict) and data.get("message", None) is None:
+        if not isinstance(data, dict):
             raise OopzApiError(
-                "response format error: expected dict with 'message' key",
+                "response format error: expected dict with 'messages' list",
                 response=data,
             )
         messages = data.get("messages")
+        if not isinstance(messages, list):
+            raise OopzApiError(
+                "response format error: expected dict with 'messages' list",
+                response=data,
+            )
         return [models.Message.from_api(message) for message in messages]
 
     async def _upload_local_image_segment(self, seg: Image) -> Image:
