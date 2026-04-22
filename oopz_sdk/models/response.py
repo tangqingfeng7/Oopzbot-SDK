@@ -25,7 +25,19 @@ class PersonDetail(BaseModel):
     common_id: str = ""
     bio: str = ""
     payload: dict[str, Any] = field(default_factory=dict)
-    
+
+    @classmethod
+    def from_api(cls, data: Mapping[str, Any]) -> "PersonDetail":
+        if not isinstance(data, Mapping):
+            raise OopzApiError("invalid person detail payload: expected dict", payload=data)
+        return cls(
+            uid=str(data.get("uid") or data.get("id") or ""),
+            name=str(data.get("name") or data.get("nickname") or ""),
+            avatar=str(data.get("avatar") or data.get("avatarUrl") or ""),
+            common_id=str(data.get("commonId") or ""),
+            bio=str(data.get("bio") or data.get("signature") or ""),
+            payload=dict(data),
+        )
 
 
 @dataclass(slots=True)
@@ -36,7 +48,18 @@ class SelfDetail(BaseModel):
     mobile: str = ""
     from_cache: bool = False
     payload: dict[str, Any] = field(default_factory=dict)
-    
+
+    @classmethod
+    def from_api(cls, data: Mapping[str, Any]) -> "SelfDetail":
+        if not isinstance(data, Mapping):
+            raise OopzApiError("invalid self detail payload: expected dict", payload=data)
+        return cls(
+            uid=str(data.get("uid") or data.get("id") or ""),
+            name=str(data.get("name") or data.get("nickname") or ""),
+            avatar=str(data.get("avatar") or data.get("avatarUrl") or ""),
+            mobile=str(data.get("mobile") or ""),
+            payload=dict(data),
+        )
 
 
 
