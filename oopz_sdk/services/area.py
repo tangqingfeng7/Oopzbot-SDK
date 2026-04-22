@@ -51,12 +51,12 @@ class AreaService(BaseService):
 
     async def get_area_members(
             self,
-            area: str | None = None,
+            area: str,
             offset_start: int = 0,
             offset_end: int = 49,
     ) -> models.AreaMembersPage:
-        if not area:
-            raise ValueError("缺少 area")
+        if area.strip() == "":
+            raise ValueError("area cannot be empty")
         cache_key = (area, offset_start, offset_end)
         cache_ttl = float(getattr(self._config, "area_members_cache_ttl", 15.0))
 
@@ -102,15 +102,15 @@ class AreaService(BaseService):
 
     async def get_area_info(self, area: str) -> models.AreaInfo:
         """获取域详细信息（含角色列表、主页频道等）。"""
-        if not area:
-            raise ValueError("缺少 area")
+        if area.strip() == "":
+            raise ValueError("area cannot be empty")
         url_path = "/area/v3/info"
         params = {"area": area}
         data = await self._request_data("GET", url_path, params=params)
         return models.AreaInfo.from_api(data)
 
     async def enter_area(self, area: str, recover: bool = False) -> dict:
-        """进入指定域。"""
+        """进入指定域。todo"""
         url_path = f"/client/v1/area/v1/enter?area={area}&recover={str(recover).lower()}"
         body = {"area": area, "recover": recover}
 
@@ -133,8 +133,12 @@ class AreaService(BaseService):
             logger.error("进入域异常: %s", e)
             return self._error_payload(str(e), payload={**body, "error": str(e)})
 
+
+
     async def get_area_channels(self, area: str) -> list[models.ChannelGroupInfo]:
         """Fetch all channel groups in an area."""
+        if area.strip() == "":
+            raise ValueError("area cannot be empty")
         url_path = "/client/v1/area/v1/detail/v1/channels"
         params = {"area": area}
         data = await self._request_data("GET", url_path, params=params)

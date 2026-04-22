@@ -3,7 +3,10 @@ import logging
 from typing import Any, Optional
 
 from oopz_sdk import models
+from oopz_sdk.auth.signer import Signer
+from oopz_sdk.config.settings import OopzConfig
 from oopz_sdk.exceptions import OopzApiError
+from oopz_sdk.transport.http import HttpTransport
 
 from . import BaseService
 
@@ -281,10 +284,12 @@ class Member(BaseService):
             logger.error("获取等级信息异常: %s", e)
             return self._error_payload(str(e))
 
-    async def get_user_area_detail(self, target: str, area: Optional[str] = None) -> dict:
+    async def get_user_area_detail(self, target: str, area: str) -> dict:
         """获取指定用户在域内的角色列表和禁言/禁麦状态。"""
-        if not area:
-            raise ValueError("缺少 area")
+        if target == "":
+            raise ValueError("target cannot be empty")
+        elif area == "":
+            raise ValueError("area cannot be empty")
         url_path = "/area/v3/userDetail"
         params = {"area": area, "target": target}
         request_payload = {"area": area, "target": target}

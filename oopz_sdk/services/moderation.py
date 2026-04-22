@@ -5,6 +5,9 @@ from typing import Optional
 from urllib.parse import parse_qsl
 
 from oopz_sdk import models
+from oopz_sdk.auth.signer import Signer
+from oopz_sdk.config.settings import OopzConfig
+from oopz_sdk.transport.http import HttpTransport
 
 from . import BaseService
 
@@ -34,58 +37,60 @@ class Moderation(BaseService):
             payload=payload,
         )
 
-    async def mute_user(self, uid: str, area: Optional[str] = None, channel: Optional[str] = None, duration: int = 10) -> models.OperationResult:
+    async def mute_user(self, uid: str, area: str, duration: int = 10) -> models.OperationResult:
         """禁言用户。"""
-        if not area:
-            return self._missing_arg_result("area")
-        if not uid:
-            return self._missing_arg_result("uid")
+        if uid.strip() == "":
+            raise ValueError("uid is required for mute_user")
+        if area.strip() == "":
+            raise ValueError("area is required for mute_user")
         interval_id = self._minutes_to_interval_id(duration, voice=False)
         url_path = "/client/v1/area/v1/member/v1/disableText"
         query = f"?area={area}&target={uid}&intervalId={interval_id}"
         body = {"area": area, "target": uid, "intervalId": interval_id}
         return await self._manage_patch("禁言", url_path, query, body)
 
-    async def unmute_user(self, uid: str, area: Optional[str] = None, channel: Optional[str] = None) -> models.OperationResult:
+    async def unmute_user(self, uid: str, area: str) -> models.OperationResult:
         """解除禁言。"""
-        if not area:
-            return self._missing_arg_result("area")
-        if not uid:
-            return self._missing_arg_result("uid")
+        if uid.strip() == "":
+            raise ValueError("uid is required for unmute_user")
+        if area.strip() == "":
+            raise ValueError("area is required for unmute_user")
         url_path = "/client/v1/area/v1/member/v1/recoverText"
         query = f"?area={area}&target={uid}"
         body = {"area": area, "target": uid}
         return await self._manage_patch("解除禁言", url_path, query, body)
 
-    async def mute_mic(self, uid: str, area: Optional[str] = None, channel: Optional[str] = None, duration: int = 10) -> models.OperationResult:
+    async def mute_mic(self, uid: str, area: str, duration: int = 10) -> models.OperationResult:
         """禁麦用户。"""
-        if not area:
-            return self._missing_arg_result("area")
-        if not uid:
-            return self._missing_arg_result("uid")
+        if uid.strip() == "":
+            raise ValueError("uid is required for mute_mic")
+        if area.strip() == "":
+            raise ValueError("area is required for mute_mic")
+
         interval_id = self._minutes_to_interval_id(duration, voice=True)
         url_path = "/client/v1/area/v1/member/v1/disableVoice"
         query = f"?area={area}&target={uid}&intervalId={interval_id}"
         body = {"area": area, "target": uid, "intervalId": interval_id}
         return await self._manage_patch("禁麦", url_path, query, body)
 
-    async def unmute_mic(self, uid: str, area: Optional[str] = None, channel: Optional[str] = None) -> models.OperationResult:
+    async def unmute_mic(self, uid: str, area: str) -> models.OperationResult:
         """解除禁麦。"""
-        if not area:
-            return self._missing_arg_result("area")
-        if not uid:
-            return self._missing_arg_result("uid")
+        if uid.strip() == "":
+            raise ValueError("uid is required for unmute_mic")
+        if area.strip() == "":
+            raise ValueError("area is required for unmute_mic")
+
         url_path = "/client/v1/area/v1/member/v1/recoverVoice"
         query = f"?area={area}&target={uid}"
         body = {"area": area, "target": uid}
         return await self._manage_patch("解除禁麦", url_path, query, body)
 
-    async def remove_from_area(self, uid: str, area: Optional[str] = None) -> models.OperationResult:
+    async def remove_from_area(self, uid: str, area: str) -> models.OperationResult:
         """将用户移出当前域（踢出域）。"""
-        if not area:
-            return self._missing_arg_result("area")
-        if not uid:
-            return self._missing_arg_result("uid")
+        if uid.strip() == "":
+            raise ValueError("uid is required for unmute_mic")
+        if area.strip() == "":
+            raise ValueError("area is required for unmute_mic")
         url_path = f"/area/v3/remove?area={area}&target={uid}"
         body = {"area": area, "target": uid}
         try:
@@ -113,12 +118,13 @@ class Moderation(BaseService):
         logger.error("移出域失败: %s", err)
         return models.OperationResult(ok=False, message=str(err), payload={**body, **result})
 
-    async def block_user_in_area(self, uid: str, area: Optional[str] = None) -> models.OperationResult:
+    async def block_user_in_area(self, uid: str, area: str) -> models.OperationResult:
         """封禁用户。"""
-        if not area:
-            return self._missing_arg_result("area")
-        if not uid:
-            return self._missing_arg_result("uid")
+        if uid.strip() == "":
+            raise ValueError("uid is required for block_user_in_area")
+        if area.strip() == "":
+            raise ValueError("area is required for block_user_in_area")
+
         url_path = f"/client/v1/area/v1/block?area={area}&target={uid}"
         body = {"area": area, "target": uid}
         try:
@@ -256,12 +262,13 @@ class Moderation(BaseService):
                 return self._model_error(models.AreaBlocksResult, str(e))
             return self._error_payload(str(e), payload={**request_payload, "error": str(e)})
 
-    async def unblock_user_in_area(self, uid: str, area: Optional[str] = None) -> models.OperationResult:
+    async def unblock_user_in_area(self, uid: str, area: str) -> models.OperationResult:
         """解除域内封禁。"""
-        if not area:
-            return self._missing_arg_result("area")
-        if not uid:
-            return self._missing_arg_result("uid")
+        if uid.strip() == "":
+            raise ValueError("uid is required for unblock_user_in_area")
+        if area.strip() == "":
+            raise ValueError("area is required for unblock_user_in_area")
+
         url_path = "/client/v1/area/v1/unblock"
         query = f"?area={area}&target={uid}"
         body = {"area": area, "target": uid}

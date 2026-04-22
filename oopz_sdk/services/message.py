@@ -260,12 +260,12 @@ class Message(BaseService):
             timestamp: str = None,
             target: str = "",
     ) -> models.OperationResult:
-        if not area:
-            return self._missing_arg_result("area")
-        if not channel:
-            return self._missing_arg_result("channel")
-        if not message_id:
-            return self._missing_arg_result("message_id")
+        if message_id.strip() == "":
+            raise ValueError("message_id is required for recall_message")
+        if area.strip() == "":
+            raise ValueError("area is required for recall_message")
+        if channel.strip() == "":
+            raise ValueError("channel is required for recall_message")
         timestamp = timestamp or self.signer.timestamp_us()
 
         url_path = "/im/session/v1/recallGim"
@@ -287,12 +287,12 @@ class Message(BaseService):
             area: Optional[str] = None,
             timestamp: Optional[str] = None,
     ) -> models.OperationResult:
-        if not channel:
-            return self._missing_arg_result("channel")
-        if not target:
-            return self._missing_arg_result("target")
-        if not message_id:
-            return self._missing_arg_result("message_id")
+        if message_id.strip() == "":
+            raise ValueError("message_id is required for recall_private_message")
+        if channel.strip() == "":
+            raise ValueError("channel is required for recall_private_message")
+        if target.strip() == "":
+            raise ValueError("target is required for recall_private_message")
         timestamp = timestamp or self.signer.timestamp_us()
         url_path = "/im/session/v1/recallIm"
         body = {
@@ -316,17 +316,12 @@ class Message(BaseService):
 
         data = await self._request_data("GET", url_path, params=params)
 
-        if not isinstance(data, dict):
+        if not isinstance(data, dict) and data.get("message", None) is None:
             raise OopzApiError(
                 "response format error: expected dict with 'messages' list",
                 response=data,
             )
         messages = data.get("messages")
-        if not isinstance(messages, list):
-            raise OopzApiError(
-                "response format error: expected dict with 'messages' list",
-                response=data,
-            )
         return [models.Message.from_api(message) for message in messages]
 
     async def _upload_local_image_segment(self, seg: Image) -> Image:
@@ -342,9 +337,7 @@ class Message(BaseService):
 
         ext = os.path.splitext(source_path)[1] or ".jpg"
 
-        media_service = self._require_service("media")
-
-        upload_result = await media_service.upload_file(
+        upload_result = await self._bot.media.upload_file(
             source_path,
             file_type="IMAGE",
             ext=ext,
