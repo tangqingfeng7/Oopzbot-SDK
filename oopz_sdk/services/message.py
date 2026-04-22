@@ -354,3 +354,21 @@ class Message(BaseService):
             display_name=upload_result.display_name,
             preview_file_key=getattr(upload_result, "preview_file_key", ""),
         )
+
+    async def top_message(self, message_id: str, channel: str, area: str, top_message: bool = True) -> models.OperationResult:
+        if message_id.strip() == "":
+            raise ValueError("message_id is required for top_message")
+        if area.strip() == "":
+            raise ValueError("area is required for top_message")
+        if channel.strip() == "":
+            raise ValueError("channel is required for top_message")
+        url_path = "/im/session/v1/messageTop"
+
+        data = await self._request_data("POST", url_path, body={
+            "messageId": message_id,
+            "type": "TOP" if top_message else "CANCEL_TOP",
+            "area": area,
+            "channel": channel
+        })
+        return models.OperationResult.from_api(data)
+
