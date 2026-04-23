@@ -76,7 +76,7 @@ class AreaInfo(BaseModel):
     is_public: bool = Field(default=False, alias="isPublic")
     name: str = ""
     now: int = 0
-    private_channels: list[dict[str, Any]] = Field(default_factory=list, alias="privateChannels")
+    private_channels: list[str] = Field(default_factory=list, alias="privateChannels")
     role_list: list[AreaRole] = Field(default_factory=list, alias="roleList")
     subscribed: bool = False
 

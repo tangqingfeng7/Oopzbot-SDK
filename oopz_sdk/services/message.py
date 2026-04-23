@@ -101,12 +101,12 @@ class Message(BaseService):
             *texts: str | Segment,
             area: str,
             channel: str,
-            attachments: list = None,
-            mention_list: list = None,
+            attachments: Optional[list] = None,
+            mention_list: Optional[list] = None,
             is_mention_all: bool = False,
-            style_tags: list = None,
-            reference_message_id: str = None,
-            auto_recall=False,
+            style_tags: Optional[list] = None,
+            reference_message_id: Optional[str] = None,
+            auto_recall: bool = False,
             animated: bool = False,
             display_name: str = "",
             duration: int = 0,
@@ -224,7 +224,7 @@ class Message(BaseService):
             logger.error("failed to schedule auto recall: %s", exc)
 
     async def _do_auto_recall(
-            self, message_id: str, area: str, channel: str, delay: int
+            self, message_id: str, area: str, channel: str, delay: float
     ) -> None:
         try:
             await asyncio.sleep(delay)
@@ -257,7 +257,7 @@ class Message(BaseService):
             message_id: str,
             area: str,
             channel: str,
-            timestamp: str = None,
+            timestamp: Optional[str] = None,
             target: str = "",
     ) -> models.OperationResult:
         if message_id.strip() == "":

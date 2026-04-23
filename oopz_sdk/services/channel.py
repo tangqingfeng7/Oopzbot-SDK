@@ -407,10 +407,21 @@ class Channel(BaseService):
 
         return models.OperationResult.from_api(resp)
 
-    async def enter_channel(self, channel, area,
-                      channel_type: str = "TEXT", from_channel: str = "",
-                      from_area: str = "", pid: str = "") -> models.ChannelSign:
+    async def enter_channel(
+            self,
+            channel: str,
+            area: str,
+            channel_type: str = "TEXT",
+            from_channel: str = "",
+            from_area: str = "",
+            pid: str = "",
+    ) -> models.ChannelSign:
         """进入指定频道。"""
+        if channel.strip() == "":
+            raise ValueError("channel is required for enter_channel")
+        if area.strip() == "":
+            raise ValueError("area is required for enter_channel")
+
         url_path = "/area/v2/channel/enter"
 
         body: dict = {"type": channel_type, "area": area, "channel": channel}
@@ -427,22 +438,37 @@ class Channel(BaseService):
         return models.ChannelSign.from_api(resp)
 
 
-    async def leave_voice_channel(self, channel: str, area: Optional[str] = None,
-                            target: Optional[str] = None) -> models.OperationResult:
-        """退出语音频道。"""
-        target = target or self._config.person_uid
+    async def leave_voice_channel(
+            self,
+            channel: str,
+            area: str,
+            target: Optional[str] = None,
+    ) -> models.OperationResult:
+        """退出语音频道。
+
+        ``target`` 留空时默认踢自己（使用 ``OopzConfig.person_uid``）。
+        """
+        if channel.strip() == "":
+            raise ValueError("channel is required for leave_voice_channel")
+        if area.strip() == "":
+            raise ValueError("area is required for leave_voice_channel")
+
+        resolved_target = (target or self._config.person_uid or "").strip()
+        if not resolved_target:
+            raise ValueError("target is required for leave_voice_channel")
+
         url_path = "/client/v1/area/v1/member/v1/removeFromChannel"
-        params = {"area": area, "channel": channel, "target": target}
+        params = {"area": area, "channel": channel, "target": resolved_target}
         resp = await self._request_data("DELETE", url_path, params=params)
         return models.OperationResult.from_api(resp)
 
-    async def _get_voice_channel_ids(self, area: str) -> list[str] | dict[str, str]:
+    async def _get_voice_channel_ids(self, area: str) -> list[str]:
         cache_store = self._get_voice_ids_cache_store()
         cached = cache_store.get(area)
         if cached and time.time() - cached["ts"] < 300:
             return cached["ids"]
         groups: list[models.ChannelGroupInfo] = await self._bot.areas.get_area_channels(area)
-        ids = []
+        ids: list[str] = []
         for g in groups:
             for ch in g.channels:
                 if ch.channel_type in ("VOICE", "AUDIO"):
@@ -452,9 +478,11 @@ class Channel(BaseService):
 
     async def get_voice_channel_members(
         self,
-        area
+        area: str,
     ) -> models.VoiceChannelMembersResult:
         """获取域内各语音频道的在线成员列表。"""
+        if area.strip() == "":
+            raise ValueError("area is required for get_voice_channel_members")
         voice_ids = await self._get_voice_channel_ids(area)
 
         url_path = "/area/v3/channel/membersByChannels"
