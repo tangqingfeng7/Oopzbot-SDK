@@ -10,7 +10,7 @@ from oopz_sdk.exceptions import OopzApiError
 from oopz_sdk.models.segment import Image, Segment, Text
 from oopz_sdk.services import BaseService
 from oopz_sdk.utils.image import get_image_info
-from oopz_sdk.utils.message_builder import build_segments, normalize_message_parts
+from oopz_sdk.models import build_segments, normalize_message_parts
 
 logger = logging.getLogger("oopz_sdk.services.message")
 
@@ -233,10 +233,7 @@ class Message(BaseService):
         resolved: list[Segment] = []
 
         for seg in segments:
-            if isinstance(seg, Text):
-                resolved.append(seg)
-                continue
-
+            # 目前仅 Image 需要特殊处理，其他类型直接原样添加到 resolved 列表中
             if isinstance(seg, Image):
                 if seg.is_uploaded:
                     resolved.append(seg)
@@ -247,9 +244,7 @@ class Message(BaseService):
                     continue
 
                 raise ValueError("ImageSegment is neither uploaded nor backed by a local file")
-
-            raise TypeError(f"Unsupported segment type: {type(seg)!r}")
-
+            resolved.append(seg)
         return resolved
 
     async def recall_message(

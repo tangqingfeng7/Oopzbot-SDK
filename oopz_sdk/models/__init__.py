@@ -1,23 +1,22 @@
 from .area import JoinedAreaInfo, AreaInfo, ChannelGroupInfo, AreaMembersPage, AreaUserDetail, RoleInfo
-from .attachment import Attachment, AudioAttachment, ImageAttachment, UploadTicket, UploadedFileResult
+from .attachment import Attachment, ImageAttachment, UploadTicket, UploadedFileResult
 from .base import OperationResult
-from .channel import ( ChannelSetting, ChannelType,
+from .channel import (ChannelSetting, ChannelType,
                       CreateChannelResult, ChannelEdit, ChannelSign, VoiceChannelMembersResult)
 from .event import Event, MessageEvent
 from .member import UserInfo, Profile, UserLevelInfo
 from .message import Message, MessageSendResult, PrivateSession
 from .moderation import TextMuteInterval, VoiceMuteInterval
+from .segment import build_segments, normalize_message_parts
 
 JsonObject = dict[str, object]
 JsonList = list[object]
-
 
 __all__ = [
     "JoinedAreaInfo",
     "AreaInfo",
     "Attachment",
     "RoleInfo",
-    "AudioAttachment",
     "AreaMembersPage",
     "ChannelSetting",
     "ChannelGroupInfo",
@@ -42,5 +41,7 @@ __all__ = [
     "TextMuteInterval",
     "VoiceMuteInterval",
     "Profile",
-    "UserLevelInfo"
+    "UserLevelInfo",
+    "build_segments",
+    "normalize_message_parts"
 ]
