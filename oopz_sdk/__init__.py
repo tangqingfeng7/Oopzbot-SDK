@@ -7,18 +7,6 @@ def _optional_dependency_message(exc: ModuleNotFoundError, *, feature: str) -> s
         raise exc
     return f"{missing_name} is required for {feature}"
 
-
-try:
-    from .services.media import UploadMixin, get_image_info
-except ModuleNotFoundError as exc:  # pragma: no cover - optional runtime dependency
-    _missing_media_dependency_message = _optional_dependency_message(exc, feature="image helpers")
-
-    class UploadMixin:  # type: ignore[override]
-        """Fallback mixin when optional media dependencies are unavailable."""
-
-    def get_image_info(*args, **kwargs):
-        raise ModuleNotFoundError(_missing_media_dependency_message)
-
 from .api import OopzApiMixin
 from .auth import Signer
 from .client import  OopzRESTClient
@@ -44,54 +32,23 @@ from .exceptions import (
     OopzTransportError,
 )
 from .models import (
-    Area,
-    AreaBlock,
-    AreaBlocksResult,
+    JoinedAreaInfo,
     AreaMembersPage,
-    ApiResponse,
     Attachment,
     AudioAttachment,
-    BaseModel,
-    Channel,
-    ChannelGroup,
-    ChannelGroupsResult,
     ChannelSetting,
-    DailySpeechResult,
     Event,
     ImageAttachment,
     JsonList,
     JsonObject,
-    JoinedAreasResult,
-    Member,
     Message as MessageModel,
     MessageEvent,
-    MessageListResult,
     MessageSendResult,
     OperationResult,
-    PersonDetail,
-    PersonInfo,
-    PrivateSessionResult,
-    SelfDetail,
-    UploadResult,
     VoiceChannelMembersResult,
 )
 from .services.message import Message as MessageService
-from .response import (
-    SUCCESS_CODES,
-    ensure_http_ok,
-    ensure_success_payload,
-    error_message_from_payload,
-    is_success_payload,
-    raise_api_error,
-    raise_connection_error,
-    raise_payload_error,
-    require_dict_data,
-    require_list_data,
-    response_preview,
-    retry_delay_from_exception,
-    safe_json,
-    safe_json_object,
-)
+
 from .version import __version__
 
 try:
@@ -118,11 +75,8 @@ __all__ = [
     "EVENT_SERVER_ID",
     "HeartbeatConfig",
     "ImageAttachment",
-    "JoinedAreasResult",
-    "Member",
     "Message",
     "MessageModel",
-    "MessageListResult",
     "MessageSendResult",
     "OopzApiError",
     "OopzAuthError",
@@ -136,48 +90,19 @@ __all__ = [
     "OopzTransportError",
     "OopzWSClient",
     "OperationResult",
-    "PersonDetail",
-    "PrivateSessionResult",
     "ProxyConfig",
     "RetryConfig",
-    "SelfDetail",
     "Signer",
-    "UploadResult",
-    "UploadMixin",
     "VoiceChannelMembersResult",
     "__version__",
-    "Area",
-    "AreaBlock",
-    "AreaBlocksResult",
+    "JoinedAreaInfo",
     "AreaMembersPage",
-    "ApiResponse",
     "Attachment",
     "AudioAttachment",
-    "BaseModel",
-    "Channel",
-    "ChannelGroup",
-    "ChannelGroupsResult",
     "ChannelSetting",
-    "DailySpeechResult",
-    "ensure_http_ok",
-    "ensure_success_payload",
-    "error_message_from_payload",
     "Event",
-    "is_success_payload",
     "JsonList",
     "JsonObject",
     "MessageEvent",
     "OopzApiMixin",
-    "PersonInfo",
-    "raise_api_error",
-    "raise_connection_error",
-    "raise_payload_error",
-    "require_dict_data",
-    "require_list_data",
-    "response_preview",
-    "retry_delay_from_exception",
-    "safe_json",
-    "safe_json_object",
-    "SUCCESS_CODES",
-    "get_image_info",
 ]

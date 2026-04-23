@@ -12,3 +12,4 @@ smoke/test_private_key.pem
 .vscode/
 .idea/
 *.log
+Test

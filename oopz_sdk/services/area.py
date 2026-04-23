@@ -4,12 +4,9 @@ import asyncio
 import copy
 import logging
 import time
-from typing import Optional
+from typing import Optional, List
 
 from oopz_sdk import models
-from oopz_sdk.auth.signer import Signer
-from oopz_sdk.config.settings import OopzConfig
-from oopz_sdk.transport.http import HttpTransport
 
 from . import BaseService
 
@@ -18,22 +15,6 @@ logger = logging.getLogger("oopz_sdk.services.area")
 
 class AreaService(BaseService):
     """Area-related platform capabilities."""
-
-    def __init__(
-        self,
-        config_or_bot,
-        config: OopzConfig | None = None,
-        transport: HttpTransport | None = None,
-        signer: Signer | None = None,
-    ):
-        if config is None:
-            bot = None
-            config = config_or_bot
-        else:
-            bot = config_or_bot
-        resolved_signer = signer or Signer(config)
-        resolved_transport = transport or HttpTransport(config, resolved_signer)
-        super().__init__(config, resolved_transport, resolved_signer, bot=bot)
 
     def _get_area_members_cache_store(self) -> dict:
         store = getattr(self, "_area_members_cache", None)
@@ -68,515 +49,175 @@ class AreaService(BaseService):
             store.pop(oldest, None)
         store[cache_key] = {"ts": time.time(), "data": copy.deepcopy(data)}
 
-    @staticmethod
-    def _to_member_model(payload: dict) -> models.Member:
-        return models.Member(
-            uid=str(payload.get("uid") or payload.get("id") or ""),
-            name=str(payload.get("name") or payload.get("nickname") or ""),
-            nickname=str(payload.get("name") or payload.get("nickname") or ""),
-            avatar=str(payload.get("avatar") or payload.get("avatarUrl") or ""),
-            online=bool(payload.get("online") in (1, True)),
-            payload=dict(payload),
-        )
-
-    @staticmethod
-    def _to_area_model(payload: dict, *, response=None) -> models.Area:
-        return models.Area(
-            id=str(payload.get("id") or payload.get("code") or ""),
-            name=str(payload.get("name") or ""),
-            code=str(payload.get("code") or ""),
-            description=str(payload.get("description") or ""),
-            payload=dict(payload),
-            response=response,
-        )
-
-    def _to_area_members_page_model(self, data: dict, *, response=None) -> models.AreaMembersPage:
-        members_payload = data.get("members") or []
-        invalid_payload = self._invalid_dict_item_payload(
-            members_payload,
-            "area members响应格式异常",
-            list_key="members",
-            payload={"members": members_payload},
-        )
-        if invalid_payload:
-            return self._model_error(
-                models.AreaMembersPage,
-                "area members响应格式异常",
-                response=response,
-                payload=invalid_payload,
-            )
-        members = [
-            self._to_member_model(item) for item in members_payload
-        ]
-        return models.AreaMembersPage(
-            members=members,
-            online_count=int(data.get("onlineCount") or 0),
-            total_count=int(data.get("totalCount") or 0),
-            user_count=int(data.get("userCount") or 0),
-            fetched_count=int(data.get("fetchedCount") or 0),
-            stale=bool(data.get("stale")),
-            rate_limited=bool(data.get("rateLimited")),
-            from_cache=bool(data.get("from_cache")),
-            payload=dict(data),
-            response=response,
-        )
-
     async def get_area_members(
-        self,
-        area: Optional[str] = None,
-        offset_start: int = 0,
-        offset_end: int = 49,
-        quiet: bool = False,
-        *,
-        as_model: bool = False,
-    ) -> dict | models.AreaMembersPage:
-        """获取域内成员列表及在线状态。"""
-        area = area or self._config.default_area
-        url_path = "/area/v3/members"
-        params = {"area": area, "offsetStart": str(offset_start), "offsetEnd": str(offset_end)}
-        max_attempts = 3
-        cache_key = (str(area), int(offset_start), int(offset_end))
-        cache_ttl = float(getattr(self._config, "area_members_cache_ttl", 2.0))
+            self,
+            area: str,
+            offset_start: int = 0,
+            offset_end: int = 49,
+    ) -> models.AreaMembersPage:
+        if area.strip() == "":
+            raise ValueError("area cannot be empty")
+        cache_key = (area, offset_start, offset_end)
+        cache_ttl = float(getattr(self._config, "area_members_cache_ttl", 15.0))
 
-        def _error_response(
-            message: str,
-            *,
-            payload: dict | None = None,
-            response=None,
-            debug_reason: str,
-            retry_after: int | None = None,
-        ) -> dict:
-            error_payload = self._error_payload(message, payload=payload, default=message)
-            error_payload["area"] = area
-            error_payload["offsetStart"] = offset_start
-            error_payload["offsetEnd"] = offset_end
-            error_payload["debug_reason"] = debug_reason
-            if response is not None and getattr(response, "status_code", None) is not None:
-                error_payload.setdefault("status_code", response.status_code)
-            if retry_after is not None and retry_after > 0:
-                error_payload["retry_after"] = retry_after
-            return error_payload
+        cached = self._get_cached_area_members(cache_key, max_age=cache_ttl)
+        if cached is not None:
+            cached["from_cache"] = True
+            model = models.AreaMembersPage.from_api(cached)
+            return model
 
-        if quiet:
-            cached = self._get_cached_area_members(cache_key, max_age=cache_ttl)
-            if cached is not None:
-                if as_model:
-                    cached["from_cache"] = True
-                    return self._to_area_members_page_model(cached)
-                return cached
+        data = await self._request_data_with_retry(
+            "GET",
+            "/area/v3/members",
+            params={
+                "area": area,
+                "offsetStart": str(offset_start),
+                "offsetEnd": str(offset_end),
+            },
+            retry_on_429=True,
+            max_attempts=3,
+        )
+        model = models.AreaMembersPage.from_api(data)
 
-        try:
-            resp = None
-            for attempt in range(1, max_attempts + 1):
-                resp = await self._await_if_needed(self._get(url_path, params=params))
-                if resp is None:
-                    break
-                if resp.status_code != 429:
-                    break
+        normalized = {
+            "members": copy.deepcopy(model.members),
+            "roleCount": copy.deepcopy(model.role_count),
+            "totalCount": model.total_count,
+            "payload": copy.deepcopy(model.payload),
+        }
 
-                retry_after = 0
-                try:
-                    retry_after = int(resp.headers.get("Retry-After", "0") or "0")
-                except Exception:
-                    retry_after = 0
-                wait_seconds = retry_after if retry_after > 0 else min(attempt, 3)
-
-                if attempt >= max_attempts:
-                    logger.warning(
-                        "获取域成员被限流: HTTP 429 (area=%s, offset=%s-%s, 已重试%d次)",
-                        area, offset_start, offset_end, max_attempts - 1,
-                    )
-                    err = _error_response(
-                        "HTTP 429",
-                        response=resp,
-                        debug_reason="get_area_members_rate_limited",
-                        retry_after=retry_after,
-                    )
-                    if as_model:
-                        return self._model_error(
-                            models.AreaMembersPage,
-                            "HTTP 429",
-                            response=resp,
-                            payload=err,
-                        )
-                    return err
-
-                logger.warning(
-                    "获取域成员被限流: HTTP 429 (area=%s, offset=%s-%s), %.1fs 后重试 (%d/%d)",
-                    area, offset_start, offset_end, float(wait_seconds), attempt, max_attempts - 1,
-                )
-                await asyncio.sleep(wait_seconds)
-
-            if resp is None:
-                err = _error_response(
-                    "未获得响应",
-                    debug_reason="get_area_members_missing_response",
-                )
-                if as_model:
-                    return self._model_error(
-                        models.AreaMembersPage,
-                        "未获得响应",
-                        payload=err,
-                    )
-                return err
-
-            if resp.status_code != 200:
-                logger.debug("获取域成员失败: HTTP %d", resp.status_code)
-                err = _error_response(
-                    f"HTTP {resp.status_code}",
-                    response=resp,
-                    debug_reason="get_area_members_http_error",
-                )
-                if as_model:
-                    return self._model_error(
-                        models.AreaMembersPage,
-                        f"HTTP {resp.status_code}",
-                        response=resp,
-                        payload=err,
-                    )
-                return err
-
-            if not resp.content:
-                logger.debug("获取域成员失败: HTTP 200 但响应体为空")
-                err = _error_response(
-                    "empty response",
-                    response=resp,
-                    debug_reason="get_area_members_empty_response",
-                )
-                if as_model:
-                    return self._model_error(
-                        models.AreaMembersPage,
-                        "empty response",
-                        response=resp,
-                        payload=err,
-                    )
-                return err
-
-            try:
-                result = resp.json()
-            except ValueError:
-                content_encoding = (resp.headers.get("Content-Encoding") or "").lower()
-                if content_encoding in ("br", "zstd") or (
-                    resp.content and resp.content[:4] != b'{"st'
-                ):
-                    logger.debug(
-                        "获取域成员失败: 响应体可能未被正确解压 "
-                        "(Content-Encoding=%s, len=%d)。"
-                        "请确保已安装 brotli 和 zstandard 包",
-                        content_encoding or "未知", len(resp.content),
-                    )
-                else:
-                    logger.debug(
-                        "获取域成员失败: 响应非合法 JSON (len=%d, status=%d, preview=%r)",
-                        len(resp.content), resp.status_code, resp.content[:200],
-                    )
-                err = _error_response(
-                    "invalid JSON",
-                    response=resp,
-                    debug_reason="get_area_members_invalid_json",
-                )
-                if as_model:
-                    return self._model_error(
-                        models.AreaMembersPage,
-                        "invalid JSON",
-                        response=resp,
-                        payload=err,
-                    )
-                return err
-            if not result.get("status"):
-                msg = self._error_message(result)
-                logger.debug("获取域成员失败: %s", msg)
-                err = _error_response(
-                    msg,
-                    payload=result,
-                    response=resp,
-                    debug_reason="get_area_members_failed_status",
-                )
-                if as_model:
-                    return self._model_error(
-                        models.AreaMembersPage,
-                        msg,
-                        response=resp,
-                        payload=err,
-                    )
-                return err
-
-            data = result.get("data", {})
-            if not isinstance(data, dict):
-                err = _error_response(
-                    "area members响应格式异常",
-                    payload=result,
-                    response=resp,
-                    debug_reason="get_area_members_malformed_data",
-                )
-                if as_model:
-                    return self._model_error(
-                        models.AreaMembersPage,
-                        "area members响应格式异常",
-                        response=resp,
-                        payload=err,
-                    )
-                logger.error("获取域成员失败: 响应格式异常")
-                return err
-            members = data.get("members", [])
-            if not isinstance(members, list):
-                err = _error_response(
-                    "area members响应格式异常",
-                    payload={"members": members},
-                    response=resp,
-                    debug_reason="get_area_members_malformed_members",
-                )
-                if as_model:
-                    return self._model_error(
-                        models.AreaMembersPage,
-                        "area members响应格式异常",
-                        response=resp,
-                        payload=err,
-                    )
-                logger.error("获取域成员失败: members格式异常")
-                return err
-            invalid_members_payload = self._invalid_dict_item_payload(
-                members,
-                "area members响应格式异常",
-                list_key="members",
-                payload={"members": members},
-            )
-            if invalid_members_payload:
-                err = _error_response(
-                    "area members响应格式异常",
-                    payload=invalid_members_payload,
-                    response=resp,
-                    debug_reason="get_area_members_invalid_member",
-                )
-                if as_model:
-                    return self._model_error(
-                        models.AreaMembersPage,
-                        "area members响应格式异常",
-                        response=resp,
-                        payload=err,
-                    )
-                return err
-            online = sum(1 for m in members if m.get("online") == 1)
-            fetched = len(members)
-            api_total = data.get("totalCount") or data.get("userCount")
-            try:
-                total = int(api_total) if api_total is not None else fetched
-            except Exception:
-                total = fetched
-
-            role_count = data.get("roleCount", [])
-            online_from_api = sum(
-                rc.get("count", 0) for rc in role_count if rc.get("role", 0) != -1
-            ) if role_count else online
-
-            if not quiet:
-                logger.info("获取域成员成功: 本页 %d 人, 在线 %d 人, 域总人数 %d", fetched, online_from_api, total)
-            data["onlineCount"] = online_from_api or online
-            data["totalCount"] = total
-            data["userCount"] = total
-            data["fetchedCount"] = fetched
-            self._set_cached_area_members(cache_key, data)
-            if as_model:
-                return self._to_area_members_page_model(data, response=resp)
-            return data
-        except Exception as e:
-            logger.error("获取域成员异常: %s", e)
-            err = _error_response(
-                str(e),
-                debug_reason="get_area_members_exception",
-            )
-            if as_model:
-                return self._model_error(
-                    models.AreaMembersPage,
-                    str(e),
-                    payload=err,
-                )
-            return err
+        self._set_cached_area_members(cache_key, normalized)
+        return model
 
     async def get_joined_areas(
-        self,
-        quiet: bool = False,
-        *,
-        as_model: bool = False,
-    ) -> list[dict] | dict | models.JoinedAreasResult:
+        self
+    ) -> List[models.JoinedAreaInfo]:
         """获取当前用户已加入（订阅）的域列表。"""
         url_path = "/userSubscribeArea/v1/list"
-        try:
-            resp = await self._await_if_needed(self._get(url_path))
-            if resp.status_code != 200:
-                logger.error("获取已加入域列表失败: HTTP %d", resp.status_code)
-                if as_model:
-                    return self._model_error(
-                        models.JoinedAreasResult,
-                        f"HTTP {resp.status_code}",
-                        response=resp,
-                    )
-                return self._error_payload(f"HTTP {resp.status_code}")
-            result = resp.json()
-            if not result.get("status"):
-                msg = self._error_message(result)
-                logger.error("获取已加入域列表失败: %s", msg)
-                if as_model:
-                    return self._model_error(
-                        models.JoinedAreasResult,
-                        msg,
-                        response=resp,
-                        payload=result,
-                    )
-                return self._error_payload(msg, payload=result)
-            areas = result.get("data", [])
-            if not isinstance(areas, list):
-                if as_model:
-                    return self._model_error(
-                        models.JoinedAreasResult,
-                        "joined areas响应格式异常",
-                        response=resp,
-                    )
-                logger.error("获取已加入域列表失败: 响应格式异常")
-                return self._error_payload("joined areas响应格式异常")
-            invalid_payload = self._invalid_dict_item_payload(
-                areas,
-                "joined areas响应格式异常",
-                list_key="areas",
-                payload={"areas": areas},
-            )
-            if invalid_payload:
-                if as_model:
-                    return self._model_error(
-                        models.JoinedAreasResult,
-                        "joined areas响应格式异常",
-                        response=resp,
-                        payload=invalid_payload,
-                    )
-                return invalid_payload
-            if not quiet:
-                logger.info("获取已加入域列表: %d 个域", len(areas))
-                for a in areas:
-                    logger.info("  域: %s (ID=%s, code=%s)", a.get("name"), a.get("id"), a.get("code"))
-            if as_model:
-                return models.JoinedAreasResult(
-                    areas=[self._to_area_model(a) for a in areas],
-                    payload={"areas": areas},
-                    response=resp,
-                )
-            return areas
-        except Exception as e:
-            logger.error("获取已加入域列表异常: %s", e)
-            if as_model:
-                return self._model_error(models.JoinedAreasResult, str(e))
-            return self._error_payload(str(e))
+        data = await self._request_data("GET", url_path)
+        result: list[models.JoinedAreaInfo] = []
+        for i, item in enumerate(data):
+            result.append(models.JoinedAreaInfo.from_api(item))
+        return result
 
-    async def get_area_info(self, area: Optional[str] = None, *, as_model: bool = False) -> dict | models.Area:
+    async def get_area_info(self, area: str) -> models.AreaInfo:
         """获取域详细信息（含角色列表、主页频道等）。"""
-        area = self._resolve_area(area)
+        if area.strip() == "":
+            raise ValueError("area cannot be empty")
         url_path = "/area/v3/info"
         params = {"area": area}
+        data = await self._request_data("GET", url_path, params=params)
+        return models.AreaInfo.from_api(data)
+
+    async def enter_area(self, area: str, recover: bool = False) -> dict:
+        """进入指定域。todo"""
+        url_path = f"/client/v1/area/v1/enter?area={area}&recover={str(recover).lower()}"
+        body = {"area": area, "recover": recover}
+
         try:
-            resp = await self._await_if_needed(self._get(url_path, params=params))
+            resp = await self._post(url_path, body)
             if resp.status_code != 200:
-                logger.error("获取域详情失败: HTTP %d", resp.status_code)
-                if as_model:
-                    return self._model_error(
-                        models.Area,
-                        f"HTTP {resp.status_code}",
-                        response=resp,
-                    )
-                return {"error": f"HTTP {resp.status_code}"}
+                return self._error_payload(
+                    f"HTTP {resp.status_code}",
+                    payload={**body, "error": f"HTTP {resp.status_code}"},
+                )
             result = resp.json()
             if not result.get("status"):
                 msg = self._error_message(result)
-                if as_model:
-                    return self._model_error(
-                        models.Area,
-                        msg,
-                        response=resp,
-                        payload=result,
-                    )
-                return {"error": msg}
-            data = result.get("data", {})
-            if as_model:
-                if not isinstance(data, dict):
-                    return self._model_error(
-                        models.Area,
-                        "area info响应格式异常",
-                        response=resp,
-                    )
-                return self._to_area_model(data, response=resp)
-            return data
-        except Exception as e:
-            logger.error("获取域详情异常: %s", e)
-            if as_model:
-                return self._model_error(models.Area, str(e))
-            return {"error": str(e)}
-
-    async def enter_area(self, area: Optional[str] = None, recover: bool = False) -> dict:
-        """进入指定域。"""
-        area = area or self._config.default_area
-        url_path = f"/client/v1/area/v1/enter?area={area}&recover={str(recover).lower()}"
-        body = {"area": area, "recover": recover}
-        try:
-            resp = await self._await_if_needed(self._post(url_path, body))
-            if resp.status_code != 200:
-                return {"error": f"HTTP {resp.status_code}"}
-            result = resp.json()
-            if not result.get("status"):
-                return {"error": result.get("message") or result.get("error") or "未知错误"}
+                return self._error_payload(
+                    msg,
+                    payload={**body, **result, "error": msg},
+                )
             return result.get("data", {})
         except Exception as e:
             logger.error("进入域异常: %s", e)
-            return {"error": str(e)}
+            return self._error_payload(str(e), payload={**body, "error": str(e)})
 
-    async def get_area_channels(self, area: Optional[str] = None, quiet: bool = True) -> list | dict:
+
+
+    async def get_area_channels(self, area: str) -> list[models.ChannelGroupInfo]:
         """Fetch all channel groups in an area."""
-        area = area or self._config.default_area
+        if area.strip() == "":
+            raise ValueError("area cannot be empty")
         url_path = "/client/v1/area/v1/detail/v1/channels"
         params = {"area": area}
+        data = await self._request_data("GET", url_path, params=params)
+        return [models.ChannelGroupInfo.from_api(item) for item in data]
 
-        try:
-            resp = await self._await_if_needed(self._get(url_path, params=params))
-            if resp.status_code != 200:
-                logger.error("get_area_channels failed: HTTP %d", resp.status_code)
-                return self._error_payload(f"HTTP {resp.status_code}")
+    async def get_area_user_detail(self, area: str, target: str) -> models.AreaUserDetail:
+        """获取指定用户在域内的角色列表和禁言/禁麦状态。"""
+        if not target:
+            raise ValueError("target is required for get_user_area_detail()")
+        if not area:
+            raise ValueError("area is required for get_user_area_detail()")
 
-            result = resp.json()
-            if not result.get("status"):
-                msg = self._error_message(result)
-                logger.error("get_area_channels failed: %s", msg)
-                return self._error_payload(msg, payload=result)
+        url_path = "/area/v3/userDetail"
+        params = {"area": area, "target": target}
+        data = await self._request_data("GET", url_path, params=params)
+        return models.AreaUserDetail.from_api(data)
 
-            groups = result.get("data", [])
-            if not isinstance(groups, list):
-                logger.error("get_area_channels failed: 响应格式异常")
-                return self._error_payload("channel groups响应格式异常")
-            invalid_payload = self._invalid_dict_item_payload(
-                groups,
-                "channel groups响应格式异常",
-                list_key="groups",
-                payload={"groups": groups},
-            )
-            if invalid_payload:
-                logger.error("get_area_channels failed: channel groups响应格式异常")
-                return invalid_payload
-            for group in groups:
-                channels = group.get("channels", [])
-                if channels is None:
-                    channels = []
-                invalid_channels_payload = self._invalid_dict_item_payload(
-                    channels,
-                    "channel groups响应格式异常",
-                    list_key="channels",
-                    payload={"groups": groups},
-                )
-                if invalid_channels_payload:
-                    logger.error("get_area_channels failed: channel groups响应格式异常")
-                    return invalid_channels_payload
-            if not quiet:
-                total = sum(len(g.get("channels") or []) for g in groups)
-                logger.info("get_area_channels success: %d channels in %d groups", total, len(groups))
-            return groups
-        except Exception as e:
-            logger.error("get_area_channels exception: %s", e)
-            return self._error_payload(str(e))
+
+    async def get_area_can_give_list(self, area: str, target: str) -> list[models.RoleInfo]:
+        """获取当前用户可以分配给目标用户的角色列表。"""
+        if not target:
+            raise ValueError("target is required for get_assignable_roles()")
+        if not area:
+            raise ValueError("area is required for get_assignable_roles()")
+
+        url_path = "/area/v3/role/canGiveList"
+
+        data = await self._request_data("GET", url_path, params={"area": area, "target": target})
+
+        roles = data.get('roles')
+        if roles is None:
+            raise ValueError("Invalid API response: 'roles' field is missing or not a list")
+
+        return [models.RoleInfo.from_api(role) for role in roles]
+
+
+    async def edit_user_role(
+            self,
+            target_uid: str,
+            role_id: int,
+            area: str,
+            add: bool = True,
+    ) -> models.OperationResult:
+        """给目标用户添加或取消指定身份组。"""
+        if target_uid.strip() == "":
+            raise ValueError("target_uid is required for edit_user_role()")
+        if area.strip() == "":
+            raise ValueError("area is required for edit_user_role()")
+
+        area_info = await self.get_area_user_detail(area, target_uid)
+
+        current_ids = [role.role_id for role in area_info.roles]
+        if add:
+            if role_id not in current_ids:
+                current_ids.append(role_id)
+        else:
+            current_ids = [x for x in current_ids if x != role_id]
+
+        body = {"area": area, "target": target_uid, "targetRoleIDs": current_ids}
+        resp = await self._request_data("POST", "/area/v3/role/editUserRole", body=body)
+        return models.OperationResult.from_api(resp)
+
+    # async def search_area_members(
+    #         self,
+    #         area: str,
+    #         keyword: str = "",
+    #         *,
+    #         offset: int = 0,
+    #         limit: int = 50,
+    # ) -> None:
+    #     """搜索域内成员。"""
+    #     if not area:
+    #         raise ValueError("area is required for search_area_members()")
+    #
+    #     url_path = "/area/v3/search/areaSettingMembers"
+    #     body = {"area": area, "name": keyword, "offset": offset, "limit": limit}
+    #
+    #     raise NotImplementedError("unknown usage method")
+
 
     async def populate_names(self, *, set_area=None, set_channel=None) -> dict:
         """从 API 获取已加入域列表及各域频道列表，通过回调填充名称。
@@ -590,48 +231,22 @@ class AreaService(BaseService):
         """
         areas_count = 0
         channels_count = 0
-        pending_areas: list[tuple[str, str]] = []
-        pending_channels: list[tuple[str, str]] = []
+
         areas = await self.get_joined_areas()
-        if isinstance(areas, dict) and areas.get("error"):
-            return self._error_payload(areas["error"], payload=areas)
-        if not isinstance(areas, list):
-            return self._error_payload("joined areas响应格式异常")
-        for a in areas:
-            if not isinstance(a, dict):
-                return self._error_payload("joined areas响应格式异常")
-            area_id = a.get("id", "")
-            area_name = a.get("name", "")
-            if area_id and area_name:
-                pending_areas.append((area_id, area_name))
 
-            groups = await self.get_area_channels(area_id)
-            if isinstance(groups, dict) and groups.get("error"):
-                return self._error_payload(
-                    f"获取域频道列表失败: {groups['error']}",
-                    payload={"error": f"获取域频道列表失败: {groups['error']}"},
-                )
-            if not isinstance(groups, list):
-                return self._error_payload("channel groups响应格式异常")
+        for area in areas:
+            if area.area_id and area.name:
+                if set_area:
+                    set_area(area.area_id, area.name)
+                    areas_count += 1
+
+            groups = await self.get_area_channels(area.area_id)
             for group in groups:
-                if not isinstance(group, dict):
-                    return self._error_payload("channel groups响应格式异常")
-                for ch in (group.get("channels") or []):
-                    if not isinstance(ch, dict):
-                        return self._error_payload("channel groups响应格式异常")
-                    ch_id = ch.get("id", "")
-                    ch_name = ch.get("name", "")
-                    if ch_id and ch_name:
-                        pending_channels.append((ch_id, ch_name))
+                for ch in group.channels:
+                    if ch.channel_id and ch.name:
+                        if set_channel:
+                            set_channel(ch.channel_id, ch.name)
+                            channels_count += 1
 
-        if set_area:
-            for area_id, area_name in pending_areas:
-                set_area(area_id, area_name)
-                areas_count += 1
-        if set_channel:
-            for channel_id, channel_name in pending_channels:
-                set_channel(channel_id, channel_name)
-                channels_count += 1
-
-        logger.info("名称自动填充完成: %d 个域, %d 个频道", areas_count, channels_count)
+        logger.info("Name population completed: %d areas, %d channels", areas_count, channels_count)
         return {"areas_named": areas_count, "channels_named": channels_count}

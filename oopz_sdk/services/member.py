@@ -1,12 +1,10 @@
 from __future__ import annotations
+
 import logging
 from typing import Any, Optional
 
 from oopz_sdk import models
-from oopz_sdk.auth.signer import Signer
-from oopz_sdk.config.settings import OopzConfig
 from oopz_sdk.exceptions import OopzApiError
-from oopz_sdk.transport.http import HttpTransport
 
 from . import BaseService
 
@@ -14,438 +12,75 @@ logger = logging.getLogger("oopz_sdk.services.member")
 
 
 class Member(BaseService):
-    """Member-related platform capabilities."""
+    """用户相关能力：个人资料、成员搜索、身份组分配等。"""
 
-    def __init__(
-        self,
-        config_or_bot,
-        config: OopzConfig | None = None,
-        transport: HttpTransport | None = None,
-        signer: Signer | None = None,
-    ):
-        if config is None:
-            bot = None
-            config = config_or_bot
-        else:
-            bot = config_or_bot
-        resolved_signer = signer or Signer(config)
-        resolved_transport = transport or HttpTransport(config, resolved_signer)
-        super().__init__(config, resolved_transport, resolved_signer, bot=bot)
-
-    @staticmethod
-    def _to_member_model(payload: dict) -> models.Member:
-        return models.Member(
-            uid=str(payload.get("uid") or payload.get("id") or ""),
-            name=str(payload.get("name") or payload.get("nickname") or ""),
-            nickname=str(payload.get("name") or payload.get("nickname") or ""),
-            avatar=str(payload.get("avatar") or payload.get("avatarUrl") or ""),
-            common_id=str(payload.get("commonId") or ""),
-            bio=str(payload.get("bio") or payload.get("signature") or ""),
-            online=bool(payload.get("online") in (1, True)),
-            payload=dict(payload),
-        )
-
-    @staticmethod
-    def _to_person_detail_model(payload: dict) -> models.PersonDetail:
-        return models.PersonDetail(
-            uid=str(payload.get("uid") or payload.get("id") or ""),
-            name=str(payload.get("name") or payload.get("nickname") or ""),
-            avatar=str(payload.get("avatar") or payload.get("avatarUrl") or ""),
-            common_id=str(payload.get("commonId") or ""),
-            bio=str(payload.get("bio") or payload.get("signature") or ""),
-            payload=dict(payload),
-        )
-
-    @staticmethod
-    def _to_self_detail_model(payload: dict) -> models.SelfDetail:
-        return models.SelfDetail(
-            uid=str(payload.get("uid") or payload.get("id") or ""),
-            name=str(payload.get("name") or payload.get("nickname") or ""),
-            avatar=str(payload.get("avatar") or payload.get("avatarUrl") or ""),
-            mobile=str(payload.get("mobile") or ""),
-            payload=dict(payload),
-        )
-
-    async def get_person_infos_batch(self, uids: list[str]) -> dict[str, dict] | dict:
+    async def get_person_infos_batch(self, uids: list[str]) -> list[models.UserInfo]:
         """批量获取用户基本信息。"""
         if not uids:
-            return {}
-        url_path = "/client/v1/person/v1/personInfos"
-        result_map: dict[str, dict] = {}
-        batch_size = 30
+            return []
 
-        def _partial_error(
-            message: str,
-            *,
-            status_code: int | None = None,
-            retry_after: int | None = None,
-        ) -> dict[str, Any]:
-            error_payload: dict[str, Any] = {"error": message}
-            if status_code is not None:
-                error_payload["status_code"] = status_code
-            if retry_after is not None:
-                error_payload["retry_after"] = retry_after
-            if result_map:
-                error_payload["partial_results"] = dict(result_map)
-            return error_payload
+        url_path = "/client/v1/person/v1/personInfos"
+        batch_size = 30
+        result: list[models.UserInfo] = []
 
         for i in range(0, len(uids), batch_size):
-            batch = uids[i : i + batch_size]
+            batch = uids[i: i + batch_size]
             body = {"persons": batch, "commonIds": []}
-            try:
-                resp = await self._await_if_needed(self._post(url_path, body))
-                if resp.status_code != 200:
-                    logger.error("批量获取用户信息失败: HTTP %d", resp.status_code)
-                    if resp.status_code == 429:
-                        return _partial_error(
-                            "批量获取用户信息失败: HTTP 429",
-                            status_code=429,
-                            retry_after=self._retry_after_seconds(resp),
-                        )
-                    return _partial_error(f"批量获取用户信息失败: HTTP {resp.status_code}")
-                data = resp.json()
-                if not data.get("status"):
-                    msg = self._error_message(data)
-                    logger.error("批量获取用户信息失败: %s", msg)
-                    return _partial_error(f"批量获取用户信息失败: {msg}")
-                persons = data.get("data", [])
-                if not isinstance(persons, list):
-                    logger.error("批量获取用户信息失败: 响应格式异常")
-                    return _partial_error("批量获取用户信息失败: person infos响应格式异常")
-                for person in persons:
-                    if not isinstance(person, dict):
-                        logger.error("批量获取用户信息失败: 用户条目格式异常")
-                        return _partial_error("批量获取用户信息失败: person infos响应格式异常")
-                    uid = person.get("uid", "")
-                    if uid:
-                        result_map[uid] = person
-            except Exception as e:
-                logger.error("批量获取用户信息异常: %s", e)
-                return _partial_error(f"批量获取用户信息失败: {e}")
-        return result_map
+            data = await self._request_data("POST", url_path, body=body)
+            if not isinstance(data, list):
+                raise OopzApiError(
+                    "person infos response format error: expected list",
+                    payload=data,
+                )
+            for item in data:
+                result.append(models.UserInfo.from_api(item))
 
-    async def get_person_detail(
-        self,
-        uid: Optional[str] = None,
-        *,
-        as_model: bool = False,
-    ) -> dict | models.PersonDetail:
-        """获取用户信息（可查询任意用户）。"""
-        uid = uid or self._config.person_uid
+        return result
+
+    async def get_person_info(self, uid: str = None) -> models.UserInfo:
+        """获取指定用户的基本信息，默认当前登录用户。"""
+        uid = uid or getattr(self._config, "person_uid", None)
+        if not uid:
+            raise ValueError("uid is required for get_person_detail()")
+
         url_path = "/client/v1/person/v1/personInfos"
         body = {"persons": [uid], "commonIds": []}
+        data = await self._request_data("POST", url_path, body=body)
 
-        try:
-            resp = await self._await_if_needed(self._post(url_path, body))
-            if resp.status_code != 200:
-                logger.error("获取个人信息失败: HTTP %d", resp.status_code)
-                if as_model:
-                    return self._model_error(
-                        models.PersonDetail,
-                        f"HTTP {resp.status_code}",
-                        response=resp,
-                    )
-                return {"error": f"HTTP {resp.status_code}"}
+        if not isinstance(data, list):
+            raise OopzApiError(
+                "person detail response format error: expected list",
+                payload=data,
+            )
+        if not data:
+            raise OopzApiError(
+                "person detail not found",
+                payload={"uid": uid},
+            )
+        return models.UserInfo.from_api(data[0])
 
-            result = resp.json()
-            if not result.get("status"):
-                msg = self._error_message(result)
-                logger.error("获取个人信息失败: %s", msg)
-                if as_model:
-                    return self._model_error(
-                        models.PersonDetail,
-                        msg,
-                        response=resp,
-                        payload=result,
-                    )
-                return {"error": msg}
-
-            data_list = result.get("data", [])
-            if not isinstance(data_list, list):
-                if as_model:
-                    return self._model_error(
-                        models.PersonDetail,
-                        "person detail响应格式异常",
-                        response=resp,
-                    )
-                logger.error("获取个人信息失败: 响应格式异常")
-                return {"error": "person detail响应格式异常"}
-            if not data_list:
-                if as_model:
-                    return self._model_error(models.PersonDetail, "未找到该用户", response=resp)
-                return {"error": "未找到该用户"}
-
-            person = data_list[0]
-            if not isinstance(person, dict):
-                if as_model:
-                    return self._model_error(
-                        models.PersonDetail,
-                        "person detail响应格式异常",
-                        response=resp,
-                    )
-                logger.error("获取个人信息失败: 用户条目格式异常")
-                return {"error": "person detail响应格式异常"}
-            logger.info("获取个人信息成功: %s", person.get("name", "未知"))
-            if as_model:
-                return self._to_person_detail_model(person)
-            return person
-        except Exception as e:
-            logger.error("获取个人信息异常: %s", e)
-            if as_model:
-                return self._model_error(models.PersonDetail, str(e))
-            return {"error": str(e)}
-
-    async def get_person_detail_full(self, uid: str) -> dict:
+    async def get_person_detail_full(self, uid: str) -> models.Profile:
         """获取他人完整详细资料（含 VIP、IP 属地等）。"""
+        if not uid:
+            raise ValueError("uid is required for get_person_detail_full()")
+
         url_path = "/client/v1/person/v1/personDetail"
-        params = {"uid": uid}
-        try:
-            resp = await self._await_if_needed(self._get(url_path, params=params))
-            if resp.status_code != 200:
-                return {"error": f"HTTP {resp.status_code}"}
-            result = resp.json()
-            if not result.get("status"):
-                return {"error": result.get("message") or "未知错误"}
-            return result.get("data", {})
-        except Exception as e:
-            logger.error("获取他人详细资料异常: %s", e)
-            return {"error": str(e)}
+        data = await self._request_data("GET", url_path, params={"uid": uid})
+        return models.Profile.from_api(data)
 
-    async def get_self_detail(self, *, as_model: bool = False) -> dict | models.SelfDetail:
+    async def get_self_detail(self) -> models.Profile:
         """获取当前登录用户的完整详细资料。"""
-        uid = self._config.person_uid
-        url_path = "/client/v1/person/v2/selfDetail"
-        params = {"uid": uid}
-        try:
-            resp = await self._await_if_needed(self._get(url_path, params=params))
-            if resp.status_code != 200:
-                if as_model:
-                    return self._model_error(
-                        models.SelfDetail,
-                        f"HTTP {resp.status_code}",
-                        response=resp,
-                    )
-                return {"error": f"HTTP {resp.status_code}"}
-            result = resp.json()
-            if not result.get("status"):
-                msg = self._error_message(result)
-                if as_model:
-                    return self._model_error(
-                        models.SelfDetail,
-                        msg,
-                        response=resp,
-                        payload=result,
-                    )
-                return {"error": msg}
-            data = result.get("data", {})
-            if as_model:
-                if not isinstance(data, dict):
-                    return self._model_error(
-                        models.SelfDetail,
-                        "self detail响应格式异常",
-                        response=resp,
-                    )
-                return self._to_self_detail_model(data)
-            return data
-        except Exception as e:
-            logger.error("获取自身详细资料异常: %s", e)
-            if as_model:
-                return self._model_error(models.SelfDetail, str(e))
-            return {"error": str(e)}
+        uid = getattr(self._config, "person_uid", None)
+        if not uid:
+            raise ValueError("person_uid is required for get_self_detail()")
 
-    async def get_level_info(self) -> dict:
+        url_path = "/client/v1/person/v2/selfDetail"
+        data = await self._request_data("GET", url_path, params={"uid": uid})
+        return models.Profile.from_api(data)
+
+    async def get_level_info(self) -> models.UserLevelInfo:
         """获取当前用户等级、积分信息。"""
         url_path = "/user_points/v1/level_info"
-        try:
-            resp = await self._await_if_needed(self._get(url_path))
-            if resp.status_code != 200:
-                return {"error": f"HTTP {resp.status_code}"}
-            result = resp.json()
-            if not result.get("status"):
-                return {"error": result.get("message") or "未知错误"}
-            return result.get("data", {})
-        except Exception as e:
-            logger.error("获取等级信息异常: %s", e)
-            return {"error": str(e)}
+        data = await self._request_data("GET", url_path)
+        return models.UserLevelInfo.from_api(data)
 
-    async def get_user_area_detail(self, target: str, area: Optional[str] = None) -> dict:
-        """获取指定用户在域内的角色列表和禁言/禁麦状态。"""
-        area = area or self._config.default_area
-        url_path = "/area/v3/userDetail"
-        params = {"area": area, "target": target}
-        try:
-            resp = await self._await_if_needed(self._get(url_path, params=params))
-            if resp.status_code != 200:
-                return {"error": f"HTTP {resp.status_code}"}
-            result = resp.json()
-            if not isinstance(result, dict):
-                return {"error": "user area detail响应格式异常"}
-            if not result.get("status"):
-                return {"error": result.get("message") or "未知错误"}
-            data = result.get("data", {})
-            if not isinstance(data, dict):
-                return {"error": "user area detail响应格式异常"}
-            return data
-        except Exception as e:
-            logger.error("获取用户域内详情异常: %s", e)
-            return {"error": str(e)}
-
-    async def get_assignable_roles(self, target: str, area: Optional[str] = None) -> list | dict:
-        """获取当前用户可以分配给目标用户的角色列表。"""
-        area = area or self._config.default_area
-        url_path = "/area/v3/role/canGiveList"
-        params = {"area": area, "target": target}
-        try:
-            resp = await self._await_if_needed(self._get(url_path, params=params))
-            if resp.status_code != 200:
-                logger.error("获取可分配角色失败: HTTP %d", resp.status_code)
-                error_payload = self._error_payload(f"HTTP {resp.status_code}")
-                if resp.status_code == 429:
-                    error_payload["status_code"] = 429
-                    error_payload["retry_after"] = self._retry_after_seconds(resp)
-                return error_payload
-            result = resp.json()
-            if not result.get("status"):
-                msg = self._error_message(result)
-                logger.error("获取可分配角色失败: %s", msg)
-                return self._error_payload(msg, payload=result)
-            data = result.get("data")
-            if not isinstance(data, dict):
-                logger.error("获取可分配角色失败: 响应格式异常")
-                return self._error_payload("assignable roles响应格式异常")
-            roles = data.get("roles", [])
-            if not isinstance(roles, list):
-                logger.error("获取可分配角色失败: roles格式异常")
-                return self._error_payload("assignable roles响应格式异常")
-            invalid_payload = self._invalid_dict_item_payload(
-                roles,
-                "assignable roles响应格式异常",
-                list_key="roles",
-                payload={"roles": roles},
-            )
-            if invalid_payload:
-                logger.error("获取可分配角色失败: roles条目格式异常")
-                return invalid_payload
-            return roles
-        except Exception as e:
-            logger.error("获取可分配角色异常: %s", e)
-            return self._error_payload(str(e))
-
-    async def edit_user_role(
-        self,
-        target_uid: str,
-        role_id: int,
-        add: bool,
-        area: Optional[str] = None,
-    ) -> dict:
-        """给目标用户添加或取消指定身份组。"""
-        area = area or self._config.default_area
-        detail = await self.get_user_area_detail(target_uid, area=area)
-        if not isinstance(detail, dict):
-            return {"error": "user area detail响应格式异常"}
-        if detail.get("error"):
-            return {"error": str(detail["error"])}
-        current_list = detail.get("list")
-        if current_list is None:
-            current_list = []
-        if not isinstance(current_list, list):
-            return {"error": "user area detail响应格式异常"}
-        if any(not isinstance(role, dict) for role in current_list):
-            return {"error": "user area detail响应格式异常"}
-        current_ids = [int(r["roleID"]) for r in current_list if r.get("roleID") is not None]
-        role_id = int(role_id)
-        if add:
-            if role_id not in current_ids:
-                current_ids.append(role_id)
-        else:
-            current_ids = [x for x in current_ids if x != role_id]
-        url_path = "/area/v3/role/editUserRole"
-        body = {"area": area, "target": target_uid, "targetRoleIDs": current_ids}
-        try:
-            resp = await self._await_if_needed(self._post(url_path, body))
-            raw = resp.text or ""
-            logger.info("editUserRole POST %s add=%s -> %d, body: %s", url_path, add, resp.status_code, raw[:200])
-            if resp.status_code != 200:
-                return {"error": f"HTTP {resp.status_code}" + (f" | {raw[:150]}" if raw else "")}
-            result = resp.json()
-            if result.get("status") is True:
-                return {"status": True, "message": result.get("message") or ("已给身份组" if add else "已取消身份组")}
-            return {"error": result.get("message") or result.get("error") or str(result)}
-        except Exception as e:
-            logger.error("editUserRole 异常: %s", e)
-            return {"error": str(e)}
-
-    async def search_area_members(
-        self,
-        area: Optional[str] = None,
-        keyword: str = "",
-        *,
-        as_model: bool = False,
-    ) -> list | dict:
-        """搜索域内成员。"""
-        area = area or self._config.default_area
-        url_path = "/area/v3/search/areaSettingMembers"
-        body = {"area": area, "name": keyword, "offset": 0, "limit": 50}
-        try:
-            resp = await self._await_if_needed(self._post(url_path, body))
-            if resp.status_code != 200:
-                logger.error("搜索域成员失败: HTTP %d", resp.status_code)
-                if as_model:
-                    raise OopzApiError(
-                        f"HTTP {resp.status_code}",
-                        status_code=resp.status_code,
-                        response={"error": f"HTTP {resp.status_code}"},
-                    )
-                error_payload = self._error_payload(f"HTTP {resp.status_code}")
-                if resp.status_code == 429:
-                    error_payload["status_code"] = 429
-                    error_payload["retry_after"] = self._retry_after_seconds(resp)
-                return error_payload
-            result = resp.json()
-            if not result.get("status"):
-                msg = self._error_message(result)
-                if as_model:
-                    raise OopzApiError(msg, status_code=resp.status_code, response={"error": msg})
-                return self._error_payload(msg, payload=result)
-            data = result.get("data", {})
-            if not isinstance(data, dict):
-                if as_model:
-                    raise OopzApiError(
-                        "search area members响应格式异常",
-                        status_code=resp.status_code,
-                        response={"error": "search area members响应格式异常"},
-                    )
-                logger.error("搜索域成员失败: 响应格式异常")
-                return self._error_payload("search area members响应格式异常")
-            members = data.get("members", [])
-            if not isinstance(members, list):
-                if as_model:
-                    raise OopzApiError(
-                        "search area members响应格式异常",
-                        status_code=resp.status_code,
-                        response={"error": "search area members响应格式异常"},
-                    )
-                logger.error("搜索域成员失败: members格式异常")
-                return self._error_payload("search area members响应格式异常")
-            if as_model:
-                invalid_payload = self._invalid_dict_item_payload(
-                    members,
-                    "search area members响应格式异常",
-                    list_key="members",
-                    payload={"members": members},
-                )
-                if invalid_payload:
-                    raise OopzApiError(
-                        "search area members响应格式异常",
-                        status_code=resp.status_code,
-                        response=invalid_payload,
-                    )
-                return [self._to_member_model(m) for m in members]
-            return members
-        except OopzApiError:
-            raise
-        except Exception as e:
-            logger.error("搜索域成员异常: %s", e)
-            if as_model:
-                raise OopzApiError(str(e), response={"error": str(e)})
-            return self._error_payload(str(e))

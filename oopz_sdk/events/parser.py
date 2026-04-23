@@ -7,7 +7,7 @@ from typing import Any
 from oopz_sdk.config.constants import (
     EVENT_CHAT_MESSAGE,
     EVENT_HEARTBEAT,
-    EVENT_SERVER_ID, EVENT_DELETE_MESSAGE, EVENT_PRIVATE_MESSAGE,
+    EVENT_SERVER_ID, EVENT_MESSAGE_DELETE, EVENT_PRIVATE_MESSAGE,
 )
 from oopz_sdk.exceptions.parse import OopzParseError
 from oopz_sdk.models.event import Event, MessageEvent
@@ -61,7 +61,7 @@ class EventParser:
             if not isinstance(msg_data, dict):
                 raise OopzParseError("Invalid chat event data")
 
-            message = Message.from_dict(msg_data)
+            message = Message.from_api(msg_data)
             return MessageEvent(
                 name="message",
                 event_type=event_type,
@@ -78,7 +78,7 @@ class EventParser:
             if not isinstance(msg_data, dict):
                 raise OopzParseError("Invalid private event data")
 
-            message = Message.from_dict(msg_data)
+            message = Message.from_api(msg_data)
             return MessageEvent(
                 name="message.private",
                 event_type=event_type,
@@ -101,9 +101,9 @@ class EventParser:
                 body=body,
                 raw=data,
             )
-        elif event_type == EVENT_DELETE_MESSAGE:
+        elif event_type == EVENT_MESSAGE_DELETE:
             return Event(
-                name="delete_message",
+                name="message.delete",
                 event_type=event_type,
                 body=body,
                 raw=data,

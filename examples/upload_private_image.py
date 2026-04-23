@@ -14,12 +14,12 @@ async def main() -> None:
     )
 
     async with OopzRESTClient(config) as sender:
-        result = await sender.upload_and_send_private_image(
+        result = await sender.media.send_private_image(
             target="目标UID",
             file_path="demo.png",
             text="这是一张通过 SDK 上传的图片",
         )
-        print(f"私信发送成功，频道={result.channel}，message_id={result.message_id or 'unknown'}")
+        print(f"私信发送成功，message_id={result.message_id}")
 
 
 if __name__ == "__main__":

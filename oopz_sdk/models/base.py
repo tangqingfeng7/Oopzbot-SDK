@@ -1,29 +1,40 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
+from typing import Any, Mapping
+
+from pydantic import BaseModel as Bm, ConfigDict, Field
 
 
-@dataclass(slots=True)
-class BaseModel:
-    def to_dict(self) -> dict:
-        return asdict(self)
+class BaseModel(Bm):
+    model_config = ConfigDict(
+        extra="ignore",
+        populate_by_name=True,
+    )
 
-    def __getitem__(self, key: str):
-        return self.to_dict()[key]
 
-    def get(self, key: str, default=None):
-        return self.to_dict().get(key, default)
+class OperationResult(BaseModel):
+    ok: bool = True
+    message: str = ""
 
-    def items(self):
-        return self.to_dict().items()
-
-    def keys(self):
-        return self.to_dict().keys()
-
-    def values(self):
-        return self.to_dict().values()
-
-    def __contains__(self, key: object) -> bool:
-        if not isinstance(key, str):
-            return False
-        return key in self.to_dict()
+    @classmethod
+    def from_api(cls, data: Any) -> "OperationResult":
+        if isinstance(data, bool):
+            return cls.model_validate({"ok": data})
+        if isinstance(data, Mapping):
+            normalized = dict(data)
+            normalized.setdefault(
+                "ok",
+                bool(normalized.get("status", True)),
+            )
+            normalized.setdefault(
+                "message",
+                str(normalized.get("message") or normalized.get("error") or ""),
+            )
+            return cls.model_validate(normalized)
+        return cls.model_validate(
+            {
+                "ok": bool(data),
+                "message": ""
+            }
+        )

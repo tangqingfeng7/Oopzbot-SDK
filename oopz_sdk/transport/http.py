@@ -3,19 +3,18 @@ from __future__ import annotations
 import asyncio
 import json
 from dataclasses import dataclass
-from typing import Optional, Any, Mapping
+from typing import Any, Mapping, Optional
 from urllib.parse import urlencode
 
 import aiohttp
 
 from oopz_sdk.auth.headers import build_oopz_headers
 from oopz_sdk.auth.signer import Signer
-from oopz_sdk.config.settings import OopzConfig, ProxyConfig
-from oopz_sdk.exceptions import OopzConnectionError
-
+from oopz_sdk.config.settings import OopzConfig
+from oopz_sdk.exceptions import OopzConnectionError, OopzApiError, OopzRateLimitError
+from oopz_sdk.utils.payload import safe_json
 from .base import BaseTransport
-from .proxy import build_aiohttp_proxy, build_requests_proxies
-
+from .proxy import build_aiohttp_proxy
 
 def _build_timeout(timeout: float | tuple[float, float]) -> aiohttp.ClientTimeout:
     if isinstance(timeout, tuple):
@@ -132,8 +131,157 @@ class HttpTransport(BaseTransport):
         except aiohttp.ClientError as exc:
             raise OopzConnectionError(f"request failed: {exc}") from exc
 
+    async def request_raw(
+            self,
+            method: str,
+            url: str,
+            *,
+            params: Mapping[str, Any] | None = None,
+            data: bytes | str | None = None,
+            headers: Mapping[str, str] | None = None,
+            timeout: float | tuple[float, float] | None = None,
+    ) -> HttpResponse:
+        method = method.upper()
+
+        session = await self._ensure_client_session()
+        req_timeout = _build_timeout(timeout or self.config.request_timeout)
+        proxy = build_aiohttp_proxy(url, self.config.proxy)
+
+        try:
+            async with session.request(
+                    method,
+                    url,
+                    params=params,
+                    data=data,
+                    headers=dict(headers or {}),
+                    timeout=req_timeout,
+                    proxy=proxy,
+            ) as resp:
+                content = await resp.read()
+                try:
+                    text = content.decode(resp.charset or "utf-8")
+                except UnicodeDecodeError:
+                    text = content.decode("utf-8", errors="replace")
+
+                return HttpResponse(
+                    status_code=resp.status,
+                    headers=dict(resp.headers),
+                    content=content,
+                    text=text,
+                )
+
+        except asyncio.TimeoutError as exc:
+            detail = str(exc).strip() or "timeout"
+            raise OopzConnectionError(f"request failed: {detail}") from exc
+        except aiohttp.ClientError as exc:
+            raise OopzConnectionError(f"request failed: {exc}") from exc
+
+
     async def get(self, url_path: str, params: Optional[dict] = None) -> HttpResponse:
         return await self.request("GET", url_path, params=params)
+
+    async def request_json(
+            self,
+            method: str,
+            path: str,
+            *,
+            params: Mapping[str, Any] | None = None,
+            body: Mapping[str, Any] | None = None,
+    ) -> Any:
+        resp = await self.request(
+            method,
+            path,
+            params=params,
+            body=body,
+        )
+
+        if resp.status_code == 429:
+            payload = safe_json(resp)
+            message = self._error_message(payload, default="HTTP 429")
+            raise OopzRateLimitError(
+                message=message, retry_after=self._retry_after_seconds(resp), status_code=429,
+                payload=payload, response=resp
+            )
+
+        if resp.status_code != 200:
+            raise OopzApiError(
+                f"HTTP {resp.status_code}",
+                status_code=resp.status_code,
+                response=resp,
+            )
+
+        try:
+            data = resp.json()
+        except Exception as e:
+            raise OopzApiError(
+                f"response is not valid JSON: {e}",
+                status_code=resp.status_code,
+                response=resp,
+            ) from e
+
+        if not isinstance(data, dict):
+            raise OopzApiError(
+                "response is not valid dict",
+                status_code=resp.status_code,
+                payload=data,
+                response=resp,
+            )
+        if not data.get("status"):
+            message = data.get("message", "")
+            raise OopzApiError(
+                f"status is not True: {message}",
+                status_code=resp.status_code,
+                payload=data,
+                response=resp,
+            )
+        return data
+
+    async def request_data(
+            self,
+            method: str,
+            path: str,
+            *,
+            params: Mapping[str, Any] | None = None,
+            body: Mapping[str, Any] | None = None,
+    ) -> Any:
+        json_data = await self.request_json(
+            method, path, params=params,
+            body=body)
+        data = json_data.get("data", None)
+        if data is None:
+            raise OopzApiError(
+                "response JSON does not contain 'data' field",
+                status_code=200,
+                payload=json_data,
+            )
+        return data
+
+    async def request_data_with_retry(
+            self,
+            method: str,
+            path: str,
+            *,
+            params: Mapping[str, Any] | None = None,
+            body: Mapping[str, Any] | None = None,
+            max_attempts: int = 3,
+            retry_on_429: bool = False,
+    ) -> Any:
+        if max_attempts < 1:
+            raise ValueError("max_attempts must be at least 1")
+
+        for attempt in range(1, max_attempts + 1):
+            try:
+                data = await self.request_json(method, path, params=params, body=body)
+                return data.get("data")
+            except OopzRateLimitError as e:
+                if not retry_on_429 or attempt >= max_attempts:
+                    raise
+                retry_after = e.retry_after if getattr(e, "retry_after", 0) else 0
+                wait_seconds = retry_after if retry_after > 0 else min(attempt, 3)
+                await asyncio.sleep(wait_seconds)
+            except KeyError:
+                raise OopzApiError("response JSON does not contain 'data' field")
+        raise RuntimeError("unreachable code in request_json_with_retry")
 
     async def post(self, url_path: str, body: dict) -> HttpResponse:
         return await self.request("POST", url_path, body=body)
@@ -153,3 +301,20 @@ class HttpTransport(BaseTransport):
     async def close(self):
         if self._client_session and not self._client_session.closed:
             await self._client_session.close()
+
+    @staticmethod
+    def _retry_after_seconds(response) -> int:
+        try:
+            return int(response.headers.get("Retry-After", "0") or "0")
+        except Exception:
+            return 0
+
+    @staticmethod
+    def _error_message(payload: dict[str, Any] | None, default: str = "未知错误") -> str:
+        if not isinstance(payload, dict):
+            return default
+        for key in ("message", "error", "msg", "reason"):
+            value = payload.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+        return default

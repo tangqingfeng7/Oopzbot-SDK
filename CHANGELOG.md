@@ -2,6 +2,36 @@
 
 ## Unreleased
 
+## 0.6.0 - 2026-04-23
+
+### 变更
+
+- 所有 service 构造签名统一为 `(owner, config, transport, signer)`，owner 持有同级其它 service 的引用并通过 `_require_service` 访问；对老签名（`config` 首参）误用直接抛 `TypeError`，不再静默兼容。
+- `OopzRESTClient` 构造签名改为 `(config, *, bot=None)`，`bot` 仅接受关键字参数。
+- 所有 data model 从原先的 dataclass 风格 `BaseModel` 全面迁移到 `pydantic.BaseModel`，统一接入 `@model_validator(mode="before")` 做入参归一化，非字典 payload 直接抛 `OopzApiError`。
+- 统一错误约定：service 方法的必填参数（`area` / `channel` / `channel_id` / `uid` / `target` / `message_id` 等）缺失时一律抛 `ValueError`，不再走 "`OperationResult(ok=False, message="缺少 xxx")`" 软失败。后端业务失败仍用 `OperationResult.ok=False` 或 `OopzApiError` 体系表达，调用方按需 `if not result.ok` 或 try/except。
+- 删除旧的 `oopz_sdk/response.py` 和 `oopz_sdk/models/response.py`，响应构造统一收口到各模型自己的 `from_api`。
+- `Message.from_api` 遇到未知附件类型从抛错改为跳过并 WARNING，避免一条坏附件拖垮整条消息解析。
+- `AreaService` 缓存 TTL 的兜底值对齐 `OopzConfig` 默认值 `15.0` 秒。
+
+### 新增
+
+- 新增 `oopz_sdk/models/moderation.py`，承载禁言 / 禁麦相关枚举（`TextMuteInterval`、`VoiceMuteInterval` 等）与结果模型。
+- `channel` / `message` / `area` / `member` service 补齐若干常用方法，并统一走 `_request_data + from_api` 的调用风格。
+
+### 改进
+
+- 精简 `area` / `channel` / `media` / `member` / `message` / `moderation` 等 service 代码，合计约 -4200 / +2800 行，删除大量旧兼容分支和散落在 service 内部的原始响应处理逻辑。
+- `transport/http.py` 汇总公共的 `_request_data` / `_request_data_with_retry` / `request_raw` 入口，service 层直接调用，不再各自拼装。
+- `member.py` 所有方法统一改为 `_request_data + from_api`，移除手写的响应解析。
+
+### 修复
+
+- 修复 `get_channel_messages` 响应校验字段名和类型判断错误，正确按 `messages` 数组解析。
+- 修复 `channel` / `moderation` 成功路径上给 `OperationResult` 等 Result 模型误传 `response=` 参数导致的构造异常。
+- WebSocket 重连等待从 `asyncio.sleep` 改为 `asyncio.Event.wait`，收到停止信号可立即退出重连循环。
+- 清理 `rest.py` 里残留的 `_config` 引用。
+
 ## 0.5.0 - 2026-04-19
 
 ### 变更
@@ -25,6 +55,8 @@
 - 新增 `oopz_sdk.testing` 测试辅助、`oopz_sdk.utils` 工具函数、`oopz_sdk.adapters.onebot` 适配入口，以及包内 `README` 与 `py.typed`。
 - 新增 `Moderation` 管理相关 service 和 `oopz_sdk/test-client.py` 调试入口。
 - 补充 IM 扩展接口：`send_message_v2`、会话列表、私信历史、已读状态、置顶消息、未读统计、系统消息、消息反应、消息详情。
+- 补充用户侧基础查询接口：新手引导、通知设置、备注名、拉黑检查、隐私设置、通知偏好、实名认证状态、好友列表、黑名单、好友请求、钻石余额、混音器设置。
+- 补充用户侧操作接口：设置备注名、发送好友申请、处理好友申请、删除好友、编辑隐私设置、编辑通知设置。
 - 为各个 service 注入 bot 引用，便于消息、媒体、区域、频道、成员和管理相关能力互相协作调用。
 - 新增私信事件与撤回事件处理。
 - 新增可选依赖缺失时的降级提示，缺少图片处理或 WebSocket 相关依赖时会给出更明确的报错信息。
