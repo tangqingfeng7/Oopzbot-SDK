@@ -226,6 +226,14 @@ class ChannelSign(BaseModel):
     def to_payload(self) -> dict[str, Any]:
         return self.model_dump(by_alias=True, exclude_none=False)
 
+    @property
+    def rtc_channel_name(self) -> str:
+        return self.room_id
+
+    @property
+    def rtc_token(self) -> str:
+        return self.supplier_sign or self.agora_sign
+
 
 class CreateChannelResult(BaseModel):
     area: str = ""

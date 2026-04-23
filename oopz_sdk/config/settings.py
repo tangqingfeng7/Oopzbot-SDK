@@ -49,12 +49,15 @@ class OopzConfig:
     platform: str = "windows"
     web: bool = True
 
-    default_area: str = ""
-    default_channel: str = ""
     use_announcement_style: bool = False
 
     agora_app_id: str = "358eebceadb94c2a9fd91ecd7b341602"
     agora_init_timeout: int = 1800
+
+    voice_backend: str = "browser"
+    voice_browser_headless: bool = True
+    voice_browser_executable_path: str = "C:\Program Files\Google\Chrome\Application\chrome.exe"
+    voice_agora_sdk_url: str = "https://download.agora.io/sdk/release/AgoraRTC_N.js"
 
     area_members_cache_ttl: float = 15.0
     area_members_stale_ttl: float = 300.0
