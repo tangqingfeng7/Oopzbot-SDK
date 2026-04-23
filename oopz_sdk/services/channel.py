@@ -1,11 +1,8 @@
 from __future__ import annotations
 
-import asyncio
-import copy
 import logging
-import re
 import time
-from typing import Optional, Any, List
+from typing import Optional
 
 from oopz_sdk import models
 
@@ -404,10 +401,9 @@ class Channel(BaseService):
             raise ValueError("area cannot be empty")
 
         params = {"channel": channel, "area": area}
+        url_path = "/client/v1/area/v1/channel/v1/delete"
 
-        url_path = f"/client/v1/area/v1/channel/v1/delete"
-
-        resp = await self._request_data("DELETE",url_path, params=params)
+        resp = await self._request_data("DELETE", url_path, params=params)
 
         return models.OperationResult.from_api(resp)
 
@@ -466,8 +462,11 @@ class Channel(BaseService):
         resp = await self._request_data("POST", url_path, body=body)
         return models.VoiceChannelMembersResult.from_api(resp)
 
-    async def get_voice_channel_for_user(self, user_uid: str, area) -> Optional[str]:
-        """获取用户当前所在的语音频道 ID，不在任何语音频道则返回 None。"""
+    async def get_voice_channel_for_user(self, user_uid: str, area: str) -> Optional[str]:
+        """获取用户当前所在的语音频道 ID，不在任何语音频道则返回 None。
+
+        area 必填：语音频道列表按域取，没给域就没法圈定范围。
+        """
         if area.strip() == "":
             raise ValueError("area cannot be empty")
         members = await self.get_voice_channel_members(area=area)

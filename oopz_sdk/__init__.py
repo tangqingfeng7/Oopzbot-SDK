@@ -1,14 +1,7 @@
 """Modern Oopz SDK package layout."""
 
-
-def _optional_dependency_message(exc: ModuleNotFoundError, *, feature: str) -> str:
-    missing_name = getattr(exc, "name", "") or "optional dependency"
-    if missing_name.startswith("oopz_sdk"):
-        raise exc
-    return f"{missing_name} is required for {feature}"
-
 from .auth import Signer
-from .client import  OopzRESTClient
+from .client import OopzRESTClient
 from .config import (
     DEFAULT_HEADERS,
     EVENT_AUTH,
@@ -49,18 +42,8 @@ from .services.message import Message as MessageService
 
 from .version import __version__
 
-try:
-    from .client.bot import OopzBot
-    from .client.ws import OopzWSClient
-except ModuleNotFoundError as exc:  # pragma: no cover - optional runtime dependency
-    _missing_ws_dependency_message = _optional_dependency_message(exc, feature="WebSocket features")
-
-    class _MissingWebSocketDependency:
-        def __init__(self, *args, **kwargs):
-            raise ModuleNotFoundError(_missing_ws_dependency_message)
-
-    OopzBot = _MissingWebSocketDependency
-    OopzWSClient = _MissingWebSocketDependency
+from .client.bot import OopzBot
+from .client.ws import OopzWSClient
 
 Message = MessageService
 

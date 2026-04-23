@@ -21,6 +21,7 @@ classifiers = [
   "Programming Language :: Python :: 3.10",
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
   "Topic :: Software Development :: Libraries :: Python Modules",
 ]
 dependencies = [
@@ -28,8 +29,6 @@ dependencies = [
   "cryptography>=42,<48",
   "pillow>=10,<13",
   "pydantic>=2,<3",
-  "requests>=2.32,<3",
-  "websocket-client>=1.8,<2",
 ]
 
 [project.urls]

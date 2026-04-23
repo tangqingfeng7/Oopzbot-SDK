@@ -7,7 +7,7 @@ from typing import Optional, Any, List
 
 from oopz_sdk import models
 from oopz_sdk.exceptions import OopzApiError
-from oopz_sdk.models.segment import Image, Segment, Text
+from oopz_sdk.models.segment import Image, Segment
 from oopz_sdk.services import BaseService
 from oopz_sdk.utils.image import get_image_info
 from oopz_sdk.models import build_segments, normalize_message_parts
@@ -311,6 +311,13 @@ class Message(BaseService):
             channel: str,
             size: int = 50
     ) -> List[models.Message]:
+        if area.strip() == "":
+            raise ValueError("area is required for get_channel_messages")
+        if channel.strip() == "":
+            raise ValueError("channel is required for get_channel_messages")
+        if size <= 0:
+            raise ValueError("size must be positive")
+
         url_path = "/im/session/v2/messageBefore"
         params = {"area": area, "channel": channel, "size": str(size)}
 

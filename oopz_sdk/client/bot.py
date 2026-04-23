@@ -109,6 +109,10 @@ class OopzBot:
         return self.registry.on("recall")
 
     @property
+    def on_private_recall(self):
+        return self.registry.on("recall.private")
+
+    @property
     def on_error(self):
         return self.on("error")
 

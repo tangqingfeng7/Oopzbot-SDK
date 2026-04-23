@@ -73,6 +73,9 @@ class Moderation(BaseService):
             interval_id = str(VoiceMuteInterval.pick(int(duration)).interval_id)
 
         params = {"area": area, "target": uid, "intervalId": interval_id}
+        # TODO: 这里同时传 params 和 body，和 mute_user / unmute_user / unmute_mic 三个兄弟方法
+        # 只传 params 的写法不一致。没有在真实服务端核对过哪种才是 spec，先保持现状，
+        # 等实测之后再决定是去掉 body=params 还是把兄弟方法都加上 body。
         data = await self._request_data(
             "PATCH",
             "/client/v1/area/v1/member/v1/disableVoice",

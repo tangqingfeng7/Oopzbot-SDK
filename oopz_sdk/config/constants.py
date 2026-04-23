@@ -1,10 +1,8 @@
 """Shared constants for the Oopz SDK."""
 
-from requests.utils import DEFAULT_ACCEPT_ENCODING
-
 DEFAULT_HEADERS: dict[str, str] = {
     "Accept": "*/*",
-    "Accept-Encoding": DEFAULT_ACCEPT_ENCODING,
+    "Accept-Encoding": "gzip, deflate",
     "Accept-Language": "zh-CN,zh;q=0.9",
     "Cache-Control": "no-cache",
     "Content-Type": "application/json;charset=utf-8",

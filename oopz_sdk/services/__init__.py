@@ -1,10 +1,7 @@
 from __future__ import annotations
 
-import copy
 from typing import TYPE_CHECKING, Any, Mapping
 
-
-from oopz_sdk.utils.payload import safe_json
 from oopz_sdk.auth.signer import Signer
 from oopz_sdk.config.settings import OopzConfig
 from oopz_sdk.transport.http import HttpTransport, HttpResponse
@@ -40,30 +37,6 @@ class BaseService:
         self._config = config
         self.transport = transport
         self.signer = signer
-
-    async def _get(self, url_path: str, params: dict | None = None):
-        return await self.transport.get(url_path, params=params)
-
-    async def _request(
-            self,
-            method: str,
-            url_path: str,
-            body: dict | None = None,
-            params: dict | None = None,
-    ):
-        return await self.transport.request(method, url_path, body=body, params=params)
-
-    async def _post(self, url_path: str, body: dict):
-        return await self.transport.post(url_path, body)
-
-    async def _put(self, url_path: str, body: dict):
-        return await self.transport.put(url_path, body)
-
-    async def _delete(self, url_path: str, body: dict | None = None):
-        return await self.transport.delete(url_path, body)
-
-    async def _patch(self, url_path: str, body: dict):
-        return await self.transport.patch(url_path, body)
 
     async def _request_data(
             self,
@@ -104,38 +77,6 @@ class BaseService:
              timeout=timeout
         )
 
-    @staticmethod
-    def _retry_after_seconds(response) -> int:
-        try:
-            return int(response.headers.get("Retry-After", "0") or "0")
-        except Exception:
-            return 0
-
-    @staticmethod
-    def _error_message(payload: dict[str, Any] | None, default: str = "未知错误") -> str:
-        if not isinstance(payload, dict):
-            return default
-        for key in ("message", "error", "msg", "reason"):
-            value = payload.get(key)
-            if isinstance(value, str) and value.strip():
-                return value.strip()
-        return default
-
-    def _error_payload(
-            self,
-            message: str,
-            *,
-            payload: dict[str, Any] | None = None,
-            default: str = "未知错误",
-    ) -> dict[str, Any]:
-        if isinstance(payload, dict):
-            copied = copy.deepcopy(payload)
-            if copied.get("error"):
-                return copied
-            copied["error"] = self._error_message(copied, default)
-            return copied
-        return {"error": str(message or default)}
-
     async def close(self) -> None:
         await self.transport.close()
 
@@ -144,36 +85,6 @@ class BaseService:
 
     async def __aexit__(self, exc_type, exc, tb) -> None:
         await self.close()
-
-    @classmethod
-    def _raise_api_error(cls, response, default_message: str) -> None:
-        from oopz_sdk import OopzRateLimitError, OopzApiError
-        payload = safe_json(response)
-        message = default_message
-
-        if response.status_code == 429:
-            try:
-                retry_after = int(response.headers.get("Retry-After", "0") or "0")
-            except Exception:
-                retry_after = 0
-
-            if payload:
-                message = str(payload.get("message") or payload.get("error") or message)
-            elif response.text:
-                message = f"{message}: {response.text[:200]}"
-
-            raise OopzRateLimitError(
-                message=message,
-                retry_after=retry_after,
-                response=payload,
-            )
-
-        if payload:
-            message = str(payload.get("message") or payload.get("error") or message)
-        elif response.text:
-            message = f"{message}: {response.text[:200]}"
-
-        raise OopzApiError(message, status_code=response.status_code, response=payload)
 
 
 __all__ = ["BaseService"]

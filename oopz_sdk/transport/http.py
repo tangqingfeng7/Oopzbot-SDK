@@ -246,14 +246,13 @@ class HttpTransport(BaseTransport):
         json_data = await self.request_json(
             method, path, params=params,
             body=body)
-        data = json_data.get("data", None)
-        if data is None:
+        if "data" not in json_data:
             raise OopzApiError(
                 "response JSON does not contain 'data' field",
                 status_code=200,
                 payload=json_data,
             )
-        return data
+        return json_data["data"]
 
     async def request_data_with_retry(
             self,
