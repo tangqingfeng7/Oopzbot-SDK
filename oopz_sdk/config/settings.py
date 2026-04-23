@@ -49,6 +49,8 @@ class OopzConfig:
     platform: str = "windows"
     web: bool = True
 
+    default_area: str = ""
+    default_channel: str = ""
     use_announcement_style: bool = False
 
     agora_app_id: str = "358eebceadb94c2a9fd91ecd7b341602"

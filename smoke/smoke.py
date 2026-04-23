@@ -124,6 +124,8 @@ def _load_config() -> tuple[OopzConfig, dict[str, str]]:
         person_uid=env["person_uid"],
         jwt_token=env["jwt_token"],
         private_key=private_key,
+        default_area=env["area"],
+        default_channel=env["channel"],
     )
     return config, env
 
