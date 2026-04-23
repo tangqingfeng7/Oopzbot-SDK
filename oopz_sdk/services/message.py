@@ -115,6 +115,11 @@ class Message(BaseService):
         """
         频道消息发送。
         """
+        if area.strip() == "":
+            raise ValueError("area is required for send_message()")
+        if channel.strip() == "":
+            raise ValueError("channel is required for send_message()")
+
         built_text, built_attachments = await self._prepare_message_content(
             *texts,
             attachments=attachments,

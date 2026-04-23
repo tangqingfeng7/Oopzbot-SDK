@@ -466,11 +466,13 @@ class Channel(BaseService):
         resp = await self._request_data("POST", url_path, body=body)
         return models.VoiceChannelMembersResult.from_api(resp)
 
-    async def get_voice_channel_for_user(self, user_uid: str, area: Optional[str] = None) -> Optional[str]:
+    async def get_voice_channel_for_user(self, user_uid: str, area) -> Optional[str]:
         """获取用户当前所在的语音频道 ID，不在任何语音频道则返回 None。"""
+        if area.strip() == "":
+            raise ValueError("area cannot be empty")
         members = await self.get_voice_channel_members(area=area)
 
-        for ch_id, ch_members in members.channel_members.roles():
+        for ch_id, ch_members in members.channel_members.items():
             if not ch_members:
                 continue
             for m in ch_members:
