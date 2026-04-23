@@ -101,5 +101,4 @@ __all__ = [
     "JsonList",
     "JsonObject",
     "MessageEvent",
-    "OopzApiMixin",
 ]
