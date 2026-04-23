@@ -24,13 +24,11 @@ class BaseService:
 
     约定
     ----
-    - 对 **返回 `OperationResult` 的方法**，当 `area` / `channel` / `channel_id` /
-      `uid` / `target` / `message_id` 等必填参数缺失时，一律走 **软失败**：
-      直接 `return models.OperationResult(ok=False, message="缺少 xxx")`，
-      而不是抛 `ValueError`。目的是让调用方可以用统一的 `if not result.ok:`
-      分支处理"业务失败"和"参数缺失"。
-    - 对 **返回具体领域模型的读操作**（如 `get_area_info` / `get_area_members`），
-      缺必填参数时抛 `ValueError`，因为这类方法没有"软失败"的返回形态。
+    - service 方法的必填参数（`area` / `channel` / `channel_id` / `uid` /
+      `target` / `message_id` 等）缺失时，一律抛 `ValueError`，不再走
+      "`OperationResult(ok=False, message="缺少 xxx")`" 软失败。
+    - 后端业务失败仍用 `OperationResult.ok=False` 或 `OopzApiError` 体系
+      表达，调用方按需 `if not result.ok:` 或 `try / except`。
     """
 
     def __init__(

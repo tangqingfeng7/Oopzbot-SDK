@@ -7,9 +7,8 @@ def _optional_dependency_message(exc: ModuleNotFoundError, *, feature: str) -> s
         raise exc
     return f"{missing_name} is required for {feature}"
 
-from .api import OopzApiMixin
 from .auth import Signer
-from .client import  OopzRESTClient
+from .client import OopzRESTClient
 from .config import (
     DEFAULT_HEADERS,
     EVENT_AUTH,
@@ -104,5 +103,4 @@ __all__ = [
     "JsonList",
     "JsonObject",
     "MessageEvent",
-    "OopzApiMixin",
 ]

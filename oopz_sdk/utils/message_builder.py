@@ -1,9 +1,7 @@
 from __future__ import annotations
 
-import os
 from typing import Iterable
 
-from oopz_sdk.models.attachment import ImageAttachment
 from oopz_sdk.models.segment import Image, Segment, Text
 
 

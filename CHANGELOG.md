@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+## 0.6.1 - 2026-04-23
+
+### 修复
+
+- 打包恢复 `LICENSE` 文件：`pyproject.toml` 将 `license-files` 从空数组改为 `["LICENSE"]`，并在 `MANIFEST.in` 中显式 include，符合 MIT 协议的传递要求。
+- 移除随 wheel 一起发布的调试脚本 `oopz_sdk/test-client.py`，同步清理 `.gitignore` 中的相关条目。
+- 移除空壳的 `OopzApiMixin`（原实现只靠 `vars(OopzRESTClient)` 复制类属性，无法拿到 `messages` / `media` / `areas` 等实例属性，继承使用必然 `AttributeError`）；同步从 `oopz_sdk.__init__` 的 `__all__` 中移除。
+
+### 改进
+
+- README 补充安装、凭证、发送消息、事件监听等快速上手示例，替换原先"文档暂未完成"的占位内容。
+- `BaseService` 的 docstring 同步到 0.6.0 的新错误约定（必填参数缺失一律抛 `ValueError`，不再软失败）。
+- CI 在 `push` 到 `main` 时也会触发测试和打包，避免主干回归遗漏。
+- 清理 `oopz_sdk.utils.message_builder` 里未使用的 `import os` / `ImageAttachment`，修掉 `oopz_sdk/__init__.py` 的多余空格。
+- 新增 `test.env.example`，提供 smoke 测试所需的环境变量模板。
+
 ## 0.6.0 - 2026-04-23
 
 ### 变更
