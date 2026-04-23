@@ -305,19 +305,18 @@ class Message(BaseService):
             area: str,
             channel: str,
             size: int = 50
-    ) -> List[Message]:
+    ) -> List[models.Message]:
         url_path = "/im/session/v2/messageBefore"
         params = {"area": area, "channel": channel, "size": str(size)}
 
         data = await self._request_data("GET", url_path, params=params)
 
-        if not isinstance(data, dict) and data.get("message", None) is None:
+        if not isinstance(data, dict) or not isinstance(data.get("messages"), list):
             raise OopzApiError(
                 "response format error: expected dict with 'messages' list",
-                response=data,
+                payload=data,
             )
-        messages = data.get("messages")
-        return [models.Message.from_api(message) for message in messages]
+        return [models.Message.from_api(message) for message in data["messages"]]
 
     async def _upload_local_image_segment(self, seg: Image) -> Image:
         source_path = seg.source_path

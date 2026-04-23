@@ -7,7 +7,7 @@ from typing import Any
 
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import padding, rsa
+from cryptography.hazmat.primitives.asymmetric import padding
 
 from oopz_sdk.config.settings import OopzConfig
 from oopz_sdk.exceptions.auth import OopzAuthError
@@ -32,11 +32,8 @@ class Signer:
     @staticmethod
     def _resolve_key(key_input: Any):
         if key_input is None:
-            return rsa.generate_private_key(
-                public_exponent=65537,
-                key_size=2048,
-                backend=default_backend(),
-            )
+            # OopzConfig 会提前拦住这个情况；这里兜底防止被绕开导致拿到一把服务端根本不认的随机密钥。
+            raise OopzAuthError("private_key is required")
         if isinstance(key_input, (str, bytes)):
             raw = key_input.encode("utf-8") if isinstance(key_input, str) else key_input
             try:

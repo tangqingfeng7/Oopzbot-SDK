@@ -1,9 +1,7 @@
 from __future__ import annotations
 
-import asyncio
 import copy
-import inspect
-from typing import TYPE_CHECKING, Any, Mapping, Tuple
+from typing import TYPE_CHECKING, Any, Mapping
 
 
 from oopz_sdk.utils.payload import safe_json
@@ -137,57 +135,6 @@ class BaseService:
             copied["error"] = self._error_message(copied, default)
             return copied
         return {"error": str(message or default)}
-
-    def _model_error(
-            self,
-            model_cls,
-            message: str,
-            *,
-            response=None,
-            payload: dict[str, Any] | None = None,
-            default: str = "未知错误",
-            **fields,
-    ):
-        error_payload = self._error_payload(message, payload=payload, default=default)
-        build_fields = {"payload": error_payload, **fields}
-        if response is not None:
-            try:
-                signature = inspect.signature(model_cls)
-            except (TypeError, ValueError):
-                signature = None
-            if signature is not None:
-                parameters = signature.parameters
-                accepts_kwargs = any(
-                    parameter.kind is inspect.Parameter.VAR_KEYWORD
-                    for parameter in parameters.values()
-                )
-                if "response" in parameters or accepts_kwargs:
-                    build_fields["response"] = response
-        return model_cls(**build_fields)
-
-    def _invalid_dict_item_payload(
-            self,
-            values: object,
-            message: str,
-            *,
-            list_key: str,
-            payload: dict[str, Any] | None = None,
-    ) -> dict[str, Any] | None:
-        if not isinstance(values, list):
-            error_payload = self._error_payload(message, payload=payload, default=message)
-            error_payload["error"] = message
-            error_payload["list_key"] = list_key
-            error_payload["invalid_type"] = type(values).__name__
-            return error_payload
-        for index, item in enumerate(values):
-            if not isinstance(item, dict):
-                error_payload = self._error_payload(message, payload=payload, default=message)
-                error_payload["error"] = message
-                error_payload["list_key"] = list_key
-                error_payload["invalid_index"] = index
-                error_payload["invalid_type"] = type(item).__name__
-                return error_payload
-        return None
 
     async def close(self) -> None:
         await self.transport.close()

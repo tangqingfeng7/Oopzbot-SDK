@@ -39,10 +39,6 @@ class HttpResponse:
             raise ValueError("no json")
         return json.loads(self.text)
 
-    def raise_for_status(self) -> None:
-        if self.status_code >= 400:
-            raise RuntimeError(f"http {self.status_code}")
-
 
 class HttpTransport(BaseTransport):
     def __init__(self, config: OopzConfig, signer: Signer):
@@ -204,9 +200,12 @@ class HttpTransport(BaseTransport):
             )
 
         if resp.status_code != 200:
+            payload = safe_json(resp)
+            detail = self._error_message(payload, default=f"HTTP {resp.status_code}")
             raise OopzApiError(
-                f"HTTP {resp.status_code}",
+                detail,
                 status_code=resp.status_code,
+                payload=payload,
                 response=resp,
             )
 
@@ -271,17 +270,24 @@ class HttpTransport(BaseTransport):
 
         for attempt in range(1, max_attempts + 1):
             try:
-                data = await self.request_json(method, path, params=params, body=body)
-                return data.get("data")
+                json_data = await self.request_json(method, path, params=params, body=body)
             except OopzRateLimitError as e:
                 if not retry_on_429 or attempt >= max_attempts:
                     raise
                 retry_after = e.retry_after if getattr(e, "retry_after", 0) else 0
                 wait_seconds = retry_after if retry_after > 0 else min(attempt, 3)
                 await asyncio.sleep(wait_seconds)
-            except KeyError:
-                raise OopzApiError("response JSON does not contain 'data' field")
-        raise RuntimeError("unreachable code in request_json_with_retry")
+                continue
+
+            if "data" not in json_data:
+                raise OopzApiError(
+                    "response JSON does not contain 'data' field",
+                    status_code=200,
+                    payload=json_data,
+                )
+            return json_data["data"]
+
+        raise RuntimeError("unreachable code in request_data_with_retry")
 
     async def post(self, url_path: str, body: dict) -> HttpResponse:
         return await self.request("POST", url_path, body=body)

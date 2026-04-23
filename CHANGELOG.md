@@ -2,6 +2,27 @@
 
 ## Unreleased
 
+## 0.6.2 - 2026-04-23
+
+### 修复
+
+- 事件名对齐：`EventParser` 对 `EVENT_MESSAGE_DELETE` 发出的事件名从 `"message.delete"` 改为 `"recall"`，使 `@bot.on_recall` 真正能收到撤回事件（原先注册和派发名字不一致，回调永远不触发）。
+- `Message.get_channel_messages` 响应校验逻辑修正：之前 `not isinstance(data, dict) and data.get("message", ...)` 条件既判断反（`and` 让正常 dict 跳过校验）又字段名写错（单数 `message`）且未处理 `data.get("messages") is None` 的情况；现在改为 `or` + 复数字段名，保证 payload 不合法时立即抛 `OopzApiError`。
+- `HttpTransport.request_data_with_retry` 行为与 `request_data` 对齐：缺少 `data` 字段改为抛 `OopzApiError`，不再静默返回 `None`；移除永远不会触发的 `except KeyError` 分支，并修正兜底 `RuntimeError` 错误文本。
+- `HttpTransport.request` 非 429 错误现在会读取服务端返回的 `message / error` 字段作为错误消息，与 429 分支保持一致，不再丢服务端的错误原因。
+- `Signer._resolve_key` 不再在 `private_key=None` 时静默生成一把随机 RSA 密钥（那会导致签名完全对不上服务端），直接抛 `OopzAuthError`。
+
+### 改进
+
+- `OopzBot.send / reply / recall` 在未显式传 `area / channel` 时会回落到 `OopzConfig.default_area / default_channel`，都没有则抛出明确的 `ValueError`，而不是把 `None` 一路送到 API 里得到一个看不懂的服务端错误。
+- 删除 `HttpResponse.raise_for_status`（内部无调用，且抛的是 `RuntimeError` 与 SDK 的 `OopzApiError` 体系不一致）。
+- 清理 `BaseService` 中未被调用的 `_model_error` / `_invalid_dict_item_payload` 方法，以及相关 `inspect` 依赖。
+- 清理 `oopz_sdk/models/base.py` 与 `oopz_sdk/models/message.py` 中未使用的 `dataclasses` / `Self` 等 import 和双空格。
+
+### 测试
+
+- 新增 `tests/test_event_parser.py`，固定 `EventParser` 对 chat / private / recall / heartbeat 事件的事件名契约，防止以后再次漂移。
+
 ## 0.6.1 - 2026-04-23
 
 ### 修复

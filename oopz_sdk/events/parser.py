@@ -103,7 +103,7 @@ class EventParser:
             )
         elif event_type == EVENT_MESSAGE_DELETE:
             return Event(
-                name="message.delete",
+                name="recall",
                 event_type=event_type,
                 body=body,
                 raw=data,

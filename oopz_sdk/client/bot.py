@@ -162,6 +162,7 @@ class OopzBot:
     async def send(
         self, text: str, area: str | None = None, channel: str | None = None, **kwargs
     ):
+        area, channel = self._resolve_default_area_channel(area, channel, op="send")
         return await self.messages.send_message(
             text, area=area, channel=channel, **kwargs
         )
@@ -173,6 +174,7 @@ class OopzBot:
         channel: str | None = None,
         **kwargs,
     ):
+        area, channel = self._resolve_default_area_channel(area, channel, op="recall")
         return await self.messages.recall_message(
             message_id, area=area, channel=channel, **kwargs
         )
@@ -188,6 +190,7 @@ class OopzBot:
         """
         对某条消息进行回复
         """
+        area, channel = self._resolve_default_area_channel(area, channel, op="reply")
         return await self.messages.send_message(
             text,
             area=area,
@@ -195,6 +198,30 @@ class OopzBot:
             reference_message_id=reference_message_id,
             **kwargs,
         )
+
+    def _resolve_default_area_channel(
+        self,
+        area: str | None,
+        channel: str | None,
+        *,
+        op: str,
+    ) -> tuple[str, str]:
+        """
+        为 bot.send/reply/recall 等便捷方法在未显式传入 area/channel 时回落到 OopzConfig.default_area
+        / default_channel，都没有时抛出一个明确的 ValueError，避免把 None 送到 API 里得到一个令人
+        摸不着头脑的服务端错误。
+        """
+        resolved_area = area if area else (self.config.default_area or "")
+        resolved_channel = channel if channel else (self.config.default_channel or "")
+        if not resolved_area:
+            raise ValueError(
+                f"{op}: area is required (pass area=... or set OopzConfig.default_area)"
+            )
+        if not resolved_channel:
+            raise ValueError(
+                f"{op}: channel is required (pass channel=... or set OopzConfig.default_channel)"
+            )
+        return resolved_area, resolved_channel
 
     # -------------------------
     # 内部工具

@@ -1,15 +1,13 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
 from functools import cached_property
 from typing import Any, Mapping
-from typing_extensions import Self
 
 from pydantic import Field, model_validator
 
 from .attachment import Attachment
-from .base import  BaseModel
+from .base import BaseModel
 from oopz_sdk.exceptions import OopzApiError
 from .segment import parse_message_segments, Text
 
