@@ -56,7 +56,7 @@ class OopzConfig:
 
     voice_backend: str = "browser"
     voice_browser_headless: bool = True
-    voice_browser_executable_path: str = "C:\Program Files\Google\Chrome\Application\chrome.exe"
+    voice_browser_executable_path: str = ""
     voice_agora_sdk_url: str = "https://download.agora.io/sdk/release/AgoraRTC_N.js"
 
     area_members_cache_ttl: float = 15.0
