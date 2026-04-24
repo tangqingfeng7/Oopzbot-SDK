@@ -45,7 +45,7 @@ def test_chat_message_event_name_is_message() -> None:
     event = EventParser().parse(raw)
 
     assert isinstance(event, MessageEvent)
-    assert event.name == "message"
+    assert event.event_name == "message"
     assert event.is_private is False
 
 
@@ -54,7 +54,7 @@ def test_private_message_event_name_is_message_private() -> None:
     event = EventParser().parse(raw)
 
     assert isinstance(event, MessageEvent)
-    assert event.name == "message.private"
+    assert event.event_name == "message.private"
     assert event.is_private is True
 
 
@@ -63,14 +63,14 @@ def test_message_delete_event_name_is_recall() -> None:
     raw = _envelope(EVENT_MESSAGE_DELETE, {"messageId": "m-1"})
     event = EventParser().parse(raw)
 
-    assert event.name == "recall"
+    assert event.event_name == "recall"
     assert event.event_type == EVENT_MESSAGE_DELETE
 
 
 def test_heartbeat_event_name_is_heartbeat() -> None:
     raw = _envelope(EVENT_HEARTBEAT, {})
     event = EventParser().parse(raw)
-    assert event.name == "heartbeat"
+    assert event.event_name == "heartbeat"
 
 
 def test_message_edit_event_name_is_message_edit() -> None:
@@ -79,7 +79,7 @@ def test_message_edit_event_name_is_message_edit() -> None:
     event = EventParser().parse(raw)
 
     assert isinstance(event, MessageEvent)
-    assert event.name == "message.edit"
+    assert event.event_name == "message.edit"
     assert event.is_private is False
 
 
@@ -88,7 +88,7 @@ def test_private_message_edit_event_name_is_private_edit() -> None:
     event = EventParser().parse(raw)
 
     assert isinstance(event, MessageEvent)
-    assert event.name == "message.private.edit"
+    assert event.event_name == "message.private.edit"
     assert event.is_private is True
 
 
@@ -97,5 +97,5 @@ def test_private_message_delete_event_name_is_recall_private() -> None:
     raw = _envelope(EVENT_PRIVATE_MESSAGE_DELETE, {"messageId": "m-1"})
     event = EventParser().parse(raw)
 
-    assert event.name == "recall.private"
+    assert event.event_name == "recall.private"
     assert event.event_type == EVENT_PRIVATE_MESSAGE_DELETE
