@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 
 import oopz_sdk.services.message as message_service
@@ -244,7 +245,7 @@ class OopzBot:
                 return
 
             await self.dispatcher.dispatch("raw_event", event, ctx)
-            await self.dispatcher.dispatch(event.name, event, ctx)
+            await self.dispatcher.dispatch(event.event_name, event, ctx)
 
         except Exception as exc:
             logger.exception("Unhandled exception while processing websocket event: %s", exc)
