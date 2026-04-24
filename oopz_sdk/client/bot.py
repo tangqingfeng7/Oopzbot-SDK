@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 
 import oopz_sdk.services.message as message_service
+import oopz_sdk.services.voice as voice_service
 from oopz_sdk.events.context import EventContext
 from oopz_sdk.events.dispatcher import EventDispatcher
 from oopz_sdk.events.parser import EventParser
@@ -47,6 +48,7 @@ class OopzBot:
         self.channels = self.rest.channels
         self.members = self.rest.members
         self.moderation = self.rest.moderation
+        self.voice: voice_service.Voice = voice_service.Voice(self, config, self.rest.transport, self.rest.signer)
 
         # WS 客户端只负责底层连接和回调
         self.ws = OopzWSClient(
@@ -109,6 +111,10 @@ class OopzBot:
         return self.registry.on("recall")
 
     @property
+    def on_private_recall(self):
+        return self.registry.on("recall.private")
+
+    @property
     def on_error(self):
         return self.on("error")
 
@@ -149,18 +155,26 @@ class OopzBot:
         except BaseException as exc:
             stop_error = exc
 
-        if stop_error is None:
+        voice_error = None
+        try:
+            await self.voice.close()
+        except BaseException as exc:
+            voice_error = exc
+
+        if stop_error is None and voice_error is None:
             await self.rest.close()
             return
 
         await self._close_rest_after_stop_failure()
-        raise stop_error
+        if stop_error is not None:
+            raise stop_error
+        raise voice_error
 
     # -------------------------
     # 高层便捷方法
     # -------------------------
     async def send(
-        self, text: str, area: str | None = None, channel: str | None = None, **kwargs
+        self, text: str, area: str, channel: str, **kwargs
     ):
         return await self.messages.send_message(
             text, area=area, channel=channel, **kwargs
@@ -169,8 +183,8 @@ class OopzBot:
     async def recall(
         self,
         message_id: str,
-        area: str | None = None,
-        channel: str | None = None,
+        area: str,
+        channel: str,
         **kwargs,
     ):
         return await self.messages.recall_message(
@@ -180,8 +194,8 @@ class OopzBot:
     async def reply(
         self,
         text: str,
-        area: str | None = None,
-        channel: str | None = None,
+        area: str,
+        channel: str,
         reference_message_id: str = "",
         **kwargs,
     ):

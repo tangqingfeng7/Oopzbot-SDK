@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 
@@ -29,8 +30,7 @@ class Media(BaseService):
         )
         ticket = models.UploadTicket.from_api(ticket_data)
 
-        with open(file, "rb") as f:
-            payload = f.read()
+        payload, file_size = await asyncio.to_thread(_read_file_bytes, file)
 
         resp = await self.transport.request_raw(
             "PUT",
@@ -49,7 +49,13 @@ class Media(BaseService):
             ticket.url,
             file_type,
             os.path.basename(file),
-            os.path.getsize(file) if os.path.exists(file) else 0,
+            file_size,
             animated
         )
         return attachment
+
+
+def _read_file_bytes(path: str) -> tuple[bytes, int]:
+    with open(path, "rb") as f:
+        payload = f.read()
+    return payload, len(payload)

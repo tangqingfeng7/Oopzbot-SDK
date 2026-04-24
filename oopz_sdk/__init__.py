@@ -1,15 +1,7 @@
 """Modern Oopz SDK package layout."""
 
-
-def _optional_dependency_message(exc: ModuleNotFoundError, *, feature: str) -> str:
-    missing_name = getattr(exc, "name", "") or "optional dependency"
-    if missing_name.startswith("oopz_sdk"):
-        raise exc
-    return f"{missing_name} is required for {feature}"
-
-from .api import OopzApiMixin
 from .auth import Signer
-from .client import  OopzRESTClient
+from .client import OopzRESTClient
 from .config import (
     DEFAULT_HEADERS,
     EVENT_AUTH,
@@ -35,7 +27,6 @@ from .models import (
     JoinedAreaInfo,
     AreaMembersPage,
     Attachment,
-    AudioAttachment,
     ChannelSetting,
     Event,
     ImageAttachment,
@@ -47,37 +38,46 @@ from .models import (
     OperationResult,
     VoiceChannelMembersResult,
 )
+from .services.area import AreaService
+from .services.channel import Channel
+from .services.media import Media
+from .services.member import Member
 from .services.message import Message as MessageService
+from .services.moderation import Moderation
+from .services.voice import Voice
 
 from .version import __version__
 
-try:
-    from .client.bot import OopzBot
-    from .client.ws import OopzWSClient
-except ModuleNotFoundError as exc:  # pragma: no cover - optional runtime dependency
-    _missing_ws_dependency_message = _optional_dependency_message(exc, feature="WebSocket features")
-
-    class _MissingWebSocketDependency:
-        def __init__(self, *args, **kwargs):
-            raise ModuleNotFoundError(_missing_ws_dependency_message)
-
-    OopzBot = _MissingWebSocketDependency
-    OopzWSClient = _MissingWebSocketDependency
+from .client.bot import OopzBot
+from .client.ws import OopzWSClient
 
 Message = MessageService
 
 __all__ = [
+    "AreaMembersPage",
+    "AreaService",
+    "Attachment",
     "AutoRecallConfig",
+    "Channel",
+    "ChannelSetting",
     "DEFAULT_HEADERS",
     "EVENT_AUTH",
     "EVENT_CHAT_MESSAGE",
     "EVENT_HEARTBEAT",
     "EVENT_SERVER_ID",
+    "Event",
     "HeartbeatConfig",
     "ImageAttachment",
+    "JoinedAreaInfo",
+    "JsonList",
+    "JsonObject",
+    "Media",
+    "Member",
     "Message",
+    "MessageEvent",
     "MessageModel",
     "MessageSendResult",
+    "Moderation",
     "OopzApiError",
     "OopzAuthError",
     "OopzBot",
@@ -93,16 +93,7 @@ __all__ = [
     "ProxyConfig",
     "RetryConfig",
     "Signer",
+    "Voice",
     "VoiceChannelMembersResult",
     "__version__",
-    "JoinedAreaInfo",
-    "AreaMembersPage",
-    "Attachment",
-    "AudioAttachment",
-    "ChannelSetting",
-    "Event",
-    "JsonList",
-    "JsonObject",
-    "MessageEvent",
-    "OopzApiMixin",
 ]

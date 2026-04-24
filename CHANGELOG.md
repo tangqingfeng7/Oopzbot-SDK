@@ -2,6 +2,96 @@
 
 ## Unreleased
 
+## 0.7.1 - 2026-04-24
+
+### 变更
+
+- 移除 `OopzConfig.default_area` / `default_channel` 两个字段。`OopzBot.send / reply / recall` 的 `area / channel` 固定为必填位置参数（延续 0.7.0 行为），不再从配置回落。0.6.2 曾引入的回落机制本版本确认放弃，调用方需显式传 `area / channel`，或使用 `ctx.reply()` 等从事件上下文推导的便捷入口。
+
+### 修复
+
+- `Channel.leave_voice_channel` 把 `area` 从 `Optional[str] = None` 改为必填 `str`，并补充空串校验。原先 `area=None` 会被原样拼进 `params`，实际只会让服务端返回错误，没有可用场景。
+- `Channel.enter_channel` / `get_voice_channel_members` 补上 `area` / `channel` 的类型标注与空串校验，对齐 0.6.0 立的「必填参数缺失一律抛 `ValueError`」约定。
+- `AreaInfo.private_channels` 从 `list[dict[str, Any]]` 改为 `list[str]`。服务端实际下发的是私密频道的 id 字符串列表，原先的 `dict` 声明会让 `areas.get_area_info` 在任何含有私密频道的域上直接 pydantic `ValidationError`（联调已复现）。
+
+### 改进
+
+- `services/message.py` 的参数类型标注修齐：`send_message` 的 `attachments / mention_list / style_tags / reference_message_id` 改为 `Optional[...]`、`auto_recall` 补 `bool`；`recall_message.timestamp` 改为 `Optional[str]`。此前同一个文件里 `send_private_message` 已写成 `Optional[...]`，两种风格并存会让类型检查器误报。
+- `Channel._get_voice_channel_ids` 的返回类型从 `list[str] | dict[str, str]` 收敛到真实的 `list[str]`，`dict` 分支是历史遗留注解，从未出现过。
+- `AutoRecallConfig.delay` 由 `int` 改为 `float`（配套 `OopzConfig.auto_recall_delay` / `Message._do_auto_recall.delay`），允许设置亚秒级延迟，和 `asyncio.sleep` 的实际类型对齐。
+- 删除 `oopz_sdk/transport/__init__.py` 的 `try / except ModuleNotFoundError: WebSocketTransport = None` 兜底：`transport/ws.py` 只依赖 `aiohttp` 和 stdlib，而 `aiohttp` 已经是硬依赖，真正缺失时 `transport/http.py` 的 `import aiohttp` 就已经先炸；和 0.7.0 已清理的两段 `OopzBot / OopzWSClient` 占位块是同类死代码。
+- `transport/proxy.py::build_requests_proxies` 注释说明它是遗留 API、仅为兼容保留，新代码应使用 `build_aiohttp_proxy`。
+
+## 0.7.0 - 2026-04-24
+
+### 变更
+
+- `AreaService.enter_area` 失败行为从返回 `{"error": ...}` dict 改为抛 `OopzApiError`，与其它 service 统一。调用方需从判断返回值改为 `try/except OopzApiError`。
+- 依赖集合调整：从 `dependencies` 移除 `requests` 与 `websocket-client`（SDK 运行时早已不再使用，保留反而会强迫使用方额外安装）。如果上层项目间接依赖这两个包，请自行在自家 `requirements` 声明。
+
+### 新增
+
+- 事件解析器支持三种此前会被静默丢弃的事件类型:`EVENT_MESSAGE_EDIT` → `message.edit`、`EVENT_PRIVATE_MESSAGE_EDIT` → `message.private.edit`、`EVENT_PRIVATE_MESSAGE_DELETE` → `recall.private`。
+- `OopzBot` 新增 `on_message_edit` / `on_private_message_edit` / `on_private_recall` 三个 decorator,对应上述事件。
+- `pyproject.toml` 补上 `Programming Language :: Python :: 3.13` classifier。
+- `VoiceChanelMemberInfo`(历史拼写错误)现在同时以正确拼写 `VoiceChannelMemberInfo` 暴露,老名字保留作为 alias 不破坏既有代码。
+
+### 修复
+
+- `HttpTransport.request_data` 把合法的 `{"status": true, "data": null}` 响应错误地当成失败抛 `OopzApiError`,改为只在真正没有 `"data"` 键时才抛,行为与 `request_data_with_retry` 对齐。
+- `CreateChannelResult.from_api` / `UserInfo.from_api` 的返回类型注解写成了别的模型名,导致静态类型检查报错,修正为各自模型本身。
+- `Channel.get_voice_channel_for_user` 此前遍历 `.roles()`(语音成员结构上并没有这个方法),改为 `.items()` 真正可用;同时补上 `area: str` 类型标注与说明。
+- `Message.get_channel_messages` 补上 `area / channel / size` 的必填与范围校验,避免把空串 / 非法 size 直接发给服务端。
+
+### 改进
+
+- `Media.upload_file` 的本地文件读取改走 `asyncio.to_thread`,不再在事件循环里做同步 I/O。
+- 删除 `oopz_sdk/__init__.py` 与 `oopz_sdk/client/__init__.py` 中两份"缺 `aiohttp` 时给 `OopzBot`/`OopzWSClient` 塞占位类"的 try/except 块：真实导入链路在更早的 `from .client.rest import ...` 就会因为缺 `aiohttp` 失败,这两段兜底永远走不到,是纯死代码。
+- 删除 `BaseService` 中未被任何 service 调用的 HTTP 包装方法(`_get / _post / _put / _patch / _delete / _request`)及配套的 `_raise_api_error / _error_payload / _error_message / _retry_after_seconds` 错误处理助手,以及 `copy` / `safe_json` 两个只服务于这些死代码的 import。
+- `Config.DEFAULT_HEADERS` 的 `Accept-Encoding` 不再从 `requests.utils.DEFAULT_ACCEPT_ENCODING` 取值,改为直接写 `"gzip, deflate"`,去掉对 `requests` 的最后一处硬依赖。
+- `services/member.py::get_person_info` 的 `uid: str = None` 修正为 `uid: Optional[str] = None`。
+
+### 备注
+
+- `Moderation.mute_mic` 同时传 `params` 与 `body`,和同文件其它 mute/unmute 方法的调用风格不一致,本版本未改动行为,仅在源码里留了 TODO 说明,等确认服务端真实契约后再处理。
+
+## 0.6.2 - 2026-04-23
+
+### 修复
+
+- 事件名对齐：`EventParser` 对 `EVENT_MESSAGE_DELETE` 发出的事件名从 `"message.delete"` 改为 `"recall"`，使 `@bot.on_recall` 真正能收到撤回事件（原先注册和派发名字不一致，回调永远不触发）。
+- `Message.get_channel_messages` 响应校验逻辑修正：之前 `not isinstance(data, dict) and data.get("message", ...)` 条件既判断反（`and` 让正常 dict 跳过校验）又字段名写错（单数 `message`）且未处理 `data.get("messages") is None` 的情况；现在改为 `or` + 复数字段名，保证 payload 不合法时立即抛 `OopzApiError`。
+- `HttpTransport.request_data_with_retry` 行为与 `request_data` 对齐：缺少 `data` 字段改为抛 `OopzApiError`，不再静默返回 `None`；移除永远不会触发的 `except KeyError` 分支，并修正兜底 `RuntimeError` 错误文本。
+- `HttpTransport.request` 非 429 错误现在会读取服务端返回的 `message / error` 字段作为错误消息，与 429 分支保持一致，不再丢服务端的错误原因。
+- `Signer._resolve_key` 不再在 `private_key=None` 时静默生成一把随机 RSA 密钥（那会导致签名完全对不上服务端），直接抛 `OopzAuthError`。
+
+### 改进
+
+- `OopzBot.send / reply / recall` 在未显式传 `area / channel` 时会回落到 `OopzConfig.default_area / default_channel`，都没有则抛出明确的 `ValueError`，而不是把 `None` 一路送到 API 里得到一个看不懂的服务端错误。
+- 删除 `HttpResponse.raise_for_status`（内部无调用，且抛的是 `RuntimeError` 与 SDK 的 `OopzApiError` 体系不一致）。
+- 清理 `BaseService` 中未被调用的 `_model_error` / `_invalid_dict_item_payload` 方法，以及相关 `inspect` 依赖。
+- 清理 `oopz_sdk/models/base.py` 与 `oopz_sdk/models/message.py` 中未使用的 `dataclasses` / `Self` 等 import 和双空格。
+
+### 测试
+
+- 新增 `tests/test_event_parser.py`，固定 `EventParser` 对 chat / private / recall / heartbeat 事件的事件名契约，防止以后再次漂移。
+
+## 0.6.1 - 2026-04-23
+
+### 修复
+
+- 打包恢复 `LICENSE` 文件：`pyproject.toml` 将 `license-files` 从空数组改为 `["LICENSE"]`，并在 `MANIFEST.in` 中显式 include，符合 MIT 协议的传递要求。
+- 移除随 wheel 一起发布的调试脚本 `oopz_sdk/test-client.py`，同步清理 `.gitignore` 中的相关条目。
+- 移除空壳的 `OopzApiMixin`（原实现只靠 `vars(OopzRESTClient)` 复制类属性，无法拿到 `messages` / `media` / `areas` 等实例属性，继承使用必然 `AttributeError`）；同步从 `oopz_sdk.__init__` 的 `__all__` 中移除。
+
+### 改进
+
+- README 补充安装、凭证、发送消息、事件监听等快速上手示例，替换原先"文档暂未完成"的占位内容。
+- `BaseService` 的 docstring 同步到 0.6.0 的新错误约定（必填参数缺失一律抛 `ValueError`，不再软失败）。
+- CI 在 `push` 到 `main` 时也会触发测试和打包，避免主干回归遗漏。
+- 清理 `oopz_sdk.utils.message_builder` 里未使用的 `import os` / `ImageAttachment`，修掉 `oopz_sdk/__init__.py` 的多余空格。
+- 新增 `test.env.example`，提供 smoke 测试所需的环境变量模板。
+
 ## 0.6.0 - 2026-04-23
 
 ### 变更

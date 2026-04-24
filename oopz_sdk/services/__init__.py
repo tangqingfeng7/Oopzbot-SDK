@@ -1,9 +1,6 @@
 from __future__ import annotations
 
-import asyncio
-import copy
-import inspect
-from typing import TYPE_CHECKING, Any, Mapping, Tuple
+from typing import TYPE_CHECKING, Any, Mapping
 
 
 from oopz_sdk.utils.payload import safe_json
@@ -24,13 +21,11 @@ class BaseService:
 
     约定
     ----
-    - 对 **返回 `OperationResult` 的方法**，当 `area` / `channel` / `channel_id` /
-      `uid` / `target` / `message_id` 等必填参数缺失时，一律走 **软失败**：
-      直接 `return models.OperationResult(ok=False, message="缺少 xxx")`，
-      而不是抛 `ValueError`。目的是让调用方可以用统一的 `if not result.ok:`
-      分支处理"业务失败"和"参数缺失"。
-    - 对 **返回具体领域模型的读操作**（如 `get_area_info` / `get_area_members`），
-      缺必填参数时抛 `ValueError`，因为这类方法没有"软失败"的返回形态。
+    - service 方法的必填参数（`area` / `channel` / `channel_id` / `uid` /
+      `target` / `message_id` 等）缺失时，一律抛 `ValueError`，不再走
+      "`OperationResult(ok=False, message="缺少 xxx")`" 软失败。
+    - 后端业务失败仍用 `OperationResult.ok=False` 或 `OopzApiError` 体系
+      表达，调用方按需 `if not result.ok:` 或 `try / except`。
     """
 
     def __init__(
@@ -44,30 +39,6 @@ class BaseService:
         self._config = config
         self.transport = transport
         self.signer = signer
-
-    async def _get(self, url_path: str, params: dict | None = None):
-        return await self.transport.get(url_path, params=params)
-
-    async def _request(
-            self,
-            method: str,
-            url_path: str,
-            body: dict | None = None,
-            params: dict | None = None,
-    ):
-        return await self.transport.request(method, url_path, body=body, params=params)
-
-    async def _post(self, url_path: str, body: dict):
-        return await self.transport.post(url_path, body)
-
-    async def _put(self, url_path: str, body: dict):
-        return await self.transport.put(url_path, body)
-
-    async def _delete(self, url_path: str, body: dict | None = None):
-        return await self.transport.delete(url_path, body)
-
-    async def _patch(self, url_path: str, body: dict):
-        return await self.transport.patch(url_path, body)
 
     async def _request_data(
             self,
@@ -107,128 +78,6 @@ class BaseService:
             method, url, params=params, headers=headers, data=data,
              timeout=timeout
         )
-
-    @staticmethod
-    def _retry_after_seconds(response) -> int:
-        try:
-            return int(response.headers.get("Retry-After", "0") or "0")
-        except Exception:
-            return 0
-
-    @staticmethod
-    def _error_message(payload: dict[str, Any] | None, default: str = "未知错误") -> str:
-        if not isinstance(payload, dict):
-            return default
-        for key in ("message", "error", "msg", "reason"):
-            value = payload.get(key)
-            if isinstance(value, str) and value.strip():
-                return value.strip()
-        return default
-
-    def _error_payload(
-            self,
-            message: str,
-            *,
-            payload: dict[str, Any] | None = None,
-            default: str = "未知错误",
-    ) -> dict[str, Any]:
-        if isinstance(payload, dict):
-            copied = copy.deepcopy(payload)
-            if copied.get("error"):
-                return copied
-            copied["error"] = self._error_message(copied, default)
-            return copied
-        return {"error": str(message or default)}
-
-    def _model_error(
-            self,
-            model_cls,
-            message: str,
-            *,
-            response=None,
-            payload: dict[str, Any] | None = None,
-            default: str = "未知错误",
-            **fields,
-    ):
-        error_payload = self._error_payload(message, payload=payload, default=default)
-        build_fields = {"payload": error_payload, **fields}
-        if response is not None:
-            try:
-                signature = inspect.signature(model_cls)
-            except (TypeError, ValueError):
-                signature = None
-            if signature is not None:
-                parameters = signature.parameters
-                accepts_kwargs = any(
-                    parameter.kind is inspect.Parameter.VAR_KEYWORD
-                    for parameter in parameters.values()
-                )
-                if "response" in parameters or accepts_kwargs:
-                    build_fields["response"] = response
-        return model_cls(**build_fields)
-
-    def _invalid_dict_item_payload(
-            self,
-            values: object,
-            message: str,
-            *,
-            list_key: str,
-            payload: dict[str, Any] | None = None,
-    ) -> dict[str, Any] | None:
-        if not isinstance(values, list):
-            error_payload = self._error_payload(message, payload=payload, default=message)
-            error_payload["error"] = message
-            error_payload["list_key"] = list_key
-            error_payload["invalid_type"] = type(values).__name__
-            return error_payload
-        for index, item in enumerate(values):
-            if not isinstance(item, dict):
-                error_payload = self._error_payload(message, payload=payload, default=message)
-                error_payload["error"] = message
-                error_payload["list_key"] = list_key
-                error_payload["invalid_index"] = index
-                error_payload["invalid_type"] = type(item).__name__
-                return error_payload
-        return None
-
-    async def close(self) -> None:
-        await self.transport.close()
-
-    async def __aenter__(self):
-        return self
-
-    async def __aexit__(self, exc_type, exc, tb) -> None:
-        await self.close()
-
-    @classmethod
-    def _raise_api_error(cls, response, default_message: str) -> None:
-        from oopz_sdk import OopzRateLimitError, OopzApiError
-        payload = safe_json(response)
-        message = default_message
-
-        if response.status_code == 429:
-            try:
-                retry_after = int(response.headers.get("Retry-After", "0") or "0")
-            except Exception:
-                retry_after = 0
-
-            if payload:
-                message = str(payload.get("message") or payload.get("error") or message)
-            elif response.text:
-                message = f"{message}: {response.text[:200]}"
-
-            raise OopzRateLimitError(
-                message=message,
-                retry_after=retry_after,
-                response=payload,
-            )
-
-        if payload:
-            message = str(payload.get("message") or payload.get("error") or message)
-        elif response.text:
-            message = f"{message}: {response.text[:200]}"
-
-        raise OopzApiError(message, status_code=response.status_code, response=payload)
 
 
 __all__ = ["BaseService"]

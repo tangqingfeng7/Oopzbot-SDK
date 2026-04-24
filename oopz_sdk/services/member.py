@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Optional
+from typing import Optional
 
 from oopz_sdk import models
 from oopz_sdk.exceptions import OopzApiError
@@ -37,11 +37,11 @@ class Member(BaseService):
 
         return result
 
-    async def get_person_info(self, uid: str = None) -> models.UserInfo:
+    async def get_person_info(self, uid: Optional[str] = None) -> models.UserInfo:
         """获取指定用户的基本信息，默认当前登录用户。"""
         uid = uid or getattr(self._config, "person_uid", None)
         if not uid:
-            raise ValueError("uid is required for get_person_detail()")
+            raise ValueError("uid is required for get_person_info()")
 
         url_path = "/client/v1/person/v1/personInfos"
         body = {"persons": [uid], "commonIds": []}

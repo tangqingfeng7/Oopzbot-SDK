@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Mapping
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import Field, model_validator
 
 from oopz_sdk.exceptions import OopzApiError
 from .base import BaseModel
@@ -76,7 +76,7 @@ class AreaInfo(BaseModel):
     is_public: bool = Field(default=False, alias="isPublic")
     name: str = ""
     now: int = 0
-    private_channels: list[dict[str, Any]] = Field(default_factory=list, alias="privateChannels")
+    private_channels: list[str] = Field(default_factory=list, alias="privateChannels")
     role_list: list[AreaRole] = Field(default_factory=list, alias="roleList")
     subscribed: bool = False
 

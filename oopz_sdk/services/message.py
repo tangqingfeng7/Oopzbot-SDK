@@ -7,10 +7,10 @@ from typing import Optional, Any, List
 
 from oopz_sdk import models
 from oopz_sdk.exceptions import OopzApiError
-from oopz_sdk.models.segment import Image, Segment, Text
+from oopz_sdk.models.segment import Image, Segment
 from oopz_sdk.services import BaseService
 from oopz_sdk.utils.image import get_image_info
-from oopz_sdk.utils.message_builder import build_segments, normalize_message_parts
+from oopz_sdk.models import build_segments, normalize_message_parts
 
 logger = logging.getLogger("oopz_sdk.services.message")
 
@@ -90,7 +90,7 @@ class Message(BaseService):
         """
         target = target.strip()
         if not target:
-            raise ValueError("target is required for send_private_message()")
+            raise ValueError("target is required for open_private_session()")
 
         url_path = "/client/v1/chat/v1/to"
         resp = await self._request_data("PATCH", url_path, params={"target": target})
@@ -101,12 +101,12 @@ class Message(BaseService):
             *texts: str | Segment,
             area: str,
             channel: str,
-            attachments: list = None,
-            mention_list: list = None,
+            attachments: Optional[list] = None,
+            mention_list: Optional[list] = None,
             is_mention_all: bool = False,
-            style_tags: list = None,
-            reference_message_id: str = None,
-            auto_recall=False,
+            style_tags: Optional[list] = None,
+            reference_message_id: Optional[str] = None,
+            auto_recall: bool = False,
             animated: bool = False,
             display_name: str = "",
             duration: int = 0,
@@ -115,6 +115,11 @@ class Message(BaseService):
         """
         频道消息发送。
         """
+        if area.strip() == "":
+            raise ValueError("area is required for send_message()")
+        if channel.strip() == "":
+            raise ValueError("channel is required for send_message()")
+
         built_text, built_attachments = await self._prepare_message_content(
             *texts,
             attachments=attachments,
@@ -219,7 +224,7 @@ class Message(BaseService):
             logger.error("failed to schedule auto recall: %s", exc)
 
     async def _do_auto_recall(
-            self, message_id: str, area: str, channel: str, delay: int
+            self, message_id: str, area: str, channel: str, delay: float
     ) -> None:
         try:
             await asyncio.sleep(delay)
@@ -233,10 +238,7 @@ class Message(BaseService):
         resolved: list[Segment] = []
 
         for seg in segments:
-            if isinstance(seg, Text):
-                resolved.append(seg)
-                continue
-
+            # 目前仅 Image 需要特殊处理，其他类型直接原样添加到 resolved 列表中
             if isinstance(seg, Image):
                 if seg.is_uploaded:
                     resolved.append(seg)
@@ -247,9 +249,7 @@ class Message(BaseService):
                     continue
 
                 raise ValueError("ImageSegment is neither uploaded nor backed by a local file")
-
-            raise TypeError(f"Unsupported segment type: {type(seg)!r}")
-
+            resolved.append(seg)
         return resolved
 
     async def recall_message(
@@ -257,7 +257,7 @@ class Message(BaseService):
             message_id: str,
             area: str,
             channel: str,
-            timestamp: str = None,
+            timestamp: Optional[str] = None,
             target: str = "",
     ) -> models.OperationResult:
         if message_id.strip() == "":
@@ -310,19 +310,25 @@ class Message(BaseService):
             area: str,
             channel: str,
             size: int = 50
-    ) -> List[Message]:
+    ) -> List[models.Message]:
+        if area.strip() == "":
+            raise ValueError("area is required for get_channel_messages")
+        if channel.strip() == "":
+            raise ValueError("channel is required for get_channel_messages")
+        if size <= 0:
+            raise ValueError("size must be positive")
+
         url_path = "/im/session/v2/messageBefore"
         params = {"area": area, "channel": channel, "size": str(size)}
 
         data = await self._request_data("GET", url_path, params=params)
 
-        if not isinstance(data, dict) and data.get("message", None) is None:
+        if not isinstance(data, dict) or not isinstance(data.get("messages"), list):
             raise OopzApiError(
                 "response format error: expected dict with 'messages' list",
-                response=data,
+                payload=data,
             )
-        messages = data.get("messages")
-        return [models.Message.from_api(message) for message in messages]
+        return [models.Message.from_api(message) for message in data["messages"]]
 
     async def _upload_local_image_segment(self, seg: Image) -> Image:
         source_path = seg.source_path
@@ -333,7 +339,9 @@ class Message(BaseService):
         height = seg.height
         file_size = seg.file_size
         if width <= 0 or height <= 0 or file_size <= 0:
-            width, height, file_size = get_image_info(source_path)
+            width, height, file_size = await asyncio.to_thread(
+                get_image_info, source_path
+            )
 
         ext = os.path.splitext(source_path)[1] or ".jpg"
 

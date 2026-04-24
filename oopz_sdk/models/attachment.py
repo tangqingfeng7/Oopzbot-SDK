@@ -139,6 +139,9 @@ class Attachment(BaseModel, ABC):
     file_size: int = Field(default=0, alias="fileSize")
     animated: bool = False
     hash: str = ""
+    width: int = 0
+    height: int = 0
+    preview_file_key: str = Field(default="", alias="previewFileKey")
 
     @model_validator(mode="before")
     @classmethod
@@ -152,13 +155,23 @@ class Attachment(BaseModel, ABC):
         normalized["attachmentType"] = str(normalized.get("attachmentType") or "").upper()
         normalized["displayName"] = str(normalized.get("displayName") or "")
         normalized["hash"] = str(normalized.get("hash") or "")
+        normalized["previewFileKey"] = str(normalized.get("previewFileKey") or "")
 
         try:
             normalized["fileSize"] = int(normalized.get("fileSize") or 0)
         except (TypeError, ValueError):
             normalized["fileSize"] = 0
+        try:
+            normalized["width"] = int(normalized.get("width") or 0)
+        except (TypeError, ValueError):
+            normalized["width"] = 0
 
+        try:
+            normalized["height"] = int(normalized.get("height") or 0)
+        except (TypeError, ValueError):
+            normalized["height"] = 0
         normalized["animated"] = bool(normalized.get("animated", False))
+
         return normalized
 
     @model_validator(mode="after")
@@ -172,7 +185,7 @@ class Attachment(BaseModel, ABC):
 
     def to_payload(self) -> dict[str, Any]:
         payload = self.model_dump(by_alias=True, exclude_none=True)
-        return {key: value for key, value in payload.roles() if value not in ("", 0, False)}
+        return {key: value for key, value in payload.items() if value not in ("", 0, False)}
 
     @classmethod
     def parse(cls, data: Mapping[str, Any]) -> "Attachment":
@@ -182,51 +195,17 @@ class Attachment(BaseModel, ABC):
         attachment_type = str(data.get("attachmentType") or "").upper()
         if attachment_type == "IMAGE":
             return ImageAttachment.model_validate(data)
-        if attachment_type == "AUDIO":
-            return AudioAttachment.model_validate(data)
 
         raise OopzApiError(
             f"unsupported attachmentType: {attachment_type or '<empty>'}",
             payload=data,
         )
 
-
-class ImageAttachment(Attachment):
-    width: int = 0
-    height: int = 0
-    preview_file_key: str = Field(default="", alias="previewFileKey")
-
-    @model_validator(mode="before")
-    @classmethod
-    def validate_and_normalize_image(cls, data: Any) -> Any:
-        if not isinstance(data, Mapping):
-            raise OopzApiError("invalid image attachment payload: expected dict", payload=data)
-
         normalized = dict(data)
         normalized["attachmentType"] = str(normalized.get("attachmentType") or "IMAGE").upper()
         normalized["previewFileKey"] = str(normalized.get("previewFileKey") or "")
 
-        try:
-            normalized["width"] = int(normalized.get("width") or 0)
-        except (TypeError, ValueError):
-            normalized["width"] = 0
-
-        try:
-            normalized["height"] = int(normalized.get("height") or 0)
-        except (TypeError, ValueError):
-            normalized["height"] = 0
-
-        return normalized
-
-    @model_validator(mode="after")
-    def ensure_image_type(self) -> "ImageAttachment":
-        if self.attachment_type and self.attachment_type != "IMAGE":
-            raise OopzApiError(
-                "invalid image attachment payload: attachmentType must be IMAGE",
-                payload=self.model_dump(by_alias=True),
-            )
-        return self
-
+class ImageAttachment(Attachment):
     @classmethod
     def from_manually(
             cls,
@@ -256,30 +235,31 @@ class ImageAttachment(Attachment):
             }
         )
 
-class AudioAttachment(Attachment):
-    duration: int = 0
-
-    @model_validator(mode="before")
-    @classmethod
-    def validate_and_normalize_audio(cls, data: Any) -> Any:
-        if not isinstance(data, Mapping):
-            raise OopzApiError("invalid audio attachment payload: expected dict", payload=data)
-
-        normalized = dict(data)
-        normalized["attachmentType"] = str(normalized.get("attachmentType") or "AUDIO").upper()
-
-        try:
-            normalized["duration"] = int(normalized.get("duration") or 0)
-        except (TypeError, ValueError):
-            normalized["duration"] = 0
-
-        return normalized
-
-    @model_validator(mode="after")
-    def ensure_audio_type(self) -> "AudioAttachment":
-        if self.attachment_type and self.attachment_type != "AUDIO":
-            raise OopzApiError(
-                "invalid audio attachment payload: attachmentType must be AUDIO",
-                payload=self.model_dump(by_alias=True),
-            )
-        return self
+# 不支持此类文件发送
+# class AudioAttachment(Attachment):
+#     duration: int = 0
+#
+#     @model_validator(mode="before")
+#     @classmethod
+#     def validate_and_normalize_audio(cls, data: Any) -> Any:
+#         if not isinstance(data, Mapping):
+#             raise OopzApiError("invalid audio attachment payload: expected dict", payload=data)
+#
+#         normalized = dict(data)
+#         normalized["attachmentType"] = str(normalized.get("attachmentType") or "AUDIO").upper()
+#
+#         try:
+#             normalized["duration"] = int(normalized.get("duration") or 0)
+#         except (TypeError, ValueError):
+#             normalized["duration"] = 0
+#
+#         return normalized
+#
+#     @model_validator(mode="after")
+#     def ensure_audio_type(self) -> "AudioAttachment":
+#         if self.attachment_type and self.attachment_type != "AUDIO":
+#             raise OopzApiError(
+#                 "invalid audio attachment payload: attachmentType must be AUDIO",
+#                 payload=self.model_dump(by_alias=True),
+#             )
+#         return self

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "oopz-sdk"
-version = "0.6.0"
+version = "0.7.1"
 description = "Oopz 平台 Python SDK，提供 HTTP API、文件上传与 WebSocket 事件能力。"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -21,15 +21,16 @@ classifiers = [
   "Programming Language :: Python :: 3.10",
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
   "Topic :: Software Development :: Libraries :: Python Modules",
 ]
+
 dependencies = [
   "aiohttp>=3.11,<4",
   "cryptography>=42,<48",
   "pillow>=10,<13",
   "pydantic>=2,<3",
-  "requests>=2.32,<3",
-  "websocket-client>=1.8,<2",
+  "playwright>=1.58.0",
 ]
 
 [project.urls]

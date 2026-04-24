@@ -32,7 +32,7 @@ class ProxyConfig:
 @dataclass
 class AutoRecallConfig:
     enabled: bool = False
-    delay: int = 30
+    delay: float = 30.0
 
 
 @dataclass
@@ -49,12 +49,15 @@ class OopzConfig:
     platform: str = "windows"
     web: bool = True
 
-    default_area: str = ""
-    default_channel: str = ""
     use_announcement_style: bool = False
 
     agora_app_id: str = "358eebceadb94c2a9fd91ecd7b341602"
     agora_init_timeout: int = 1800
+
+    voice_backend: str = "browser"
+    voice_browser_headless: bool = True
+    voice_browser_executable_path: str = ""
+    voice_agora_sdk_url: str = "https://download.agora.io/sdk/release/AgoraRTC_N.js"
 
     area_members_cache_ttl: float = 15.0
     area_members_stale_ttl: float = 300.0
@@ -112,11 +115,11 @@ class OopzConfig:
         self.auto_recall.enabled = value
 
     @property
-    def auto_recall_delay(self) -> int:
+    def auto_recall_delay(self) -> float:
         return self.auto_recall.delay
 
     @auto_recall_delay.setter
-    def auto_recall_delay(self, value: int) -> None:
+    def auto_recall_delay(self, value: float) -> None:
         self.auto_recall.delay = value
 
     def get_headers(self) -> dict[str, str]:

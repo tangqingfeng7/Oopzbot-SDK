@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-
 from typing import Any, Mapping
 
 from pydantic import Field, model_validator
@@ -228,6 +226,14 @@ class ChannelSign(BaseModel):
     def to_payload(self) -> dict[str, Any]:
         return self.model_dump(by_alias=True, exclude_none=False)
 
+    @property
+    def rtc_channel_name(self) -> str:
+        return self.room_id
+
+    @property
+    def rtc_token(self) -> str:
+        return self.supplier_sign or self.agora_sign
+
 
 class CreateChannelResult(BaseModel):
     area: str = ""
@@ -272,12 +278,12 @@ class CreateChannelResult(BaseModel):
         return normalized
 
     @classmethod
-    def from_api(cls, data: Mapping[str, Any]) -> "CreateChannelBody":
+    def from_api(cls, data: Mapping[str, Any]) -> "CreateChannelResult":
         return cls.model_validate(data)
 
 
 
-class VoiceChanelMemberInfo(BaseModel):
+class VoiceChannelMemberInfo(BaseModel):
     uid: str = ""
 
     bot_type: str = Field(default="", alias="botType")
@@ -324,11 +330,15 @@ class VoiceChanelMemberInfo(BaseModel):
         return normalized
 
     @classmethod
-    def from_api(cls, data: Mapping[str, Any]) -> "VoiceChanelMemberInfo":
+    def from_api(cls, data: Mapping[str, Any]) -> "VoiceChannelMemberInfo":
         return cls.model_validate(data)
 
+
+VoiceChanelMemberInfo = VoiceChannelMemberInfo
+
+
 class VoiceChannelMembersResult(BaseModel):
-    channel_members: dict[str, list[VoiceChanelMemberInfo]] = Field(default_factory=dict, alias="channelMembers")
+    channel_members: dict[str, list[VoiceChannelMemberInfo]] = Field(default_factory=dict, alias="channelMembers")
 
     @model_validator(mode="before")
     @classmethod

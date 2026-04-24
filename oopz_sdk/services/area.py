@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import copy
 import logging
 import time
@@ -110,28 +109,17 @@ class AreaService(BaseService):
         return models.AreaInfo.from_api(data)
 
     async def enter_area(self, area: str, recover: bool = False) -> dict:
-        """进入指定域。todo"""
-        url_path = f"/client/v1/area/v1/enter?area={area}&recover={str(recover).lower()}"
-        body = {"area": area, "recover": recover}
+        """进入指定域。"""
+        if area.strip() == "":
+            raise ValueError("area is required for enter_area")
 
-        try:
-            resp = await self._post(url_path, body)
-            if resp.status_code != 200:
-                return self._error_payload(
-                    f"HTTP {resp.status_code}",
-                    payload={**body, "error": f"HTTP {resp.status_code}"},
-                )
-            result = resp.json()
-            if not result.get("status"):
-                msg = self._error_message(result)
-                return self._error_payload(
-                    msg,
-                    payload={**body, **result, "error": msg},
-                )
-            return result.get("data", {})
-        except Exception as e:
-            logger.error("进入域异常: %s", e)
-            return self._error_payload(str(e), payload={**body, "error": str(e)})
+        data = await self._request_data(
+            "POST",
+            "/client/v1/area/v1/enter",
+            params={"area": area, "recover": str(recover).lower()},
+            body={"area": area, "recover": recover},
+        )
+        return data if isinstance(data, dict) else {}
 
 
 

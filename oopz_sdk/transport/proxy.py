@@ -4,6 +4,9 @@ from oopz_sdk.config.settings import ProxyConfig
 from urllib.parse import urlparse
 
 
+# 历史遗留：返回 `{"http": ..., "https": ...}` 形状，原本给 `requests.Session.proxies`
+# 使用。0.7.0 起 SDK 内部已全部改走 aiohttp，`build_aiohttp_proxy` 才是现役入口；
+# 这里仅为保持公开 API 兼容性保留，新代码请直接用 `build_aiohttp_proxy`。
 def build_requests_proxies(config: ProxyConfig) -> dict[str, str]:
     proxies: dict[str, str] = {}
     if config.http:

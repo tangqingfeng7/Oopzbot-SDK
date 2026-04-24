@@ -73,7 +73,7 @@ class UserInfo(BaseModel):
         return normalized
 
     @classmethod
-    def from_api(cls, data: Mapping[str, Any]) -> "AreaMemberProfile":
+    def from_api(cls, data: Mapping[str, Any]) -> "UserInfo":
         return cls.model_validate(data)
 
 

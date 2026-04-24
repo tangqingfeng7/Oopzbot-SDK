@@ -7,7 +7,12 @@ from typing import Any
 from oopz_sdk.config.constants import (
     EVENT_CHAT_MESSAGE,
     EVENT_HEARTBEAT,
-    EVENT_SERVER_ID, EVENT_MESSAGE_DELETE, EVENT_PRIVATE_MESSAGE,
+    EVENT_MESSAGE_DELETE,
+    EVENT_MESSAGE_EDIT,
+    EVENT_PRIVATE_MESSAGE,
+    EVENT_PRIVATE_MESSAGE_DELETE,
+    EVENT_PRIVATE_MESSAGE_EDIT,
+    EVENT_SERVER_ID,
 )
 from oopz_sdk.exceptions.parse import OopzParseError
 from oopz_sdk.models.event import Event, MessageEvent
@@ -53,39 +58,29 @@ class EventParser:
         body = self.safe_json_parse(data.get("body", {}), fallback={})
 
         if event_type == EVENT_CHAT_MESSAGE:
-            body = self.safe_json_parse(data.get("body", {}), fallback=None)
-            if not isinstance(body, dict):
-                raise OopzParseError("Invalid chat event body")
-
-            msg_data = self.safe_json_parse(body.get("data", {}), fallback=None)
-            if not isinstance(msg_data, dict):
-                raise OopzParseError("Invalid chat event data")
-
-            message = Message.from_api(msg_data)
-            return MessageEvent(
-                name="message",
-                event_type=event_type,
-                body=body,
-                raw=data,
-                message=message,
+            return self._parse_message_event(
+                event_type, data, name="message", what="chat"
             )
         elif event_type == EVENT_PRIVATE_MESSAGE:
-            body = self.safe_json_parse(data.get("body", {}), fallback=None)
-            if not isinstance(body, dict):
-                raise OopzParseError("Invalid private event body")
-
-            msg_data = self.safe_json_parse(body.get("data", {}), fallback=None)
-            if not isinstance(msg_data, dict):
-                raise OopzParseError("Invalid private event data")
-
-            message = Message.from_api(msg_data)
-            return MessageEvent(
-                name="message.private",
+            return self._parse_message_event(
+                event_type, data, name="message.private", what="private",
+                is_private=True,
+            )
+        elif event_type == EVENT_MESSAGE_EDIT:
+            return self._parse_message_event(
+                event_type, data, name="message.edit", what="message edit"
+            )
+        elif event_type == EVENT_PRIVATE_MESSAGE_EDIT:
+            return self._parse_message_event(
+                event_type, data, name="message.private.edit",
+                what="private message edit", is_private=True,
+            )
+        elif event_type == EVENT_PRIVATE_MESSAGE_DELETE:
+            return Event(
+                name="recall.private",
                 event_type=event_type,
                 body=body,
                 raw=data,
-                message=message,
-                is_private=True,
             )
         elif event_type == EVENT_HEARTBEAT:
             return Event(
@@ -103,7 +98,7 @@ class EventParser:
             )
         elif event_type == EVENT_MESSAGE_DELETE:
             return Event(
-                name="message.delete",
+                name="recall",
                 event_type=event_type,
                 body=body,
                 raw=data,
@@ -114,6 +109,33 @@ class EventParser:
             event_type=event_type,
             body=body,
             raw=data,
+        )
+
+    def _parse_message_event(
+        self,
+        event_type: int,
+        data: dict,
+        *,
+        name: str,
+        what: str,
+        is_private: bool = False,
+    ) -> "MessageEvent":
+        body = self.safe_json_parse(data.get("body", {}), fallback=None)
+        if not isinstance(body, dict):
+            raise OopzParseError(f"Invalid {what} event body")
+
+        msg_data = self.safe_json_parse(body.get("data", {}), fallback=None)
+        if not isinstance(msg_data, dict):
+            raise OopzParseError(f"Invalid {what} event data")
+
+        message = Message.from_api(msg_data)
+        return MessageEvent(
+            name=name,
+            event_type=event_type,
+            body=body,
+            raw=data,
+            message=message,
+            is_private=is_private,
         )
 
     @staticmethod

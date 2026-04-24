@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
 from typing import Any, Mapping
 
-from pydantic import BaseModel as Bm, ConfigDict, Field
+from pydantic import BaseModel as Bm, ConfigDict
 
 
 class BaseModel(Bm):

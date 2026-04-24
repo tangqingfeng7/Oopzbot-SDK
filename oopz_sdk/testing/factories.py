@@ -11,6 +11,5 @@ def make_config() -> OopzConfig:
         person_uid="person",
         jwt_token="jwt",
         private_key=rsa.generate_private_key(public_exponent=65537, key_size=2048),
-        default_area="area",
-        default_channel="channel",
+
     )
