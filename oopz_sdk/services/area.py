@@ -189,6 +189,23 @@ class AreaService(BaseService):
         resp = await self._request_data("POST", "/area/v3/role/editUserRole", body=body)
         return models.OperationResult.from_api(resp)
 
+    async def get_user_area_nicknames(self, area: str, uids: list[str]) -> dict[str, str]:
+        """批量获取用户在域内的昵称（备注）。"""
+        if not area:
+            raise ValueError("area is required for getUserAreaNicknames()")
+        if not uids:
+            raise ValueError("uids list cannot be empty for getUserAreaNicknames()")
+
+        url_path = "/area/v2/getUserAreaNicknames"
+        body = {"area": area, "uids": uids}
+        data = await self._request_data("POST", url_path, body=body)
+
+        nicknames = data.get("nicknames")
+        if not isinstance(nicknames, dict):
+            raise ValueError("Invalid API response: 'nicknames' field is missing or not a dict")
+
+        return {str(uid): str(nick) for uid, nick in nicknames.items()}
+
     # async def search_area_members(
     #         self,
     #         area: str,
