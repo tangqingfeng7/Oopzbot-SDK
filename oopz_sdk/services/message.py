@@ -90,7 +90,7 @@ class Message(BaseService):
         """
         target = target.strip()
         if not target:
-            raise ValueError("target is required for send_private_message()")
+            raise ValueError("target is required for open_private_session()")
 
         url_path = "/client/v1/chat/v1/to"
         resp = await self._request_data("PATCH", url_path, params={"target": target})
@@ -339,7 +339,9 @@ class Message(BaseService):
         height = seg.height
         file_size = seg.file_size
         if width <= 0 or height <= 0 or file_size <= 0:
-            width, height, file_size = get_image_info(source_path)
+            width, height, file_size = await asyncio.to_thread(
+                get_image_info, source_path
+            )
 
         ext = os.path.splitext(source_path)[1] or ".jpg"
 

@@ -4,9 +4,12 @@
 
 ## 0.7.1 - 2026-04-24
 
+### 变更
+
+- 移除 `OopzConfig.default_area` / `default_channel` 两个字段。`OopzBot.send / reply / recall` 的 `area / channel` 固定为必填位置参数（延续 0.7.0 行为），不再从配置回落。0.6.2 曾引入的回落机制本版本确认放弃，调用方需显式传 `area / channel`，或使用 `ctx.reply()` 等从事件上下文推导的便捷入口。
+
 ### 修复
 
-- `OopzBot.send / reply / recall` 恢复 0.6.2 承诺的 `OopzConfig.default_area / default_channel` 回落：未显式传 `area / channel` 时从配置回落，两边都没给则抛明确的 `ValueError`，而不是 `TypeError: missing required positional argument`。0.7.0 中把它们改成必传位置参数属于未在 CHANGELOG 声明的行为回归，本次恢复。
 - `Channel.leave_voice_channel` 把 `area` 从 `Optional[str] = None` 改为必填 `str`，并补充空串校验。原先 `area=None` 会被原样拼进 `params`，实际只会让服务端返回错误，没有可用场景。
 - `Channel.enter_channel` / `get_voice_channel_members` 补上 `area` / `channel` 的类型标注与空串校验，对齐 0.6.0 立的「必填参数缺失一律抛 `ValueError`」约定。
 - `AreaInfo.private_channels` 从 `list[dict[str, Any]]` 改为 `list[str]`。服务端实际下发的是私密频道的 id 字符串列表，原先的 `dict` 声明会让 `areas.get_area_info` 在任何含有私密频道的域上直接 pydantic `ValidationError`（联调已复现）。
@@ -36,7 +39,6 @@
 ### 修复
 
 - `HttpTransport.request_data` 把合法的 `{"status": true, "data": null}` 响应错误地当成失败抛 `OopzApiError`,改为只在真正没有 `"data"` 键时才抛,行为与 `request_data_with_retry` 对齐。
-- `Moderation.remove_from_area` 的 `ValueError` 报错文案从复制来的 `"xxx is required for unmute_mic"` 更正为 `"xxx is required for remove_from_area"`。
 - `CreateChannelResult.from_api` / `UserInfo.from_api` 的返回类型注解写成了别的模型名,导致静态类型检查报错,修正为各自模型本身。
 - `Channel.get_voice_channel_for_user` 此前遍历 `.roles()`(语音成员结构上并没有这个方法),改为 `.items()` 真正可用;同时补上 `area: str` 类型标注与说明。
 - `Message.get_channel_messages` 补上 `area / channel / size` 的必填与范围校验,避免把空串 / 非法 size 直接发给服务端。

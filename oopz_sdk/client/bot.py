@@ -173,36 +173,9 @@ class OopzBot:
     # -------------------------
     # 高层便捷方法
     # -------------------------
-    def _resolve_area_channel(
-        self,
-        area: str | None,
-        channel: str | None,
-        *,
-        method: str,
-    ) -> tuple[str, str]:
-        """显式入参优先，缺省回落到 ``OopzConfig.default_area / default_channel``；
-        两边都没给就抛明确的 ``ValueError``，避免把 ``None`` 一路送进 API 拿到看不懂的服务端错误。"""
-        resolved_area = area if area else self.config.default_area
-        resolved_channel = channel if channel else self.config.default_channel
-
-        if not resolved_area:
-            raise ValueError(
-                f"{method}() requires 'area': pass area=... or set OopzConfig.default_area"
-            )
-        if not resolved_channel:
-            raise ValueError(
-                f"{method}() requires 'channel': pass channel=... or set OopzConfig.default_channel"
-            )
-        return resolved_area, resolved_channel
-
     async def send(
-        self,
-        text: str,
-        area: str | None = None,
-        channel: str | None = None,
-        **kwargs,
+        self, text: str, area: str, channel: str, **kwargs
     ):
-        area, channel = self._resolve_area_channel(area, channel, method="send")
         return await self.messages.send_message(
             text, area=area, channel=channel, **kwargs
         )
@@ -210,11 +183,10 @@ class OopzBot:
     async def recall(
         self,
         message_id: str,
-        area: str | None = None,
-        channel: str | None = None,
+        area: str,
+        channel: str,
         **kwargs,
     ):
-        area, channel = self._resolve_area_channel(area, channel, method="recall")
         return await self.messages.recall_message(
             message_id, area=area, channel=channel, **kwargs
         )
@@ -222,15 +194,14 @@ class OopzBot:
     async def reply(
         self,
         text: str,
-        area: str | None = None,
-        channel: str | None = None,
+        area: str,
+        channel: str,
         reference_message_id: str = "",
         **kwargs,
     ):
         """
         对某条消息进行回复
         """
-        area, channel = self._resolve_area_channel(area, channel, method="reply")
         return await self.messages.send_message(
             text,
             area=area,
