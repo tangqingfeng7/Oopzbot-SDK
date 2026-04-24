@@ -7,6 +7,7 @@ from pydantic import Field, model_validator
 
 from .base import BaseModel
 from oopz_sdk.exceptions import OopzApiError
+from oopz_sdk.utils.payload import coerce_bool
 
 
 class UploadTicket(BaseModel):
@@ -170,7 +171,7 @@ class Attachment(BaseModel, ABC):
             normalized["height"] = int(normalized.get("height") or 0)
         except (TypeError, ValueError):
             normalized["height"] = 0
-        normalized["animated"] = bool(normalized.get("animated", False))
+        normalized["animated"] = coerce_bool(normalized.get("animated"), default=False)
 
         return normalized
 
@@ -195,15 +196,16 @@ class Attachment(BaseModel, ABC):
         attachment_type = str(data.get("attachmentType") or "").upper()
         if attachment_type == "IMAGE":
             return ImageAttachment.model_validate(data)
+        if attachment_type == "AUDIO":
+            return AudioAttachment.model_validate(data)
+        if attachment_type == "FILE":
+            return FileAttachment.model_validate(data)
 
         raise OopzApiError(
             f"unsupported attachmentType: {attachment_type or '<empty>'}",
             payload=data,
         )
 
-        normalized = dict(data)
-        normalized["attachmentType"] = str(normalized.get("attachmentType") or "IMAGE").upper()
-        normalized["previewFileKey"] = str(normalized.get("previewFileKey") or "")
 
 class ImageAttachment(Attachment):
     @classmethod
@@ -235,31 +237,77 @@ class ImageAttachment(Attachment):
             }
         )
 
-# 不支持此类文件发送
-# class AudioAttachment(Attachment):
-#     duration: int = 0
-#
-#     @model_validator(mode="before")
-#     @classmethod
-#     def validate_and_normalize_audio(cls, data: Any) -> Any:
-#         if not isinstance(data, Mapping):
-#             raise OopzApiError("invalid audio attachment payload: expected dict", payload=data)
-#
-#         normalized = dict(data)
-#         normalized["attachmentType"] = str(normalized.get("attachmentType") or "AUDIO").upper()
-#
-#         try:
-#             normalized["duration"] = int(normalized.get("duration") or 0)
-#         except (TypeError, ValueError):
-#             normalized["duration"] = 0
-#
-#         return normalized
-#
-#     @model_validator(mode="after")
-#     def ensure_audio_type(self) -> "AudioAttachment":
-#         if self.attachment_type and self.attachment_type != "AUDIO":
-#             raise OopzApiError(
-#                 "invalid audio attachment payload: attachmentType must be AUDIO",
-#                 payload=self.model_dump(by_alias=True),
-#             )
-#         return self
+class AudioAttachment(Attachment):
+    """语音附件（attachmentType=AUDIO）。
+
+    当前 SDK 不对外暴露 AUDIO 的发送入口（见 ``services/media.py`` / ``services/message.py``），
+    但服务端推送过来的消息里可能带 AUDIO 附件，解析时要保留 `duration` 等字段，
+    避免 ``Message.attachments`` 被静默丢成空列表。
+    """
+
+    duration: int = 0
+
+    @model_validator(mode="before")
+    @classmethod
+    def _normalize_audio(cls, data: Any) -> Any:
+        if not isinstance(data, Mapping):
+            return data
+        normalized = dict(data)
+        try:
+            normalized["duration"] = int(normalized.get("duration") or 0)
+        except (TypeError, ValueError):
+            normalized["duration"] = 0
+        return normalized
+
+    @classmethod
+    def from_manually(
+            cls,
+            *,
+            file_key: str,
+            url: str,
+            display_name: str = "",
+            file_size: int = 0,
+            duration: int = 0,
+            hash: str = "",
+    ) -> "AudioAttachment":
+        return cls.model_validate(
+            {
+                "fileKey": file_key,
+                "url": url,
+                "attachmentType": "AUDIO",
+                "displayName": display_name,
+                "fileSize": file_size,
+                "hash": hash,
+                "duration": duration,
+            }
+        )
+
+
+class FileAttachment(Attachment):
+    """普通文件附件（attachmentType=FILE）。
+
+    父类字段（fileKey / url / displayName / fileSize / hash 等）已覆盖文件附件常见需求；
+    保留此子类是为了让 ``Attachment.parse`` 能够把 FILE 归一到一个明确的类型，
+    让接收端可以通过 ``isinstance(att, FileAttachment)`` 区分。
+    """
+
+    @classmethod
+    def from_manually(
+            cls,
+            *,
+            file_key: str,
+            url: str,
+            display_name: str = "",
+            file_size: int = 0,
+            hash: str = "",
+    ) -> "FileAttachment":
+        return cls.model_validate(
+            {
+                "fileKey": file_key,
+                "url": url,
+                "attachmentType": "FILE",
+                "displayName": display_name,
+                "fileSize": file_size,
+                "hash": hash,
+            }
+        )

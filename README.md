@@ -25,8 +25,8 @@ pip install oopz-sdk
 凭证均通过 `OopzConfig` 传入。除上述必填项外，`OopzConfig` 还支持若干可选参数，例如：
 
 - `ignore_self_messages`：WebSocket 事件中是否忽略自己发出的消息（默认开启，避免回声死循环）
-- `auto_recall_enabled` / `auto_recall_delay`：发消息后自动撤回
 - `use_announcement_style`：默认以公告样式发消息
+- 发消息后自动撤回：构造时传 `auto_recall=AutoRecallConfig(enabled=True, delay=30.0)`，或先 `OopzConfig(...)` 再对 `config.auto_recall_enabled` / `config.auto_recall_delay` 赋值。配置打开后，频道 `send_message` 会按延迟自动计划撤回，**不必**每次再传 `auto_recall=True`。`send_message(auto_recall=...)` 是三态覆盖：不传（默认 `None`）跟随全局；传 `True` 强制撤回；传 `False` 强制保留（用于混合场景里保留个别公告 / 日报）
 
 ## 发送一条频道消息
 
@@ -95,6 +95,7 @@ asyncio.run(main())
 - `examples/send_message.py`：最小发送消息示例
 - `examples/reply_bot.py`：基于 `OopzBot` 的事件驱动示例
 - `examples/upload_private_image.py`：上传图片并通过私信发送
+- `examples/voice_join_and_play.py`：加入语音频道并推流播放音频（需先 `python -m playwright install chromium`）
 
 ## 主要入口
 
@@ -116,7 +117,7 @@ REST / Bot 上挂载的 service：
 | `channels` | `Channel` | 频道信息与语音频道 `enter/leave` |
 | `members` | `Member` | 成员信息查询 |
 | `moderation` | `Moderation` | 禁言 / 解禁 / 踢人 / 拉黑 |
-| `voice` | `Voice` | 语音频道加入与推流（需浏览器后端，见 `examples`） |
+| `voice` | `Voice` | 语音频道加入与推流（需浏览器后端，见 `examples/voice_join_and_play.py`） |
 
 ## 许可证
 

@@ -22,12 +22,26 @@ class AreaService(BaseService):
             self._area_members_cache = store
         return store
 
+    def _cache_disabled(self) -> bool:
+        """``cache_max_entries <= 0`` 视为完全关闭域成员缓存。
+
+        这样既避免 ``min()`` 在空 store 上的 ``ValueError``（原先 `len >= 0` 恒真
+        会直接对空字典执行 ``min``），也让 0/负数具备「关闭缓存」的自然语义。
+        """
+        try:
+            max_entries = int(getattr(self._config, "cache_max_entries", 200))
+        except (TypeError, ValueError):
+            return False
+        return max_entries <= 0
+
     def _get_cached_area_members(
         self,
         cache_key: tuple[str, int, int],
         *,
         max_age: float,
     ) -> Optional[dict]:
+        if self._cache_disabled():
+            return None
         store = self._get_area_members_cache_store()
         cached = store.get(cache_key)
         if not isinstance(cached, dict):
@@ -41,10 +55,20 @@ class AreaService(BaseService):
         return copy.deepcopy(data)
 
     def _set_cached_area_members(self, cache_key: tuple[str, int, int], data: dict) -> None:
+        if self._cache_disabled():
+            # 关闭缓存时，顺手清空历史残留，避免配置切换后命中脏条目
+            store = getattr(self, "_area_members_cache", None)
+            if isinstance(store, dict):
+                store.clear()
+            return
         store = self._get_area_members_cache_store()
         max_entries = int(getattr(self._config, "cache_max_entries", 200))
-        if len(store) >= max_entries:
-            oldest = min(store, key=lambda k: store[k].get("ts", 0) if isinstance(store[k], dict) else 0)
+        # while 而非 if：之前若放宽过 max_entries 又调小，可能一次性要驱逐多条
+        while store and len(store) >= max_entries:
+            oldest = min(
+                store,
+                key=lambda k: store[k].get("ts", 0) if isinstance(store[k], dict) else 0,
+            )
             store.pop(oldest, None)
         store[cache_key] = {"ts": time.time(), "data": copy.deepcopy(data)}
 

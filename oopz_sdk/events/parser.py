@@ -8,6 +8,7 @@ from typing import Any
 from oopz_sdk.config.constants import (
     EVENT_AREA_UPDATE,
     EVENT_AUTH,
+    EVENT_CHANNEL_DELETE,
     EVENT_CHANNEL_MESSAGE_BAN,
     EVENT_CHANNEL_UPDATE,
     EVENT_CHANNEL_VOICE_BAN,
@@ -32,6 +33,7 @@ from oopz_sdk.models.event import (
     AreaUpdateEvent,
     AuthEvent,
     ChannelCreateEvent,
+    ChannelDeleteEvent,
     ChannelUpdateEvent,
     Event,
     HeartbeatEvent,
@@ -89,6 +91,7 @@ class EventParser:
         # 频道 / 语音
         EVENT_CHANNEL_UPDATE: EventSpec("channel.update", ChannelUpdateEvent),
         EVENT_PUBLIC_CHANNEL_CREATE: EventSpec("channel.create", ChannelCreateEvent),
+        EVENT_CHANNEL_DELETE: EventSpec("channel.delete", ChannelDeleteEvent),
         EVENT_USER_ENTER_VOICE_CHANNEL: EventSpec("voice.enter", VoiceChannelPresenceEvent),
         EVENT_USER_LEAVE_VOICE_CHANNEL: EventSpec("voice.leave", VoiceChannelPresenceEvent),
 

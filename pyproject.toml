@@ -8,7 +8,7 @@ version = "0.7.1"
 description = "Oopz 平台 Python SDK，提供 HTTP API、文件上传与 WebSocket 事件能力。"
 readme = "README.md"
 requires-python = ">=3.10"
-license-files = []
+license-files = ["LICENSE"]
 authors = [
   { name = "Oopzbot Contributors" },
 ]

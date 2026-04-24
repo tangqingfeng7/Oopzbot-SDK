@@ -106,7 +106,7 @@ class Message(BaseService):
             is_mention_all: bool = False,
             style_tags: Optional[list] = None,
             reference_message_id: Optional[str] = None,
-            auto_recall: bool = False,
+            auto_recall: Optional[bool] = None,
             animated: bool = False,
             display_name: str = "",
             duration: int = 0,
@@ -114,6 +114,12 @@ class Message(BaseService):
     ) -> models.MessageSendResult:
         """
         频道消息发送。
+
+        自动撤回的三态语义（`auto_recall`）：
+        - `None`（默认，不传）：跟随全局 `OopzConfig.auto_recall_enabled`。全局开则按
+          `auto_recall_delay` 自动安排撤回；全局关则不撤回。
+        - `True`：强制撤回这一条，使用 `auto_recall_delay` 作为延迟（即便全局关）。
+        - `False`：强制**不**撤回这一条（即便全局开）。用于混合场景下保留个别公告 / 日报消息。
         """
         if area.strip() == "":
             raise ValueError("area is required for send_message()")
@@ -150,7 +156,10 @@ class Message(BaseService):
 
         model = models.MessageSendResult.from_api(resp)
 
-        if auto_recall and model.message_id:
+        should_recall = (
+            auto_recall if auto_recall is not None else self._config.auto_recall_enabled
+        )
+        if model.message_id and should_recall:
             await self._schedule_auto_recall(model.message_id, area, channel)
         return model
 
@@ -212,8 +221,6 @@ class Message(BaseService):
         return model
 
     async def _schedule_auto_recall(self, message_id: str, area: str, channel: str) -> None:
-        if not self._config.auto_recall_enabled:
-            return
         delay = self._config.auto_recall_delay
         if delay <= 0:
             return
