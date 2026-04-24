@@ -16,7 +16,7 @@ from oopz_sdk.config.settings import OopzConfig
 from oopz_sdk.exceptions import OopzConnectionError
 from oopz_sdk.transport.proxy import build_aiohttp_proxy
 
-logger = logging.getLogger("oopz_sdk.transport.voice_browser")
+logger = logging.getLogger(__name__)
 
 _DEFAULT_BROWSER_ARGS = [
     "--autoplay-policy=no-user-gesture-required",

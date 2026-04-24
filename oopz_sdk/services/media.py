@@ -9,7 +9,7 @@ from oopz_sdk.exceptions import OopzApiError
 
 from . import BaseService
 
-logger = logging.getLogger("oopz_sdk.services.media")
+logger = logging.getLogger(__name__)
 
 
 class Media(BaseService):

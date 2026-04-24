@@ -7,7 +7,7 @@ import aiohttp
 from oopz_sdk.config.settings import OopzConfig, ProxyConfig
 from .proxy import build_aiohttp_proxy
 
-logger = logging.getLogger("oopz_sdk.transport.websocket")
+logger = logging.getLogger(__name__)
 
 
 class WebSocketClosedError(ConnectionError):
@@ -38,7 +38,7 @@ class WebSocketTransport:
 
     async def recv(self) -> str:
         if self._ws is None:
-            raise RuntimeError("WebSocket 未连接")
+            raise RuntimeError("WebSocket is not connected")
 
         msg = await self._ws.receive()
 
@@ -63,11 +63,11 @@ class WebSocketTransport:
                 reason="connection closed",
             )
 
-        raise RuntimeError(f"未知 WebSocket 消息类型: {msg.type}")
+        raise RuntimeError(f"Unknown webSocket message type: {msg.type}")
 
     async def send_json(self, data: dict) -> None:
         if self._ws is None:
-            raise RuntimeError("WebSocket 未连接")
+            raise RuntimeError("WebSocket is not connected")
         await self._ws.send_str(json.dumps(data, ensure_ascii=False))
 
     async def close(self) -> None:

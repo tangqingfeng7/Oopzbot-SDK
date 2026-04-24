@@ -14,7 +14,7 @@ from .rest import OopzRESTClient
 from .ws import CloseInfo, OopzWSClient
 from ..models import MessageEvent, Message
 
-logger = logging.getLogger("oopz_sdk.client.bot")
+logger = logging.getLogger(__name__)
 
 
 class OopzBot:

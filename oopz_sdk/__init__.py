@@ -1,5 +1,12 @@
 """Modern Oopz SDK package layout."""
+from __future__ import annotations
+import logging
 
+_logger = logging.getLogger(__name__)
+_logger.addHandler(logging.NullHandler())
+_logger.propagate = False
+
+from .logger import setup_logging
 from .auth import Signer
 from .client import OopzRESTClient
 from .config import (
@@ -84,4 +91,5 @@ __all__ = [
     "JsonList",
     "JsonObject",
     "MessageEvent",
+    "setup_logging"
 ]

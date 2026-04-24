@@ -121,13 +121,13 @@ class UploadedFileResult(BaseModel):
             animated: bool = False,
     ) -> "UploadedFileResult":
         return cls.model_validate({
-                "fileKey": file_key,
-                "url": url,
-                "fileType": file_type,
-                "displayName": display_name,
-                "fileSize": file_size,
-                "animated": animated
-            }
+            "fileKey": file_key,
+            "url": url,
+            "fileType": file_type,
+            "displayName": display_name,
+            "fileSize": file_size,
+            "animated": animated
+        }
         )
 
 

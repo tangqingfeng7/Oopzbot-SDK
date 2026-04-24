@@ -8,7 +8,7 @@ from oopz_sdk import models
 from oopz_sdk.services import BaseService
 from oopz_sdk.transport.voice_browser import BrowserVoiceTransport
 
-logger = logging.getLogger("oopz_sdk.services.voice")
+logger = logging.getLogger(__name__)
 
 
 class Voice(BaseService):

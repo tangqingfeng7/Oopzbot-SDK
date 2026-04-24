@@ -7,7 +7,7 @@ from typing import Any
 from .context import EventContext
 from .registry import EventRegistry
 
-logger = logging.getLogger("oopz_sdk.events.dispatcher")
+logger = logging.getLogger(__name__)
 
 
 class EventDispatcher:

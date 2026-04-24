@@ -7,10 +7,10 @@ from .base import BaseModel
 from oopz_sdk.exceptions import OopzApiError
 from enum import Enum
 
+
 class ChannelType(Enum):
     TEXT = "TEXT"
     VOICE = "VOICE"
-
 
 
 class ChannelSetting(BaseModel):
@@ -41,7 +41,6 @@ class ChannelSetting(BaseModel):
     secret: bool = False
     has_password: bool = Field(default=False, alias="hasPassword")
     password: str = ""
-
 
     @model_validator(mode="before")
     @classmethod
@@ -99,7 +98,6 @@ class ChannelSetting(BaseModel):
         return cls.model_validate(data)
 
 
-
 class ChannelEdit(BaseModel):
     channel: str
     area: str = ""
@@ -126,11 +124,11 @@ class ChannelEdit(BaseModel):
 
     @classmethod
     def from_setting(
-        cls,
-        setting: "ChannelSetting",
-        *,
-        area: str | None = None,
-        channel: str | None = None,
+            cls,
+            setting: "ChannelSetting",
+            *,
+            area: str | None = None,
+            channel: str | None = None,
     ) -> "ChannelEdit":
         return cls(
             channel=channel or setting.channel,
@@ -154,7 +152,6 @@ class ChannelEdit(BaseModel):
 
     def to_request_body(self) -> dict[str, Any]:
         return self.model_dump(by_alias=True, exclude_none=True)
-
 
 
 class ChannelSign(BaseModel):
@@ -280,7 +277,6 @@ class CreateChannelResult(BaseModel):
     @classmethod
     def from_api(cls, data: Mapping[str, Any]) -> "CreateChannelResult":
         return cls.model_validate(data)
-
 
 
 class VoiceChannelMemberInfo(BaseModel):

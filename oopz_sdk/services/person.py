@@ -8,7 +8,7 @@ from oopz_sdk.exceptions import OopzApiError
 
 from . import BaseService
 
-logger = logging.getLogger("oopz_sdk.services.member")
+logger = logging.getLogger(__name__)
 
 
 class Member(BaseService):

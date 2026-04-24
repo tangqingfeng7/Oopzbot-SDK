@@ -5,7 +5,7 @@ from oopz_sdk.config.settings import OopzConfig
 from oopz_sdk.services.area import AreaService
 from oopz_sdk.services.channel import Channel
 from oopz_sdk.services.media import Media
-from oopz_sdk.services.member import Member
+from oopz_sdk.services.person import Member
 from oopz_sdk.services.message import Message
 from oopz_sdk.services.moderation import Moderation
 from oopz_sdk.transport.http import HttpTransport

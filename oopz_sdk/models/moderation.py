@@ -41,4 +41,3 @@ class VoiceMuteInterval(Enum):
             if minutes <= item.minutes:
                 return item
         return list(cls)[-1]
-

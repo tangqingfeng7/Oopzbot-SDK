@@ -9,7 +9,7 @@ from oopz_sdk import models
 
 from . import BaseService
 
-logger = logging.getLogger("oopz_sdk.services.area")
+logger = logging.getLogger(__name__)
 
 
 class AreaService(BaseService):

@@ -9,8 +9,6 @@ from .base import BaseModel
 from oopz_sdk.exceptions import OopzApiError
 
 
-
-
 class UserInfo(BaseModel):
     avatar: str = ""
     avatar_frame: str = Field(default="", alias="avatarFrame")
