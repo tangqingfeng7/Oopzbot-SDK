@@ -6,8 +6,21 @@
 </head>
 <body>
 <script>
+/**
+ * Oopz voice browser backend page - AudioBuffer local playback version
+ *
+ * 特点：
+ * 1. 本地播放不再使用 Blob URL
+ * 2. base64 音频先 decode 成 AudioBuffer，再交给 Agora
+ * 3. 避免 object URL 生命周期问题
+ * 4. 保留播放切换、防串台、资源清理等逻辑
+ */
+
+/* -------------------- WebSocket capture for identity bridge -------------------- */
+
 const _wsInstances = [];
 const _OrigWS = window.WebSocket;
+
 window.WebSocket = function(url, protocols) {
   const ws = protocols ? new _OrigWS(url, protocols) : new _OrigWS(url);
   _wsInstances.push(ws);
@@ -19,178 +32,482 @@ window.WebSocket.OPEN = _OrigWS.OPEN;
 window.WebSocket.CLOSING = _OrigWS.CLOSING;
 window.WebSocket.CLOSED = _OrigWS.CLOSED;
 
+/* -------------------- Agora SDK loader -------------------- */
+
 async function loadAgoraSdk() {
   if (typeof AgoraRTC !== "undefined") return;
-  const sdkUrl = window.AGORA_SDK_URL || "https://download.agora.io/sdk/release/AgoraRTC_N.js";
+
+  const sdkUrl =
+    window.AGORA_SDK_URL ||
+    "https://download.agora.io/sdk/release/AgoraRTC_N.js";
+
   await new Promise((resolve, reject) => {
-    const s = document.createElement("script");
-    s.src = sdkUrl;
-    s.onload = () => resolve();
-    s.onerror = () => reject(new Error(`failed to load Agora SDK: ${sdkUrl}`));
-    document.head.appendChild(s);
+    const script = document.createElement("script");
+    script.src = sdkUrl;
+    script.onload = () => resolve();
+    script.onerror = () => reject(new Error(`failed to load Agora SDK: ${sdkUrl}`));
+    document.head.appendChild(script);
   });
 }
 
+/* -------------------- Audio decode context -------------------- */
+
+let decodeAudioContext = null;
+
+function getDecodeAudioContext() {
+  if (!decodeAudioContext) {
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    if (!Ctx) {
+      throw new Error("AudioContext is not supported in this browser");
+    }
+    decodeAudioContext = new Ctx();
+  }
+  return decodeAudioContext;
+}
+
+async function decodeBase64ToAudioBuffer(base64Data) {
+  const binary = atob(base64Data);
+  const bytes = new Uint8Array(binary.length);
+
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+
+  // 复制出独立 ArrayBuffer，避免 decodeAudioData 对底层 buffer 的潜在副作用
+  const arrayBuffer = bytes.buffer.slice(
+    bytes.byteOffset,
+    bytes.byteOffset + bytes.byteLength
+  );
+
+  const audioContext = getDecodeAudioContext();
+  return await audioContext.decodeAudioData(arrayBuffer);
+}
+
+/* -------------------- Global runtime state -------------------- */
+
 let client = null;
-let audioTrack = null;
 let _state = "idle";
 let _playGen = 0;
 
+/**
+ * 当前激活的播放实例：
+ * {
+ *   gen: number,
+ *   track: IBufferSourceAudioTrack
+ * }
+ */
+let activePlayback = null;
+
 window.agoraReady = () => typeof AgoraRTC !== "undefined";
+window.agoraState = () => _state;
+
+function setState(nextState) {
+  _state = nextState;
+}
+
+function getCurrentTrack() {
+  return activePlayback ? activePlayback.track : null;
+}
+
+function isCurrentPlayback(playback) {
+  return !!playback &&
+    !!activePlayback &&
+    playback.gen === activePlayback.gen &&
+    playback.track === activePlayback.track;
+}
+
+async function unpublishTrackSafely(track) {
+  if (!track || !client) return;
+  try {
+    await client.unpublish([track]);
+  } catch (_) {}
+}
+
+function closeTrackSafely(track) {
+  if (!track) return;
+  try {
+    track.close();
+  } catch (_) {}
+}
+
+function stopProcessAudioBufferSafely(track) {
+  if (!track) return;
+  try {
+    track.stopProcessAudioBuffer();
+  } catch (_) {}
+}
+
+/**
+ * 清理一个播放实例自身资源
+ */
+async function cleanupPlaybackResources(playback, { stopProcessing = true, unpublish = true } = {}) {
+  if (!playback) return;
+
+  const { track } = playback;
+
+  if (stopProcessing) {
+    stopProcessAudioBufferSafely(track);
+  }
+
+  if (unpublish) {
+    await unpublishTrackSafely(track);
+  }
+
+  closeTrackSafely(track);
+}
+
+/**
+ * 停止当前播放
+ */
+async function stopCurrentPlayback({ bumpGen = true, nextState = "joined" } = {}) {
+  const playback = activePlayback;
+
+  if (bumpGen) {
+    _playGen += 1;
+  }
+
+  activePlayback = null;
+
+  if (!playback) {
+    setState(nextState);
+    return;
+  }
+
+  await cleanupPlaybackResources(playback, {
+    stopProcessing: true,
+    unpublish: true,
+  });
+
+  setState(nextState);
+}
+
+/**
+ * 自然播放结束时的清理
+ */
+async function finalizeStoppedPlayback(playback) {
+  if (!isCurrentPlayback(playback)) {
+    return;
+  }
+
+  activePlayback = null;
+
+  await cleanupPlaybackResources(playback, {
+    stopProcessing: false,
+    unpublish: true,
+  });
+
+  if (playback.gen === _playGen) {
+    setState("joined");
+  }
+}
+
+function bindPlaybackEvents(playback) {
+  const { track, gen } = playback;
+
+  track.on("source-state-change", (st) => {
+    if (!isCurrentPlayback(playback)) return;
+    if (gen !== _playGen) return;
+
+    if (st === "playing") {
+      setState("playing");
+      return;
+    }
+
+    if (st === "paused") {
+      setState("paused");
+      return;
+    }
+
+    if (st === "stopped") {
+      setState("finished");
+      void finalizeStoppedPlayback(playback);
+    }
+  });
+}
+
+function makePlayback(track) {
+  return {
+    gen: _playGen,
+    track,
+  };
+}
+
+/* -------------------- Join / Leave -------------------- */
 
 window.agoraJoin = async (appId, token, channelName, uid) => {
   try {
     await loadAgoraSdk();
-    if (client) await window.agoraLeave();
-    client = AgoraRTC.createClient({ mode: "rtc", codec: "vp8" });
+
+    if (client) {
+      await window.agoraLeave();
+    }
+
+    client = AgoraRTC.createClient({
+      mode: "rtc",
+      codec: "vp8",
+    });
+
     const assignedUid = await client.join(appId, channelName, token, uid || null);
-    _state = "joined";
+    setState("joined");
+
     return { ok: true, uid: assignedUid };
   } catch (e) {
-    return { ok: false, error: e.message };
+    return { ok: false, error: e?.message || String(e) };
   }
 };
+
+window.agoraLeave = async () => {
+  await stopCurrentPlayback({ bumpGen: true, nextState: "joined" });
+
+  if (client) {
+    try {
+      await client.leave();
+    } catch (_) {}
+    client = null;
+  }
+
+  setState("idle");
+};
+
+/* -------------------- Playback -------------------- */
 
 window.agoraPlayAudio = async (url) => {
   const gen = ++_playGen;
+  let localTrack = null;
+
   try {
     await loadAgoraSdk();
-    await window.agoraStopAudio();
-    const track = await AgoraRTC.createBufferSourceAudioTrack({
+    await stopCurrentPlayback({ bumpGen: false, nextState: "joined" });
+
+    localTrack = await AgoraRTC.createBufferSourceAudioTrack({
       source: url,
       cacheOnlineFile: false,
     });
+
     if (gen !== _playGen) {
-      try { track.close(); } catch(_) {}
+      closeTrackSafely(localTrack);
       return { ok: false, error: "superseded" };
     }
-    audioTrack = track;
-    audioTrack.on("source-state-change", (st) => {
-      if (gen !== _playGen) return;
-      _state = st === "playing" ? "playing" : st === "stopped" ? "finished" : st;
-    });
-    audioTrack.startProcessAudioBuffer({ loop: false });
-    await client.publish([audioTrack]);
-    _state = "playing";
-    return { ok: true, duration: audioTrack.duration };
+
+    const playback = makePlayback(localTrack);
+    activePlayback = playback;
+    bindPlaybackEvents(playback);
+
+    localTrack.startProcessAudioBuffer({ loop: false });
+    await client.publish([localTrack]);
+
+    if (!isCurrentPlayback(playback) || gen !== _playGen) {
+      await cleanupPlaybackResources(playback, {
+        stopProcessing: true,
+        unpublish: true,
+      });
+      return { ok: false, error: "superseded" };
+    }
+
+    setState("playing");
+    return { ok: true, duration: localTrack.duration };
   } catch (e) {
-    if (gen !== _playGen) return { ok: false, error: "superseded" };
-    return { ok: false, error: e.message };
+    if (localTrack) {
+      const fallbackPlayback = { gen, track: localTrack };
+      await cleanupPlaybackResources(fallbackPlayback, {
+        stopProcessing: true,
+        unpublish: true,
+      });
+    }
+
+    if (activePlayback && activePlayback.track === localTrack) {
+      activePlayback = null;
+    }
+
+    if (gen !== _playGen) {
+      return { ok: false, error: "superseded" };
+    }
+
+    setState(client ? "joined" : "idle");
+    return { ok: false, error: e?.message || String(e) };
   }
 };
 
+/**
+ * AudioBuffer 版本：
+ * base64 -> AudioBuffer -> createBufferSourceAudioTrack
+ */
 window.agoraPlayLocal = async (base64Data, mimeType) => {
+  const gen = ++_playGen;
+  let localTrack = null;
+
   try {
     await loadAgoraSdk();
-    await window.agoraStopAudio();
-    const binary = atob(base64Data);
-    const bytes = new Uint8Array(binary.length);
-    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-    const blob = new Blob([bytes], { type: mimeType || "audio/mpeg" });
-    const objectUrl = URL.createObjectURL(blob);
-    audioTrack = await AgoraRTC.createBufferSourceAudioTrack({
-      source: objectUrl,
+    await stopCurrentPlayback({ bumpGen: false, nextState: "joined" });
+
+    const audioBuffer = await decodeBase64ToAudioBuffer(base64Data);
+
+    if (gen !== _playGen) {
+      return { ok: false, error: "superseded" };
+    }
+
+    localTrack = await AgoraRTC.createBufferSourceAudioTrack({
+      source: audioBuffer,
       cacheOnlineFile: false,
     });
-    audioTrack.on("source-state-change", (st) => {
-      _state = st === "playing" ? "playing" : st === "stopped" ? "finished" : st;
-    });
-    audioTrack.startProcessAudioBuffer({ loop: false });
-    await client.publish([audioTrack]);
-    URL.revokeObjectURL(objectUrl);
-    _state = "playing";
-    return { ok: true, duration: audioTrack.duration };
+
+    if (gen !== _playGen) {
+      closeTrackSafely(localTrack);
+      return { ok: false, error: "superseded" };
+    }
+
+    const playback = makePlayback(localTrack);
+    activePlayback = playback;
+    bindPlaybackEvents(playback);
+
+    localTrack.startProcessAudioBuffer({ loop: false });
+    await client.publish([localTrack]);
+
+    if (!isCurrentPlayback(playback) || gen !== _playGen) {
+      await cleanupPlaybackResources(playback, {
+        stopProcessing: true,
+        unpublish: true,
+      });
+      return { ok: false, error: "superseded" };
+    }
+
+    setState("playing");
+    return { ok: true, duration: localTrack.duration };
   } catch (e) {
-    return { ok: false, error: e.message };
+    if (localTrack) {
+      const fallbackPlayback = { gen, track: localTrack };
+      await cleanupPlaybackResources(fallbackPlayback, {
+        stopProcessing: true,
+        unpublish: true,
+      });
+    }
+
+    if (activePlayback && activePlayback.track === localTrack) {
+      activePlayback = null;
+    }
+
+    if (gen !== _playGen) {
+      return { ok: false, error: "superseded" };
+    }
+
+    setState(client ? "joined" : "idle");
+    return { ok: false, error: e?.message || String(e) };
   }
 };
+
+window.agoraStopAudio = async () => {
+  await stopCurrentPlayback({ bumpGen: true, nextState: "joined" });
+};
+
+/* -------------------- Identity bridge -------------------- */
 
 window.agoraSendIdentity = (oopzUid, agoraUid) => {
-  const ws = _wsInstances.find(w => w.readyState === 1);
-  if (!ws) return { ok: false, error: "no open ws" };
+  const ws = _wsInstances.find((w) => w.readyState === 1);
+  if (!ws) {
+    return { ok: false, error: "no open ws" };
+  }
+
   try {
-    const payload = btoa(JSON.stringify({ m: 1, uid: oopzUid, cid: agoraUid, hm: 1 }));
+    const payload = btoa(
+      JSON.stringify({
+        m: 1,
+        uid: oopzUid,
+        cid: agoraUid,
+        hm: 1,
+      })
+    );
+
     const sendTs = Math.floor(performance.now());
+
     for (let i = 0; i < 3; i++) {
-      ws.send(JSON.stringify({
-        _type: "data_stream",
-        _message: { payload, syncWithAudio: false, sendTs: sendTs + i }
-      }));
+      ws.send(
+        JSON.stringify({
+          _type: "data_stream",
+          _message: {
+            payload,
+            syncWithAudio: false,
+            sendTs: sendTs + i,
+          },
+        })
+      );
     }
+
     return { ok: true };
   } catch (e) {
-    return { ok: false, error: e.message };
+    return { ok: false, error: e?.message || String(e) };
   }
 };
 
+/* -------------------- Playback controls -------------------- */
+
 window.agoraPause = () => {
-  if (!audioTrack || _state !== "playing") return { ok: false, error: "not playing" };
+  const track = getCurrentTrack();
+  if (!track || _state !== "playing") {
+    return { ok: false, error: "not playing" };
+  }
+
   try {
-    audioTrack.pauseProcessAudioBuffer();
-    _state = "paused";
+    track.pauseProcessAudioBuffer();
+    setState("paused");
     return { ok: true };
   } catch (e) {
-    return { ok: false, error: e.message };
+    return { ok: false, error: e?.message || String(e) };
   }
 };
 
 window.agoraResume = () => {
-  if (!audioTrack || _state !== "paused") return { ok: false, error: "not paused" };
+  const track = getCurrentTrack();
+  if (!track || _state !== "paused") {
+    return { ok: false, error: "not paused" };
+  }
+
   try {
-    audioTrack.resumeProcessAudioBuffer();
-    _state = "playing";
+    track.resumeProcessAudioBuffer();
+    setState("playing");
     return { ok: true };
   } catch (e) {
-    return { ok: false, error: e.message };
+    return { ok: false, error: e?.message || String(e) };
   }
 };
 
 window.agoraSeek = (time) => {
-  if (!audioTrack) return { ok: false, error: "no track" };
+  const track = getCurrentTrack();
+  if (!track) {
+    return { ok: false, error: "no track" };
+  }
+
   try {
-    audioTrack.seekAudioBuffer(time);
+    track.seekAudioBuffer(time);
     return { ok: true };
   } catch (e) {
-    return { ok: false, error: e.message };
+    return { ok: false, error: e?.message || String(e) };
   }
 };
 
 window.agoraSetVolume = (vol) => {
-  if (!audioTrack) return { ok: false, error: "no track" };
+  const track = getCurrentTrack();
+  if (!track) {
+    return { ok: false, error: "no track" };
+  }
+
   try {
-    audioTrack.setVolume(Math.max(0, Math.min(100, vol)));
+    track.setVolume(Math.max(0, Math.min(100, vol)));
     return { ok: true };
   } catch (e) {
-    return { ok: false, error: e.message };
+    return { ok: false, error: e?.message || String(e) };
   }
 };
 
 window.agoraGetCurrentTime = () => {
-  if (!audioTrack) return 0;
-  try { return audioTrack.getCurrentTime(); } catch (_) { return 0; }
-};
+  const track = getCurrentTrack();
+  if (!track) return 0;
 
-window.agoraStopAudio = async () => {
-  if (!audioTrack) return;
   try {
-    audioTrack.stopProcessAudioBuffer();
-    if (client) await client.unpublish([audioTrack]);
-    audioTrack.close();
-  } catch (_) {}
-  audioTrack = null;
-  _state = "joined";
-};
-
-window.agoraLeave = async () => {
-  await window.agoraStopAudio();
-  if (client) {
-    try { await client.leave(); } catch (_) {}
-    client = null;
+    return track.getCurrentTime();
+  } catch (_) {
+    return 0;
   }
-  _state = "idle";
 };
-
-window.agoraState = () => _state;
 </script>
 </body>
 </html>
