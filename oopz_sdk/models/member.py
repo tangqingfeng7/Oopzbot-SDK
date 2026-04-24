@@ -279,3 +279,25 @@ class UserLevelInfo(BaseModel):
     def from_api(cls, data: Mapping[str, Any]) -> "UserLevelInfo":
         return cls.model_validate(data)
 
+
+class Friendship(BaseModel):
+    uid: str = ""
+    online: bool = False
+    name: str = ""
+
+    @model_validator(mode="before")
+    @classmethod
+    def validate_and_normalize(cls, data: Any) -> Any:
+        if not isinstance(data, dict):
+            raise OopzApiError("invalid friendship payload: expected dict", payload=data)
+
+        normalized = dict(data)
+        normalized["uid"] = str(normalized.get("uid") or "")
+        normalized["online"] = bool(normalized.get("online", False))
+        normalized["name"] = str(normalized.get("name") or "")
+
+        return normalized
+
+    @classmethod
+    def from_api(cls, data: Mapping[str, Any]) -> "Friendship":
+        return Friendship.model_validate(data)

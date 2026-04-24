@@ -84,3 +84,11 @@ class Member(BaseService):
         data = await self._request_data("GET", url_path)
         return models.UserLevelInfo.from_api(data)
 
+    async def get_friendship(self) -> list[models.Friendship]:
+        """获取好友信息"""
+        url_path = "/client/v1/list/v1/friendship"
+        data = await self._request_data("GET", url_path)
+        if not isinstance(data, list):
+            raise OopzApiError(f"friendship response format error: {data}")
+
+        return [models.Friendship.from_api(d) for d in data]
