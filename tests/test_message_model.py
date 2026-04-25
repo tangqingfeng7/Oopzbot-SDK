@@ -27,6 +27,8 @@ def _base_payload() -> dict:
 
 
 def test_message_skips_unknown_attachment_type(caplog) -> None:
+    logging.getLogger("oopz_sdk").propagate = True
+    logging.getLogger("oopz_sdk.models.message").propagate = True
     payload = _base_payload()
     payload["attachments"] = [
         {
