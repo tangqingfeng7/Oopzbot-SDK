@@ -6,6 +6,7 @@ from pydantic import Field, model_validator
 
 from .base import BaseModel
 from oopz_sdk.exceptions import OopzApiError
+from oopz_sdk.utils.payload import coerce_bool
 
 if TYPE_CHECKING:
     from .message import Message
@@ -39,6 +40,24 @@ class Event(BaseModel):
         raw = normalized.get("raw", {})
         normalized["raw"] = dict(raw) if isinstance(raw, dict) else {}
         return normalized
+
+
+def _merge_accessible_roles_keys(normalized: dict[str, Any]) -> list[Any]:
+    """
+    部分协议用 `accessibleRoles`，部分与编辑 body 一致用 `accessible` 表示同一组可见角色 ID。
+    与 `ChannelSetting` 的合并规则一致，避免只带 `accessible` 时读成空列表。
+    """
+    ar_named = normalized.get("accessibleRoles")
+    ac_short = normalized.get("accessible")
+    if isinstance(ar_named, list) and ar_named:
+        return list(ar_named)
+    if isinstance(ac_short, list) and ac_short:
+        return list(ac_short)
+    if isinstance(ar_named, list):
+        return list(ar_named)
+    if isinstance(ac_short, list):
+        return list(ac_short)
+    return []
 
 
 class UnknownEvent(Event):
@@ -121,7 +140,7 @@ class MessageDeleteEvent(Event):
         normalized["area"] = str(normalized.get("area") or "")
         normalized["channel"] = str(normalized.get("channel") or "")
         normalized["messageId"] = str(normalized.get("messageId") or "")
-        normalized["isMentionAll"] = bool(normalized.get("isMentionAll") or "")
+        normalized["isMentionAll"] = coerce_bool(normalized.get("isMentionAll"), default=False)
         normalized["person"] = str(normalized.get("person") or "")
         normalized["mentionList"] = list(normalized.get("mentionList") or [])
         return normalized
@@ -192,7 +211,7 @@ class ChannelUpdateEvent(Event):
                 "accessControlEnabled",
                 "hasPassword",
         ):
-            normalized[key] = bool(normalized.get(key, False))
+            normalized[key] = coerce_bool(normalized.get(key), default=False)
 
         for key, default in (
                 ("textGapSecond", 0),
@@ -280,6 +299,15 @@ class ChannelCreateEvent(Event):
         ):
             normalized[key] = str(normalized.get(key) or "")
 
+        # 与 `ChannelUpdateEvent` 一致：更新事件用 `type` 表示频道类型；创建事件
+        # 可能只发 `type` 或只发 `channelType`。模型上 `type` 与 `channel_type`（channelType）
+        # 在业务里同义，合并避免只带 `type` 时 `channel_type` 读成空。
+        t_val = str(normalized.get("type") or "").strip()
+        ct_val = str(normalized.get("channelType") or "").strip()
+        merged_kind = ct_val or t_val
+        normalized["channelType"] = merged_kind
+        normalized["type"] = merged_kind
+
         for key in (
                 "memberPublic",
                 "voiceControlEnabled",
@@ -289,7 +317,7 @@ class ChannelCreateEvent(Event):
                 "accessControlEnabled",
                 "isTemp",
         ):
-            normalized[key] = bool(normalized.get(key, False))
+            normalized[key] = coerce_bool(normalized.get(key), default=False)
 
         for key, default in (
                 ("textGapSecond", 0),
@@ -302,14 +330,32 @@ class ChannelCreateEvent(Event):
 
         vr = normalized.get("voiceRoles", [])
         tr = normalized.get("textRoles", [])
-        ar = normalized.get("accessibleRoles", [])
         am = normalized.get("accessibleMembers", [])
 
         normalized["voiceRoles"] = vr if isinstance(vr, list) else []
         normalized["textRoles"] = tr if isinstance(tr, list) else []
-        normalized["accessibleRoles"] = ar if isinstance(ar, list) else []
+        normalized["accessibleRoles"] = _merge_accessible_roles_keys(normalized)
         normalized["accessibleMembers"] = [str(x) for x in am] if isinstance(am, list) else []
 
+        return normalized
+
+
+class ChannelDeleteEvent(Event):
+    """频道删除事件（EVENT_CHANNEL_DELETE = 13）。
+
+    body 里常见字段：`area`、`channel`；其它字段按实际协议逐步加。
+    """
+    area: str = ""
+    channel: str = ""
+    ack_id: str = Field(default="", alias="ackId")
+
+    @model_validator(mode="before")
+    @classmethod
+    def validate_and_normalize(cls, data: Any) -> Any:
+        normalized = Event.validate_common_fields(data)
+        normalized["area"] = str(normalized.get("area") or "")
+        normalized["channel"] = str(normalized.get("channel") or "")
+        normalized["ackId"] = str(normalized.get("ackId") or "")
         return normalized
 
 
@@ -388,7 +434,7 @@ class RoleChangedEvent(Event):
             except (TypeError, ValueError):
                 normalized[key] = default
 
-        normalized["isDisplay"] = bool(normalized.get("isDisplay", False))
+        normalized["isDisplay"] = coerce_bool(normalized.get("isDisplay"), default=False)
 
         pk = normalized.get("privilegeKeys", [])
         ck = normalized.get("categoryKeys", [])

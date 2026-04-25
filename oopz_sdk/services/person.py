@@ -41,7 +41,7 @@ class Person(BaseService):
         """获取指定用户的基本信息，默认当前登录用户。"""
         uid = uid or getattr(self._config, "person_uid", None)
         if not uid:
-            raise ValueError("uid is required for get_person_detail()")
+            raise ValueError("uid is required for get_person_info()")
 
         url_path = "/client/v1/person/v1/personInfos"
         body = {"persons": [uid], "commonIds": []}

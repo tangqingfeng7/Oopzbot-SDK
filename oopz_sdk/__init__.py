@@ -45,7 +45,13 @@ from .models import (
     OperationResult,
     VoiceChannelMembersResult,
 )
+from .services.area import AreaService
+from .services.channel import Channel
+from .services.media import Media
+from .services.person import Person
 from .services.message import Message as MessageService
+from .services.moderation import Moderation
+from .services.voice import Voice
 
 from .version import __version__
 
@@ -55,17 +61,30 @@ from .client.ws import OopzWSClient
 Message = MessageService
 
 __all__ = [
+    "AreaMembersPage",
+    "AreaService",
+    "Attachment",
     "AutoRecallConfig",
+    "Channel",
+    "ChannelSetting",
     "DEFAULT_HEADERS",
     "EVENT_AUTH",
     "EVENT_CHAT_MESSAGE",
     "EVENT_HEARTBEAT",
     "EVENT_SERVER_ID",
+    "Event",
     "HeartbeatConfig",
     "ImageAttachment",
+    "JoinedAreaInfo",
+    "JsonList",
+    "JsonObject",
+    "Media",
+    "Person",
     "Message",
+    "MessageEvent",
     "MessageModel",
     "MessageSendResult",
+    "Moderation",
     "OopzApiError",
     "OopzAuthError",
     "OopzBot",
@@ -81,6 +100,7 @@ __all__ = [
     "ProxyConfig",
     "RetryConfig",
     "Signer",
+    "Voice",
     "VoiceChannelMembersResult",
     "__version__",
     "JoinedAreaInfo",

@@ -159,14 +159,14 @@ async def rest_smoke(sender: OopzRESTClient, env: dict[str, str]) -> None:
     )
     await step(
         "channels.get_channel_setting_info",
-        lambda: sender.channels.get_channel_setting_info(channel, as_model=True),
+        lambda: sender.channels.get_channel_setting_info(channel),
         summarize=lambda r: f"channel={getattr(r, 'channel', None)} name={getattr(r, 'name', None)!r}",
     )
     if target:
         await step(
-            "members.get_user_area_detail",
-            lambda: sender.person.get_area_user_detail(target, area=area),
-            summarize=lambda r: f"keys={list(r.keys()) if isinstance(r, dict) else type(r).__name__}",
+            "areas.get_area_user_detail",
+            lambda: sender.areas.get_area_user_detail(area=area, target=target),
+            summarize=lambda r: f"higher_uid={getattr(r, 'higher_uid', None)!r} roles={len(getattr(r, 'roles', []) or [])}",
         )
 
     tag = f"smoke-ts-{int(time.time())}"

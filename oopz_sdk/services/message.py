@@ -90,7 +90,7 @@ class Message(BaseService):
         """
         target = target.strip()
         if not target:
-            raise ValueError("target is required for send_private_message()")
+            raise ValueError("target is required for open_private_session()")
 
         url_path = "/client/v1/chat/v1/to"
         resp = await self._request_data("PATCH", url_path, params={"target": target})
@@ -101,12 +101,12 @@ class Message(BaseService):
             *texts: str | Segment,
             area: str,
             channel: str,
-            attachments: list = None,
-            mention_list: list = None,
+            attachments: Optional[list] = None,
+            mention_list: Optional[list] = None,
             is_mention_all: bool = False,
-            style_tags: list = None,
-            reference_message_id: str = None,
-            auto_recall=False,
+            style_tags: Optional[list] = None,
+            reference_message_id: Optional[str] = None,
+            auto_recall: Optional[bool] = None,
             animated: bool = False,
             display_name: str = "",
             duration: int = 0,
@@ -114,6 +114,12 @@ class Message(BaseService):
     ) -> models.MessageSendResult:
         """
         频道消息发送。
+
+        自动撤回的三态语义（`auto_recall`）：
+        - `None`（默认，不传）：跟随全局 `OopzConfig.auto_recall_enabled`。全局开则按
+          `auto_recall_delay` 自动安排撤回；全局关则不撤回。
+        - `True`：强制撤回这一条，使用 `auto_recall_delay` 作为延迟（即便全局关）。
+        - `False`：强制**不**撤回这一条（即便全局开）。用于混合场景下保留个别公告 / 日报消息。
         """
         if area.strip() == "":
             raise ValueError("area is required for send_message()")
@@ -150,7 +156,10 @@ class Message(BaseService):
 
         model = models.MessageSendResult.from_api(resp)
 
-        if auto_recall and model.message_id:
+        should_recall = (
+            auto_recall if auto_recall is not None else self._config.auto_recall_enabled
+        )
+        if model.message_id and should_recall:
             await self._schedule_auto_recall(model.message_id, area, channel)
         return model
 
@@ -212,8 +221,6 @@ class Message(BaseService):
         return model
 
     async def _schedule_auto_recall(self, message_id: str, area: str, channel: str) -> None:
-        if not self._config.auto_recall_enabled:
-            return
         delay = self._config.auto_recall_delay
         if delay <= 0:
             return
@@ -224,7 +231,7 @@ class Message(BaseService):
             logger.error("failed to schedule auto recall: %s", exc)
 
     async def _do_auto_recall(
-            self, message_id: str, area: str, channel: str, delay: int
+            self, message_id: str, area: str, channel: str, delay: float
     ) -> None:
         try:
             await asyncio.sleep(delay)
@@ -257,7 +264,7 @@ class Message(BaseService):
             message_id: str,
             area: str,
             channel: str,
-            timestamp: str = None,
+            timestamp: Optional[str] = None,
             target: str = "",
     ) -> models.OperationResult:
         if message_id.strip() == "":
@@ -339,7 +346,9 @@ class Message(BaseService):
         height = seg.height
         file_size = seg.file_size
         if width <= 0 or height <= 0 or file_size <= 0:
-            width, height, file_size = get_image_info(source_path)
+            width, height, file_size = await asyncio.to_thread(
+                get_image_info, source_path
+            )
 
         ext = os.path.splitext(source_path)[1] or ".jpg"
 

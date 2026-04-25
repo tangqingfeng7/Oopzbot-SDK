@@ -2,9 +2,10 @@ from __future__ import annotations
 
 from typing import Any, Mapping
 
-from pydantic import Field, model_validator
+from pydantic import AliasChoices, Field, model_validator
 
 from oopz_sdk.exceptions import OopzApiError
+from oopz_sdk.utils.payload import coerce_bool
 from .base import BaseModel
 
 
@@ -76,7 +77,7 @@ class AreaInfo(BaseModel):
     is_public: bool = Field(default=False, alias="isPublic")
     name: str = ""
     now: int = 0
-    private_channels: list[dict[str, Any]] = Field(default_factory=list, alias="privateChannels")
+    private_channels: list[str] = Field(default_factory=list, alias="privateChannels")
     role_list: list[AreaRole] = Field(default_factory=list, alias="roleList")
     subscribed: bool = False
 
@@ -183,7 +184,14 @@ class ChannelInfo(BaseModel):
 
 
 class ChannelGroupInfo(BaseModel):
-    is_enable_temp: bool = Field(default=False, alias="IsEnableTemp")
+    # 接口实际返回的键在不同版本间可能是 `IsEnableTemp`（大驼峰）或 `isEnableTemp`
+    # （与本模型其它小驼峰字段一致）。用 AliasChoices 两边都兼容；序列化仍按
+    # 历史字段名 `IsEnableTemp` 输出，避免回写破坏。
+    is_enable_temp: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("IsEnableTemp", "isEnableTemp"),
+        serialization_alias="IsEnableTemp",
+    )
     area: str = ""
     channels: list[ChannelInfo] = Field(default_factory=list)
     group_id: str = Field(default="", alias="id")
@@ -252,7 +260,7 @@ class RoleInfo(BaseModel):
 
         normalized["description"] = str(normalized.get("description") or "")
         normalized["name"] = str(normalized.get("name") or "")
-        normalized["owned"] = bool(normalized.get("owned", False))
+        normalized["owned"] = coerce_bool(normalized.get("owned"), default=False)
 
         try:
             normalized["roleID"] = int(normalized.get("roleID") or 0)

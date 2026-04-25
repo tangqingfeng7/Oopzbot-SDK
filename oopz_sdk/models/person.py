@@ -7,6 +7,7 @@ from pydantic import Field, model_validator
 from .base import BaseModel
 
 from oopz_sdk.exceptions import OopzApiError
+from oopz_sdk.utils.payload import coerce_bool
 
 
 class UserInfo(BaseModel):
@@ -54,7 +55,7 @@ class UserInfo(BaseModel):
         normalized["uid"] = str(normalized.get("uid") or "")
         normalized["userCommonId"] = str(normalized.get("userCommonId") or "")
 
-        normalized["online"] = bool(normalized.get("online", False))
+        normalized["online"] = coerce_bool(normalized.get("online"), default=False)
 
         try:
             normalized["avatarFrameExpireTime"] = int(normalized.get("avatarFrameExpireTime") or 0)
@@ -214,7 +215,7 @@ class Profile(BaseModel):
             "useBooster",
         )
         for key in bool_fields:
-            normalized[key] = bool(normalized.get(key, False))
+            normalized[key] = coerce_bool(normalized.get(key), default=False)
 
         badges = normalized.get("badges", [])
         normalized["badges"] = badges if isinstance(badges, list) else []
@@ -269,7 +270,9 @@ class UserLevelInfo(BaseModel):
             except (TypeError, ValueError):
                 normalized[key] = default
 
-        normalized["hasNotReceivePrize"] = bool(normalized.get("hasNotReceivePrize", False))
+        normalized["hasNotReceivePrize"] = coerce_bool(
+            normalized.get("hasNotReceivePrize"), default=False
+        )
 
         return normalized
 

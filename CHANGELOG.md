@@ -2,6 +2,93 @@
 
 ## Unreleased
 
+### 变更
+
+- `Message.send_message` 的 `auto_recall` 改为三态 `Optional[bool]`，默认 `None`：不传时跟随 `OopzConfig.auto_recall_enabled`；`True` 强制撤回，`False` 强制保留（用于全局开启后想保留公告 / 日报等个别消息的场景）。原先默认 `False` + 内部只检查 `auto_recall and ...` 的写法，导致"全局 `auto_recall_enabled=True` 但 `send_message()` 不传 `auto_recall` 就不会撤回"，与 `OopzConfig.auto_recall_enabled` 字段名直觉相反。
+- `ChannelEdit.accessible` 属性内部更名为 `accessible_roles`（Pydantic alias 仍为 `"accessible"`，`to_request_body()` 产出的 JSON 字段不变，对服务端完全兼容）。直接通过属性访问 `.accessible` 的调用方需要改为 `.accessible_roles`。
+- `HttpTransport.request_json` 与 `OperationResult.from_api` 对 `status` 字段改为严格布尔：字符串 `"false"` / `"0"` / `"no"` 等会被正确判为失败，不再因为 Python 真值规则被当成"字符串 true"而误判成功。若服务端个别接口用字符串下发 `status`，之前被静默当成功的响应现在会按真实失败处理。
+
+### 新增
+
+- `oopz_sdk.utils.payload.coerce_bool`：严格把 API payload 里的值转成 `bool`——`bool` 原样；`int` / `float` 按 `!= 0`；`str` 大小写不敏感白名单（`true/1/yes/y/on` → True，`false/0/no/n/off/""` → False）；未知字面量走 `default` 兜底。与 `safe_json_loads` 一并从 `oopz_sdk.utils` 导出。
+- `ChannelType.AUDIO`：语音频道在协议里可能返回 `AUDIO` 而不是 `VOICE`，枚举补齐，`CreateChannelResult` / `VoiceChannelMemberInfo` 不再因此 `ValidationError`。`Channel._get_voice_channel_ids` 继续兼容两个值。
+- `AudioAttachment` / `FileAttachment`：`Attachment.parse` 现在支持 `attachmentType=AUDIO / FILE`，消息里的语音与文件附件不再被当作未知类型丢掉；两者均提供 `from_manually(...)` 构造器，并从 `oopz_sdk.models` 导出。`AudioAttachment.duration` 自动强转 `int`。
+- `ChannelDeleteEvent` + 事件名 `channel.delete`：`EVENT_CHANNEL_DELETE` 现在会被 `EventParser` 归类为独立事件（此前走 `UnknownEvent`）。
+- `CreateChannelResult.channel_id` 字段：服务端在创建频道响应里可能用 `id` / `channel` / `channelId`，现在都归一到 `channel_id`（模型 alias `"id"`），且支持 `int` / `float` / `str` 三种原始值。
+- `examples/voice_join_and_play.py`：语音频道加入 + 推流播放示例。展示 `bot.start()` 放入 `asyncio.create_task`、主协程通过 `@bot.on_ready` + `asyncio.Event` 等 WS 就绪后再做 `voice.join` / `voice.play_file` 的正确异步生命周期，最后在 `finally` 里 `bot.stop()` 并回收后台任务。
+
+### 修复
+
+- `Voice.join` 在调用 `enter_channel` 之前严格校验 `rtc_uid`：`None` 用后端默认 UID；非负整数或"整数字符串"通过；`bool` / `float` / 非数字字符串 / 负数一律提前抛 `TypeError` / `ValueError`。此前非法 UID 要等 `BrowserVoiceTransport.join` 里 `int(uid)` 才崩，届时服务端已经记录加入语音房，留下脏状态。
+- `Voice.join` 的 post-`enter_channel` 失败完整回滚：`sign` 为空、`backend.join` 抛错或返回 `False`、`_send_identity_once` 返回 `False` 这三条路径都会调用 `backend.leave()` + 服务端 `leave_voice_channel`（后者 try/except 吞错，防御性），不再出现"Oopz 侧已记录加入、Agora / 浏览器桥实际没进去"的不一致。`_send_identity_once` 返回 `bool`，首次失败触发 `Voice.leave()` 完全清理；心跳循环里的后续失败仍只记 debug 日志、等下次重试。
+- `AreaService.cache_max_entries <= 0` 现在真正关闭域成员缓存：新增 `_cache_disabled()`，`get` 直接返回 `None`、`set` 清空已有条目并跳过写入。此前因 `if len(store) >= 0` 恒真、空字典再去 `min()` 会抛 `ValueError`，把缓存开关卡死在"永远写不进来"。驱逐从 `if` 改为 `while`，支持阈值调小时一次性清理多条。
+- `PrivateSession.from_api` 不再因为数字型 `sessionId` / `uid` / `lastTime` 抛 `ValidationError`：这些字段统一强转 `str`（`None → ""`、`bool → "true"/"false"`、`float.is_integer() → "1"`、其它 `float → str(value)`），`mute` 走 `coerce_bool`。
+- `Channel.create_channel(channel_type=ChannelType.TEXT)` 不再 `Object of type ChannelType is not JSON serializable`：枚举入参会统一取 `.value` 字符串；非 `str` / 非 `ChannelType` 类型抛 `TypeError`，不再把错误留给 `aiohttp` 的 JSON 序列化。
+- `ChannelSetting` / `ChannelCreateEvent` 合并 `accessibleRoles` 与 `accessible` 两种 key：只给短 key 的响应不再被读成空列表，避免"改频道名不改权限"的编辑请求把 `accessible: []` 回写到服务端清掉可见角色。优先级：非空 `accessibleRoles` > 非空 `accessible` > 空列表兜底。
+- `ChannelCreateEvent` 支持协议里 `type` 或 `channelType` 任一写法：之前只读 `channelType`，对端只下发 `type` 时 `channel_type` 会读成空串。
+- `MessageDeleteEvent.isMentionAll` 从 `bool(v or "")` 的诡异写法改为 `coerce_bool(v, default=False)`；原写法字符串 `"false"` 会被当成 mention 全员。
+- 各模型 / 事件的布尔字段整体切到 `coerce_bool`，修掉 "`bool("false") == True`" 这类 Python 真值陷阱。覆盖：`UserInfo.online`、`Profile` 9 个字段、`UserLevelInfo.hasNotReceivePrize`、`ChannelSetting` 6 个字段、`VoiceChannelMemberInfo.isBot`、`CreateChannelResult.secret`、`ChannelUpdateEvent` / `ChannelCreateEvent` 布尔字段、`RoleChangedEvent.isDisplay`、`Message.isMentionAll` / `Message.senderIsBot`、`MentionInfo.isBot`、`Attachment.animated`、`RoleInfo.owned`。
+- `ChannelGroupInfo.is_enable_temp` 用 `AliasChoices("IsEnableTemp", "isEnableTemp")` 兼容两种 casing；序列化仍走 `"IsEnableTemp"` 不破坏回写。
+
+### 改进
+
+- README 补充语音示例条目、`auto_recall` 三态语义说明，并把"发消息后自动撤回"的配置方式统一说明成"构造 `OopzConfig` 时传 `auto_recall=AutoRecallConfig(enabled=True, delay=...)` 或直接改 `config.auto_recall_enabled` / `config.auto_recall_delay`，开启后 `send_message` 自动按延迟撤回、不必每次传 `auto_recall=True`"。
+- `pyproject.toml` 将 `license-files = []` 改回 `["LICENSE"]`，消除 setuptools 关于 `LICENSE` 未声明的告警，与 `MANIFEST.in` 的 include 保持一致（0.6.1 修过一次，0.7.0/0.7.1 又回退成空数组，这里重新落地）。
+- `oopz_sdk/models/attachment.py` 删除 `Attachment.parse` 中 `raise` 之后的 unreachable 赋值。
+
+## 0.7.1 - 2026-04-24
+
+### 变更
+
+- 移除 `OopzConfig.default_area` / `default_channel` 两个字段。`OopzBot.send / reply / recall` 的 `area / channel` 固定为必填位置参数（延续 0.7.0 行为），不再从配置回落。0.6.2 曾引入的回落机制本版本确认放弃，调用方需显式传 `area / channel`，或使用 `ctx.reply()` 等从事件上下文推导的便捷入口。
+
+### 修复
+
+- `Channel.leave_voice_channel` 把 `area` 从 `Optional[str] = None` 改为必填 `str`，并补充空串校验。原先 `area=None` 会被原样拼进 `params`，实际只会让服务端返回错误，没有可用场景。
+- `Channel.enter_channel` / `get_voice_channel_members` 补上 `area` / `channel` 的类型标注与空串校验，对齐 0.6.0 立的「必填参数缺失一律抛 `ValueError`」约定。
+- `AreaInfo.private_channels` 从 `list[dict[str, Any]]` 改为 `list[str]`。服务端实际下发的是私密频道的 id 字符串列表，原先的 `dict` 声明会让 `areas.get_area_info` 在任何含有私密频道的域上直接 pydantic `ValidationError`（联调已复现）。
+
+### 改进
+
+- `services/message.py` 的参数类型标注修齐：`send_message` 的 `attachments / mention_list / style_tags / reference_message_id` 改为 `Optional[...]`、`auto_recall` 补 `bool`；`recall_message.timestamp` 改为 `Optional[str]`。此前同一个文件里 `send_private_message` 已写成 `Optional[...]`，两种风格并存会让类型检查器误报。
+- `Channel._get_voice_channel_ids` 的返回类型从 `list[str] | dict[str, str]` 收敛到真实的 `list[str]`，`dict` 分支是历史遗留注解，从未出现过。
+- `AutoRecallConfig.delay` 由 `int` 改为 `float`（配套 `OopzConfig.auto_recall_delay` / `Message._do_auto_recall.delay`），允许设置亚秒级延迟，和 `asyncio.sleep` 的实际类型对齐。
+- 删除 `oopz_sdk/transport/__init__.py` 的 `try / except ModuleNotFoundError: WebSocketTransport = None` 兜底：`transport/ws.py` 只依赖 `aiohttp` 和 stdlib，而 `aiohttp` 已经是硬依赖，真正缺失时 `transport/http.py` 的 `import aiohttp` 就已经先炸；和 0.7.0 已清理的两段 `OopzBot / OopzWSClient` 占位块是同类死代码。
+- `transport/proxy.py::build_requests_proxies` 注释说明它是遗留 API、仅为兼容保留，新代码应使用 `build_aiohttp_proxy`。
+
+## 0.7.0 - 2026-04-24
+
+### 变更
+
+- `AreaService.enter_area` 失败行为从返回 `{"error": ...}` dict 改为抛 `OopzApiError`，与其它 service 统一。调用方需从判断返回值改为 `try/except OopzApiError`。
+- 依赖集合调整：从 `dependencies` 移除 `requests` 与 `websocket-client`（SDK 运行时早已不再使用，保留反而会强迫使用方额外安装）。如果上层项目间接依赖这两个包，请自行在自家 `requirements` 声明。
+
+### 新增
+
+- 事件解析器支持三种此前会被静默丢弃的事件类型:`EVENT_MESSAGE_EDIT` → `message.edit`、`EVENT_PRIVATE_MESSAGE_EDIT` → `message.private.edit`、`EVENT_PRIVATE_MESSAGE_DELETE` → `recall.private`。
+- `OopzBot` 新增 `on_message_edit` / `on_private_message_edit` / `on_private_recall` 三个 decorator,对应上述事件。
+- `pyproject.toml` 补上 `Programming Language :: Python :: 3.13` classifier。
+- `VoiceChanelMemberInfo`(历史拼写错误)现在同时以正确拼写 `VoiceChannelMemberInfo` 暴露,老名字保留作为 alias 不破坏既有代码。
+
+### 修复
+
+- `HttpTransport.request_data` 把合法的 `{"status": true, "data": null}` 响应错误地当成失败抛 `OopzApiError`,改为只在真正没有 `"data"` 键时才抛,行为与 `request_data_with_retry` 对齐。
+- `CreateChannelResult.from_api` / `UserInfo.from_api` 的返回类型注解写成了别的模型名,导致静态类型检查报错,修正为各自模型本身。
+- `Channel.get_voice_channel_for_user` 此前遍历 `.roles()`(语音成员结构上并没有这个方法),改为 `.items()` 真正可用;同时补上 `area: str` 类型标注与说明。
+- `Message.get_channel_messages` 补上 `area / channel / size` 的必填与范围校验,避免把空串 / 非法 size 直接发给服务端。
+
+### 改进
+
+- `Media.upload_file` 的本地文件读取改走 `asyncio.to_thread`,不再在事件循环里做同步 I/O。
+- 删除 `oopz_sdk/__init__.py` 与 `oopz_sdk/client/__init__.py` 中两份"缺 `aiohttp` 时给 `OopzBot`/`OopzWSClient` 塞占位类"的 try/except 块：真实导入链路在更早的 `from .client.rest import ...` 就会因为缺 `aiohttp` 失败,这两段兜底永远走不到,是纯死代码。
+- 删除 `BaseService` 中未被任何 service 调用的 HTTP 包装方法(`_get / _post / _put / _patch / _delete / _request`)及配套的 `_raise_api_error / _error_payload / _error_message / _retry_after_seconds` 错误处理助手,以及 `copy` / `safe_json` 两个只服务于这些死代码的 import。
+- `Config.DEFAULT_HEADERS` 的 `Accept-Encoding` 不再从 `requests.utils.DEFAULT_ACCEPT_ENCODING` 取值,改为直接写 `"gzip, deflate"`,去掉对 `requests` 的最后一处硬依赖。
+- `services/member.py::get_person_info` 的 `uid: str = None` 修正为 `uid: Optional[str] = None`。
+
+### 备注
+
+- `Moderation.mute_mic` 同时传 `params` 与 `body`,和同文件其它 mute/unmute 方法的调用风格不一致,本版本未改动行为,仅在源码里留了 TODO 说明,等确认服务端真实契约后再处理。
+
 ## 0.6.2 - 2026-04-23
 
 ### 修复

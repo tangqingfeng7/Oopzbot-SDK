@@ -32,7 +32,7 @@ class ProxyConfig:
 @dataclass
 class AutoRecallConfig:
     enabled: bool = False
-    delay: int = 30
+    delay: float = 30.0
 
 
 @dataclass
@@ -115,11 +115,11 @@ class OopzConfig:
         self.auto_recall.enabled = value
 
     @property
-    def auto_recall_delay(self) -> int:
+    def auto_recall_delay(self) -> float:
         return self.auto_recall.delay
 
     @auto_recall_delay.setter
-    def auto_recall_delay(self, value: int) -> None:
+    def auto_recall_delay(self, value: float) -> None:
         self.auto_recall.delay = value
 
     def get_headers(self) -> dict[str, str]:

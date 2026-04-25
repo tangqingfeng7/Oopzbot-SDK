@@ -5,12 +5,20 @@ from typing import Any, Mapping
 from pydantic import Field, model_validator
 from .base import BaseModel
 from oopz_sdk.exceptions import OopzApiError
+from oopz_sdk.utils.payload import coerce_bool
 from enum import Enum
 
 
 class ChannelType(Enum):
+    """频道类型。
+
+    - ``TEXT``：文字频道
+    - ``VOICE`` / ``AUDIO``：语音频道。协议在不同版本里同时出现过这两个值，
+      二者都代表语音类型；``_get_voice_channel_ids`` 也一并视作语音。
+    """
     TEXT = "TEXT"
     VOICE = "VOICE"
+    AUDIO = "AUDIO"
 
 
 class ChannelSetting(BaseModel):
@@ -69,12 +77,15 @@ class ChannelSetting(BaseModel):
         except (TypeError, ValueError):
             normalized["maxMember"] = 30000
 
-        normalized["voiceControlEnabled"] = bool(normalized.get("voiceControlEnabled", False))
-        normalized["textControlEnabled"] = bool(normalized.get("textControlEnabled", False))
-        normalized["accessControlEnabled"] = bool(normalized.get("accessControlEnabled", False))
-        normalized["memberPublic"] = bool(normalized.get("memberPublic", False))
-        normalized["secret"] = bool(normalized.get("secret", False))
-        normalized["hasPassword"] = bool(normalized.get("hasPassword", False))
+        for _bool_key in (
+            "voiceControlEnabled",
+            "textControlEnabled",
+            "accessControlEnabled",
+            "memberPublic",
+            "secret",
+            "hasPassword",
+        ):
+            normalized[_bool_key] = coerce_bool(normalized.get(_bool_key), default=False)
 
         text_roles = normalized.get("textRoles", [])
         normalized["textRoles"] = text_roles if isinstance(text_roles, list) else []
@@ -82,8 +93,22 @@ class ChannelSetting(BaseModel):
         voice_roles = normalized.get("voiceRoles", [])
         normalized["voiceRoles"] = voice_roles if isinstance(voice_roles, list) else []
 
-        accessible_roles = normalized.get("accessibleRoles", [])
-        normalized["accessibleRoles"] = accessible_roles if isinstance(accessible_roles, list) else []
+        # 读设置接口与编辑 body 的字段名可能不一致：有的返回 accessibleRoles，有的与
+        # 编辑时一致用 accessible。只认一个会把可见角色读成空，随后只改名称也会把
+        # accessible: [] 发回去从而清掉权限。
+        ar_named = normalized.get("accessibleRoles")
+        ac_short = normalized.get("accessible")
+        if isinstance(ar_named, list) and ar_named:
+            accessible_roles = ar_named
+        elif isinstance(ac_short, list) and ac_short:
+            accessible_roles = ac_short
+        elif isinstance(ar_named, list):
+            accessible_roles = ar_named
+        elif isinstance(ac_short, list):
+            accessible_roles = ac_short
+        else:
+            accessible_roles = []
+        normalized["accessibleRoles"] = accessible_roles
 
         accessible_members = normalized.get("accessibleMembers", [])
         if isinstance(accessible_members, list):
@@ -115,7 +140,7 @@ class ChannelEdit(BaseModel):
     voice_roles: list[int] = Field(default_factory=list, alias="voiceRoles")
 
     access_control_enabled: bool = Field(default=False, alias="accessControlEnabled")
-    accessible: list[int] = Field(default_factory=list, alias="accessible")
+    accessible_roles: list[int] = Field(default_factory=list, alias="accessible")
     accessible_members: list[str] = Field(default_factory=list, alias="accessibleMembers")
 
     secret: bool = False
@@ -143,7 +168,7 @@ class ChannelEdit(BaseModel):
             text_roles=[int(x) for x in setting.text_roles],
             voice_roles=[int(x) for x in setting.voice_roles],
             access_control_enabled=setting.access_control_enabled,
-            accessible=[int(x) for x in setting.accessible_roles],
+            accessible_roles=[int(x) for x in setting.accessible_roles],
             accessible_members=[str(x) for x in setting.accessible_members],
             secret=setting.secret,
             has_password=setting.has_password,
@@ -233,12 +258,33 @@ class ChannelSign(BaseModel):
 
 
 class CreateChannelResult(BaseModel):
+    """创建频道接口的返回。新频道 ID 在协议里可能叫 `id`、`channel` 或 `channelId`。"""
+
     area: str = ""
+    # 新创建频道的 ID；接口常见字段名为 id，也可能用 channel / channelId
+    channel_id: str = Field(default="", alias="id")
     group_id: str = Field(default="", alias="group")
     max_member: int = Field(default=100, alias="maxMember")
     name: str = ""
     secret: bool = False
     channel_type: ChannelType = Field(default=ChannelType.TEXT, alias="type")
+
+    @staticmethod
+    def _coerce_new_channel_id(raw: Mapping[str, Any]) -> str:
+        for key in ("id", "channel", "channelId"):
+            v = raw.get(key)
+            if v is None or isinstance(v, (dict, list, tuple, set)):
+                continue
+            if isinstance(v, bool):
+                continue
+            if isinstance(v, int):
+                return str(v)
+            if isinstance(v, float):
+                return str(int(v)) if v.is_integer() else str(v)
+            s = str(v).strip()
+            if s:
+                return s
+        return ""
 
     @model_validator(mode="before")
     @classmethod
@@ -249,6 +295,10 @@ class CreateChannelResult(BaseModel):
         normalized = dict(data)
 
         normalized["area"] = str(normalized.get("area") or "")
+        # 将 id / channel / channelId 归一成模型字段 `id`（见 channel_id 的 alias）
+        cid = cls._coerce_new_channel_id(normalized)
+        normalized["id"] = cid
+
         normalized["group"] = str(normalized.get("group") or "")
         normalized["name"] = str(normalized.get("name") or "").strip()
 
@@ -257,7 +307,7 @@ class CreateChannelResult(BaseModel):
         except (TypeError, ValueError):
             normalized["maxMember"] = 100
 
-        normalized["secret"] = bool(normalized.get("secret", False))
+        normalized["secret"] = coerce_bool(normalized.get("secret"), default=False)
 
         channel_type = normalized.get("type", ChannelType.TEXT)
         if isinstance(channel_type, str):
@@ -311,7 +361,7 @@ class VoiceChannelMemberInfo(BaseModel):
         normalized["screenSharingState"] = str(normalized.get("screenSharingState") or "")
         normalized["screenType"] = str(normalized.get("screenType") or "")
 
-        normalized["isBot"] = bool(normalized.get("isBot", False))
+        normalized["isBot"] = coerce_bool(normalized.get("isBot"), default=False)
 
         try:
             normalized["peopleLimit"] = int(normalized.get("peopleLimit") or 0)

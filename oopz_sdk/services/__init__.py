@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Mapping
 
+
+from oopz_sdk.utils.payload import safe_json
 from oopz_sdk.auth.signer import Signer
 from oopz_sdk.config.settings import OopzConfig
 from oopz_sdk.transport.http import HttpTransport, HttpResponse
@@ -76,15 +78,6 @@ class BaseService:
             method, url, params=params, headers=headers, data=data,
              timeout=timeout
         )
-
-    async def close(self) -> None:
-        await self.transport.close()
-
-    async def __aenter__(self):
-        return self
-
-    async def __aexit__(self, exc_type, exc, tb) -> None:
-        await self.close()
 
 
 __all__ = ["BaseService"]

@@ -3,6 +3,7 @@
 import asyncio
 
 from oopz_sdk import OopzConfig, OopzRESTClient
+from oopz_sdk.models.segment import Image
 
 
 async def main() -> None:
@@ -14,10 +15,10 @@ async def main() -> None:
     )
 
     async with OopzRESTClient(config) as sender:
-        result = await sender.media.send_private_image(
+        result = await sender.messages.send_private_message(
+            "这是一张通过 SDK 上传的图片",
+            Image(file_path="demo.png"),
             target="目标UID",
-            file_path="demo.png",
-            text="这是一张通过 SDK 上传的图片",
         )
         print(f"私信发送成功，message_id={result.message_id}")
 

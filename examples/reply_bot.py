@@ -21,7 +21,10 @@ async def main() -> None:
         if content.strip().lower() == "ping":
             await ctx.reply("pong")
 
-    await bot.run()
+    try:
+        await bot.run()
+    finally:
+        await bot.stop()
 
 
 if __name__ == "__main__":
