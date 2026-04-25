@@ -5,9 +5,11 @@
 from __future__ import annotations
 
 import logging
+from oopz_sdk import setup_logging
 
 from oopz_sdk.models import ImageAttachment, Message
 
+setup_logging("DEBUG")
 
 def _base_payload() -> dict:
     return {
