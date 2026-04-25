@@ -97,9 +97,14 @@ class Person(BaseService):
         """获取好友请求列表"""
         url_path = "/client/v1/friendship/v1/requests"
         data = await self._request_data("GET", url_path)
-        if data.get("requests") is None and data.get("requests") is not isinstance(data, list):
+        if not isinstance(data, dict):
             raise OopzApiError(f"friendship request response format error: {data}")
-        return [models.FriendshipRequest.from_api(d) for d in data.get("requests")]
+
+        requests = data.get("requests")
+        if not isinstance(requests, list):
+            raise OopzApiError(f"friendship request response format error: {data}")
+
+        return [models.FriendshipRequest.from_api(item) for item in requests]
 
     async def post_friendship_response(self, target: str, friend_request_id: int, agree: bool) -> models.OperationResult:
         """接受或拒绝好友请求"""
