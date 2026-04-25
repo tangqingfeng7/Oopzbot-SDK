@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import inspect
 import logging
 import time
 from typing import Optional, List
@@ -266,7 +267,9 @@ class AreaService(BaseService):
         for area in areas:
             if area.area_id and area.name:
                 if set_area:
-                    set_area(area.area_id, area.name)
+                    result = set_area(area.area_id, area.name)
+                    if inspect.isawaitable(result):
+                        await result
                     areas_count += 1
 
             groups = await self.get_area_channels(area.area_id)
@@ -274,7 +277,9 @@ class AreaService(BaseService):
                 for ch in group.channels:
                     if ch.channel_id and ch.name:
                         if set_channel:
-                            set_channel(ch.channel_id, ch.name)
+                            result = set_channel(ch.channel_id, ch.name)
+                            if inspect.isawaitable(result):
+                                await result
                             channels_count += 1
 
         logger.info("Name population completed: %d areas, %d channels", areas_count, channels_count)

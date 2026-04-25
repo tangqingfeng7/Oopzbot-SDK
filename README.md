@@ -115,7 +115,7 @@ REST / Bot 上挂载的 service：
 | `media` | `Media` | 文件上传（图片、附件等） |
 | `areas` | `AreaService` | 域（群/服务器）信息与成员分页 |
 | `channels` | `Channel` | 频道信息与语音频道 `enter/leave` |
-| `members` | `Member` | 成员信息查询 |
+| `person` | `Person` | 成员信息查询（`members` 仍可用作兼容别名） |
 | `moderation` | `Moderation` | 禁言 / 解禁 / 踢人 / 拉黑 |
 | `voice` | `Voice` | 语音频道加入与推流（需浏览器后端，见 `examples/voice_join_and_play.py`） |
 

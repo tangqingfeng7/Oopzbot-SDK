@@ -48,6 +48,7 @@ class OopzBot:
         self.areas = self.rest.areas
         self.channels = self.rest.channels
         self.person = self.rest.person
+        self.members = self.person
         self.moderation = self.rest.moderation
         self.voice: voice_service.Voice = voice_service.Voice(self, config, self.rest.transport, self.rest.signer)
 

@@ -37,6 +37,7 @@ class OopzRESTClient:
         self.areas = AreaService(owner, config, self.transport, self.signer)
         self.channels = Channel(owner, config, self.transport, self.signer)
         self.person = Person(owner, config, self.transport, self.signer)
+        self.members = self.person
         self.moderation = Moderation(owner, config, self.transport, self.signer)
 
     async def start(self) -> None:

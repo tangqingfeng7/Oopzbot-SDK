@@ -237,6 +237,10 @@ class MessageSendResult(BaseModel):
             raise OopzApiError("invalid message send result payload: expected dict", payload=data)
 
         normalized = dict(data)
+        if "messageId" in normalized:
+            normalized["messageId"] = str(normalized["messageId"])
+        if "timestamp" in normalized:
+            normalized["timestamp"] = str(normalized["timestamp"])
         return normalized
 
     @classmethod
