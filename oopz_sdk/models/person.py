@@ -294,7 +294,7 @@ class Friendship(BaseModel):
 
         normalized = dict(data)
         normalized["uid"] = str(normalized.get("uid") or "")
-        normalized["online"] = bool(normalized.get("online", False))
+        normalized["online"] = coerce_bool(normalized.get("online"), default=False)
         normalized["name"] = str(normalized.get("name") or "")
 
         return normalized
