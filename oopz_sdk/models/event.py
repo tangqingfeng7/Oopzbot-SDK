@@ -444,6 +444,6 @@ class RoleChangedEvent(Event):
         return normalized
 
 
-from .message import Message
+from .message import Message as _Message
 
-MessageEvent.model_rebuild()
+MessageEvent.model_rebuild(_types_namespace={"Message": _Message})

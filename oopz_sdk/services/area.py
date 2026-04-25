@@ -7,6 +7,7 @@ import time
 from typing import Optional, List
 
 from oopz_sdk import models
+from oopz_sdk.exceptions import OopzApiError
 
 from . import BaseService
 
@@ -181,9 +182,17 @@ class AreaService(BaseService):
 
         data = await self._request_data("GET", url_path, params={"area": area, "target": target})
 
-        roles = data.get('roles')
-        if roles is None:
-            raise ValueError("Invalid API response: 'roles' field is missing or not a list")
+        if not isinstance(data, dict):
+            raise OopzApiError(
+                "area can give roles response format error: expected dict",
+                payload=data,
+            )
+        roles = data.get("roles")
+        if not isinstance(roles, list):
+            raise OopzApiError(
+                "area can give roles response format error: expected 'roles' list",
+                payload=data,
+            )
 
         return [models.RoleInfo.from_api(role) for role in roles]
 
@@ -225,9 +234,17 @@ class AreaService(BaseService):
         body = {"area": area, "uids": uids}
         data = await self._request_data("POST", url_path, body=body)
 
+        if not isinstance(data, dict):
+            raise OopzApiError(
+                "area nicknames response format error: expected dict",
+                payload=data,
+            )
         nicknames = data.get("nicknames")
         if not isinstance(nicknames, dict):
-            raise ValueError("Invalid API response: 'nicknames' field is missing or not a dict")
+            raise OopzApiError(
+                "area nicknames response format error: expected 'nicknames' dict",
+                payload=data,
+            )
 
         return {str(uid): str(nick) for uid, nick in nicknames.items()}
 

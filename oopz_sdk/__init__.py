@@ -103,13 +103,5 @@ __all__ = [
     "Voice",
     "VoiceChannelMembersResult",
     "__version__",
-    "JoinedAreaInfo",
-    "AreaMembersPage",
-    "Attachment",
-    "ChannelSetting",
-    "Event",
-    "JsonList",
-    "JsonObject",
-    "MessageEvent",
     "setup_logging"
 ]

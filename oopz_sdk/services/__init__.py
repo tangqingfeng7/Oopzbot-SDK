@@ -3,7 +3,6 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Mapping
 
 
-from oopz_sdk.utils.payload import safe_json
 from oopz_sdk.auth.signer import Signer
 from oopz_sdk.config.settings import OopzConfig
 from oopz_sdk.transport.http import HttpTransport, HttpResponse

@@ -107,7 +107,7 @@ asyncio.run(main())
 | `OopzWSClient` | 纯 WebSocket 客户端，供需要自行处理事件分发的场景使用 |
 | `Signer` | 请求签名工具，便于自定义传输层时复用 |
 
-REST / Bot 上挂载的 service：
+REST / Bot 共同挂载的 service：
 
 | 属性 | 类 | 说明 |
 | --- | --- | --- |
@@ -117,6 +117,11 @@ REST / Bot 上挂载的 service：
 | `channels` | `Channel` | 频道信息与语音频道 `enter/leave` |
 | `person` | `Person` | 成员信息查询（`members` 仍可用作兼容别名） |
 | `moderation` | `Moderation` | 禁言 / 解禁 / 踢人 / 拉黑 |
+
+仅 `OopzBot` 额外挂载：
+
+| 属性 | 类 | 说明 |
+| --- | --- | --- |
 | `voice` | `Voice` | 语音频道加入与推流（需浏览器后端，见 `examples/voice_join_and_play.py`） |
 
 ## 许可证
