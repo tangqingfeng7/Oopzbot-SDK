@@ -12,8 +12,7 @@ from oopz_sdk.exceptions import OopzApiError
 from oopz_sdk.utils.payload import coerce_bool
 from .segment import parse_message_segments, Text
 
-logger = logging.getLogger("oopz_sdk.models.message")
-
+logger = logging.getLogger(__name__)
 
 
 class MediaInfo(BaseModel):
@@ -101,21 +100,21 @@ class Message(BaseModel):
 
         # 基础字符串字段
         for key in (
-            "target",
-            "area",
-            "areaPage",
-            "channel",
-            "type",
-            "clientMessageId",
-            "messageId",
-            "timestamp",
-            "person",
-            "content",
-            "text",
-            "topTime",
-            "displayName",
-            "referenceMessageId",
-            "senderBotType",
+                "target",
+                "area",
+                "areaPage",
+                "channel",
+                "type",
+                "clientMessageId",
+                "messageId",
+                "timestamp",
+                "person",
+                "content",
+                "text",
+                "topTime",
+                "displayName",
+                "referenceMessageId",
+                "senderBotType",
         ):
             normalized[key] = str(normalized.get(key) or "")
 
@@ -194,7 +193,6 @@ class Message(BaseModel):
         return "".join(parts)
 
 
-
 class MentionInfo(BaseModel):
     person: str = ""
     is_bot: bool = Field(default=False, alias="isBot")
@@ -246,6 +244,7 @@ class MessageSendResult(BaseModel):
         if not isinstance(data, Mapping):
             raise OopzApiError("invalid message send result payload: expected dict", payload=data)
         return cls.model_validate(data)
+
 
 class PrivateSession(BaseModel):
     last_time: str = Field(default="", alias="lastTime")

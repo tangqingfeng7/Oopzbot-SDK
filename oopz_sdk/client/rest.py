@@ -5,7 +5,7 @@ from oopz_sdk.config.settings import OopzConfig
 from oopz_sdk.services.area import AreaService
 from oopz_sdk.services.channel import Channel
 from oopz_sdk.services.media import Media
-from oopz_sdk.services.member import Member
+from oopz_sdk.services.person import Person
 from oopz_sdk.services.message import Message
 from oopz_sdk.services.moderation import Moderation
 from oopz_sdk.transport.http import HttpTransport
@@ -36,7 +36,7 @@ class OopzRESTClient:
         self.media = Media(owner, config, self.transport, self.signer)
         self.areas = AreaService(owner, config, self.transport, self.signer)
         self.channels = Channel(owner, config, self.transport, self.signer)
-        self.members = Member(owner, config, self.transport, self.signer)
+        self.person = Person(owner, config, self.transport, self.signer)
         self.moderation = Moderation(owner, config, self.transport, self.signer)
 
     async def start(self) -> None:

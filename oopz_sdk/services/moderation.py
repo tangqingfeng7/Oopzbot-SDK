@@ -6,7 +6,7 @@ from oopz_sdk import models
 from . import BaseService
 from ..models import TextMuteInterval, VoiceMuteInterval
 
-logger = logging.getLogger("oopz_sdk.services.moderation")
+logger = logging.getLogger(__name__)
 
 
 class Moderation(BaseService):

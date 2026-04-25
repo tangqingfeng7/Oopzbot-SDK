@@ -1,5 +1,12 @@
 """Modern Oopz SDK package layout."""
+from __future__ import annotations
+import logging
 
+_logger = logging.getLogger(__name__)
+_logger.addHandler(logging.NullHandler())
+_logger.propagate = False
+
+from .logger import setup_logging
 from .auth import Signer
 from .client import OopzRESTClient
 from .config import (
@@ -41,7 +48,7 @@ from .models import (
 from .services.area import AreaService
 from .services.channel import Channel
 from .services.media import Media
-from .services.member import Member
+from .services.person import Person
 from .services.message import Message as MessageService
 from .services.moderation import Moderation
 from .services.voice import Voice
@@ -72,7 +79,7 @@ __all__ = [
     "JsonList",
     "JsonObject",
     "Media",
-    "Member",
+    "Person",
     "Message",
     "MessageEvent",
     "MessageModel",
@@ -96,4 +103,13 @@ __all__ = [
     "Voice",
     "VoiceChannelMembersResult",
     "__version__",
+    "JoinedAreaInfo",
+    "AreaMembersPage",
+    "Attachment",
+    "ChannelSetting",
+    "Event",
+    "JsonList",
+    "JsonObject",
+    "MessageEvent",
+    "setup_logging"
 ]

@@ -11,7 +11,7 @@ from oopz_sdk.config.settings import HeartbeatConfig, OopzConfig
 from oopz_sdk.config.constants import EVENT_AUTH, EVENT_HEARTBEAT
 from oopz_sdk.transport.ws import WebSocketClosedError, WebSocketTransport
 
-logger = logging.getLogger("oopz_sdk.client.ws")
+logger = logging.getLogger(__name__)
 
 
 class _WebSocketCallbackError(RuntimeError):

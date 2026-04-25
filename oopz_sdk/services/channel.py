@@ -8,7 +8,7 @@ from oopz_sdk import models
 
 from . import BaseService
 
-logger = logging.getLogger("oopz_sdk.services.channel")
+logger = logging.getLogger(__name__)
 
 
 class Channel(BaseService):

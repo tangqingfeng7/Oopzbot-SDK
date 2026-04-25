@@ -48,7 +48,7 @@ from oopz_sdk.models.event import (
 )
 from oopz_sdk.models.message import Message
 
-logger = logging.getLogger("oopz_sdk.events.parser")
+logger = logging.getLogger(__name__)
 _MISSING = object()
 
 

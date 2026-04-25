@@ -12,7 +12,7 @@ from oopz_sdk.services import BaseService
 from oopz_sdk.utils.image import get_image_info
 from oopz_sdk.models import build_segments, normalize_message_parts
 
-logger = logging.getLogger("oopz_sdk.services.message")
+logger = logging.getLogger(__name__)
 
 
 class Message(BaseService):

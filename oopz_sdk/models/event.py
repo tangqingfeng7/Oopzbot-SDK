@@ -74,6 +74,7 @@ class UnknownEvent(Event):
         normalized["payload"] = dict(payload) if isinstance(payload, dict) else {}
         return normalized
 
+
 class MessageEvent(Event):
     message: "Message | None" = None
     is_private: bool = False
@@ -86,6 +87,7 @@ class MessageEvent(Event):
             **data,
             **normalized,
         }
+
 
 class ServerIdEvent(Event):
     server_id: str = Field(default="", alias="serverId")
@@ -191,29 +193,29 @@ class ChannelUpdateEvent(Event):
         normalized["type"] = str(normalized.get("type") or "")
 
         for key in (
-            "voiceRoles",
-            "textRoles",
-            "accessibleRoles",
-            "accessible",
-            "disableVoice",
-            "disableText",
+                "voiceRoles",
+                "textRoles",
+                "accessibleRoles",
+                "accessible",
+                "disableVoice",
+                "disableText",
         ):
             value = normalized.get(key, [])
             normalized[key] = value if isinstance(value, list) else []
 
         for key in (
-            "secret",
-            "memberPublic",
-            "voiceControlEnabled",
-            "textControlEnabled",
-            "accessControlEnabled",
-            "hasPassword",
+                "secret",
+                "memberPublic",
+                "voiceControlEnabled",
+                "textControlEnabled",
+                "accessControlEnabled",
+                "hasPassword",
         ):
             normalized[key] = coerce_bool(normalized.get(key), default=False)
 
         for key, default in (
-            ("textGapSecond", 0),
-            ("maxMember", 30000),
+                ("textGapSecond", 0),
+                ("maxMember", 30000),
         ):
             try:
                 normalized[key] = int(normalized.get(key) or default)
@@ -285,15 +287,15 @@ class ChannelCreateEvent(Event):
         normalized = Event.validate_common_fields(data)
 
         for key in (
-            "area",
-            "channel",
-            "type",
-            "name",
-            "channelType",
-            "password",
-            "voiceQuality",
-            "voiceDelay",
-            "groupId",
+                "area",
+                "channel",
+                "type",
+                "name",
+                "channelType",
+                "password",
+                "voiceQuality",
+                "voiceDelay",
+                "groupId",
         ):
             normalized[key] = str(normalized.get(key) or "")
 
@@ -307,19 +309,19 @@ class ChannelCreateEvent(Event):
         normalized["type"] = merged_kind
 
         for key in (
-            "memberPublic",
-            "voiceControlEnabled",
-            "textControlEnabled",
-            "secret",
-            "hasPassword",
-            "accessControlEnabled",
-            "isTemp",
+                "memberPublic",
+                "voiceControlEnabled",
+                "textControlEnabled",
+                "secret",
+                "hasPassword",
+                "accessControlEnabled",
+                "isTemp",
         ):
             normalized[key] = coerce_bool(normalized.get(key), default=False)
 
         for key, default in (
-            ("textGapSecond", 0),
-            ("maxMember", 0),
+                ("textGapSecond", 0),
+                ("maxMember", 0),
         ):
             try:
                 normalized[key] = int(normalized.get(key) or default)
@@ -423,9 +425,9 @@ class RoleChangedEvent(Event):
             normalized[key] = str(normalized.get(key) or "")
 
         for key, default in (
-            ("roleID", 0),
-            ("sort", 0),
-            ("roleType", 0),
+                ("roleID", 0),
+                ("sort", 0),
+                ("roleType", 0),
         ):
             try:
                 normalized[key] = int(normalized.get(key) or default)
@@ -440,9 +442,6 @@ class RoleChangedEvent(Event):
         normalized["categoryKeys"] = ck if isinstance(ck, list) else []
 
         return normalized
-
-
-
 
 
 from .message import Message

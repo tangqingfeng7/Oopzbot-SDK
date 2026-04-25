@@ -87,6 +87,7 @@ class AreaInfo(BaseModel):
             raise OopzApiError("invalid area detail payload: expected dict", payload=data)
         return cls.model_validate(data)
 
+
 class AreaMemberInfo(BaseModel):
     display_type: str = Field(default="", alias="displayType")
     online: int = 0
@@ -112,6 +113,7 @@ class AreaRoleCountInfo(BaseModel):
         if not isinstance(data, Mapping):
             raise OopzApiError("invalid area role count payload: expected dict", payload=data)
         return cls.model_validate(data)
+
 
 class AreaMembersPage(BaseModel):
     members: list[AreaMemberInfo] = Field(default_factory=list)
@@ -141,7 +143,6 @@ class AreaMembersPage(BaseModel):
     @classmethod
     def from_api(cls, data: Mapping[str, Any]) -> "AreaMembersPage":
         return cls.model_validate(data)
-
 
 
 class ChannelSettings(BaseModel):
@@ -205,6 +206,7 @@ class ChannelGroupInfo(BaseModel):
         if not isinstance(data, dict):
             raise OopzApiError("invalid channel group payload: expected dict", payload=data)
         return cls.model_validate(data)
+
 
 class AreaUserDetail(BaseModel):
     disable_text_to: Any = Field(default=None, alias="disableTextTo")
@@ -272,8 +274,6 @@ class RoleInfo(BaseModel):
 
         return normalized
 
-
     @classmethod
     def from_api(cls, data: Mapping[str, Any]) -> "RoleInfo":
         return cls.model_validate(data)
-
