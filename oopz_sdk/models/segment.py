@@ -44,15 +44,6 @@ class Text(Segment):
         self.text = text
         self.plain_text = text if plain_text is None else plain_text
 
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "type": self.type,
-            "data": {
-                "text": self.text,
-                "plain_text": self.plain_text,
-            },
-        }
-
     def to_message_text(self) -> str:
         return self.text
 
@@ -67,14 +58,6 @@ class Mention(Segment):
         self.person = str(user_id)
         self.raw = raw or f"(met){self.person}(met)"
 
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "type": "mention",
-            "data": {
-                "user_id": self.person,
-            },
-        }
-
     def to_message_text(self) -> str:
         return f" {self.raw.strip()} "
 
@@ -86,12 +69,6 @@ class MentionAll(Segment):
     def __init__(self, raw: str | None = None):
         Segment.__init__(self, "mention_all")
         self.raw = raw or "(met)All(met)"
-
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "type": "mention_all",
-            "data": {},
-        }
 
     def to_message_text(self) -> str:
         return f" {self.raw.strip()} "

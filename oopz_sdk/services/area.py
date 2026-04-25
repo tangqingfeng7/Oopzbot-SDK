@@ -132,6 +132,18 @@ class AreaService(BaseService):
         data = await self._request_data("GET", url_path, params=params)
         return models.AreaInfo.from_api(data)
 
+    async def edit_area_name(self, area: str, name: str) -> models.OperationResult:
+        if area.strip() == "":
+            raise ValueError("area cannot be empty")
+        if name.strip() == "":
+            raise ValueError("name cannot be empty")
+        url_path = "/client/v1/area/v1/areaSettings/v1/editAreaName"
+        data = await self._request_data("PUT", url_path, body={
+            "area": area,
+            "name": name,
+        })
+        return models.OperationResult.from_api(data)
+
     async def enter_area(self, area: str, recover: bool = False) -> dict:
         """进入指定域。"""
         if area.strip() == "":
@@ -214,7 +226,11 @@ class AreaService(BaseService):
         return models.OperationResult.from_api(resp)
 
     async def get_user_area_nicknames(self, area: str, uids: list[str]) -> dict[str, str]:
-        """批量获取用户在域内的昵称（备注）。"""
+        """批量获取用户在域内的昵称（备注）。
+
+        Example:
+              {"2ce12124c07111ef9e5dc6b17c3481f1": "盐盐盐"}
+        """
         if not area:
             raise ValueError("area is required for getUserAreaNicknames()")
         if not uids:

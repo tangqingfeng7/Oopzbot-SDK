@@ -35,6 +35,56 @@ class AutoRecallConfig:
     delay: float = 30.0
 
 
+
+@dataclass
+class OneBotV12Config:
+    """
+    OneBot v12 适配配置。
+
+    enabled:
+        是否启用 OneBot v12 适配器。
+
+    auto_start_server:
+        是否在 OopzBot.start() 时自动启动 OneBot v12 server。
+        如果只是想内部调用 adapter，可以设为 False。
+
+    host / port:
+        正向 HTTP / WebSocket server 监听地址。
+
+    access_token:
+        OneBot 连接层鉴权 token。
+
+    ws_reverse_urls:
+        反向 WebSocket 地址。配置后 SDK 会主动连接这些地址。
+
+    webhook_urls:
+        HTTP webhook 地址。事件会 POST 到这些 URL。
+    """
+
+    enabled: bool = False
+    auto_start_server: bool = True
+
+    platform: str = "oopz"
+    self_id: str = ""
+
+    db_path: str | None = None
+
+    host: str = "127.0.0.1"
+    port: int = 6727
+
+    access_token: str = ""
+
+    enable_http: bool = True
+    enable_ws: bool = True
+
+    webhook_urls: list[str] = field(default_factory=list)
+
+    ws_reverse_urls: list[str] = field(default_factory=list)
+    ws_reverse_reconnect_interval: float = 3.0
+
+    send_connect_event: bool = True
+
+
 @dataclass
 class OopzConfig:
     device_id: str
@@ -70,6 +120,8 @@ class OopzConfig:
     auto_recall: AutoRecallConfig = field(default_factory=AutoRecallConfig)
 
     ignore_self_messages: bool = True   # 如果设置为False, 会导致bot接收到自己处理的消息, 可能导致死循环
+
+    onebot_v12: OneBotV12Config = field(default_factory=OneBotV12Config)
 
     def __post_init__(self) -> None:
         self.device_id = self._require_non_empty(self.device_id, "device_id")
@@ -124,3 +176,4 @@ class OopzConfig:
 
     def get_headers(self) -> dict[str, str]:
         return {**DEFAULT_HEADERS, **self.headers}
+
