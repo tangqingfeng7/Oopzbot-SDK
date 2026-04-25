@@ -4,7 +4,7 @@ from .base import OperationResult
 from .channel import (ChannelSetting, ChannelType,
                       CreateChannelResult, ChannelEdit, ChannelSign, VoiceChannelMembersResult)
 from .event import Event, MessageEvent
-from .person import UserInfo, Profile, UserLevelInfo, Friendship
+from .person import UserInfo, Profile, UserLevelInfo, Friendship, FriendshipRequest
 from .message import Message, MessageSendResult, PrivateSession
 from .moderation import TextMuteInterval, VoiceMuteInterval
 from .segment import build_segments, normalize_message_parts
@@ -44,5 +44,6 @@ __all__ = [
     "UserLevelInfo",
     "build_segments",
     "Friendship",
-    "normalize_message_parts"
+    "normalize_message_parts",
+    "FriendshipRequest"
 ]

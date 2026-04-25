@@ -299,3 +299,31 @@ class Friendship(BaseModel):
     @classmethod
     def from_api(cls, data: Mapping[str, Any]) -> "Friendship":
         return Friendship.model_validate(data)
+
+
+class FriendshipRequest(BaseModel):
+    friend_request_id: int = Field(default=0, alias="friendRequestId")
+    uid: str = ""
+    create_time: str = Field(default="", alias="createTime")
+
+    @model_validator(mode="before")
+    @classmethod
+    def validate_and_normalize(cls, data: Any) -> Any:
+        if not isinstance(data, Mapping):
+            raise OopzApiError("invalid friendship request payload: expected dict", payload=data)
+
+        normalized = dict(data)
+
+        try:
+            normalized["friendRequestId"] = int(normalized.get("friendRequestId") or 0)
+        except (TypeError, ValueError):
+            normalized["friendRequestId"] = 0
+
+        normalized["uid"] = str(normalized.get("uid") or "")
+        normalized["createTime"] = str(normalized.get("createTime") or "")
+
+        return normalized
+
+    @classmethod
+    def from_api(cls, data: Mapping[str, Any]) -> "FriendshipRequest":
+        return cls.model_validate(data)
