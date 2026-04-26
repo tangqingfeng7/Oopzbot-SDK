@@ -9,7 +9,7 @@
 获取域成员分页，带短期缓存。
 
 ```python
-page = await client.areas.get_area_members(
+page = await bot.areas.get_area_members(
     area="域 ID",
     offset_start=0,
     offset_end=49,
@@ -39,19 +39,24 @@ for member in page.members:
     | --- | --- | --- |
     | `total_count` | `int` | 域成员总数。 |
     | `members` | `list[AreaMemberInfo]` | 当前分页中的成员列表。 |
+    | `roleCount` | `list[AreaRoleCountInfo]` |  |
 
     `AreaMemberInfo` 常见字段：
 
     | 字段 | 类型 | 说明 |
     | --- | --- | --- |
-    | `uid` | `str` | 用户 UID。 |
-    | `name` | `str` | 用户名称。 |
-    | `avatar` | `str` | 用户头像。 |
-    | `bot` | `bool` | 是否为机器人。 |
+    | `uid` | `str` | 用户id |
+    | `display_type` | `str` | 显示状态类型, 例如`MUSIC`/`GAME` |
+    | `online` | `int` | 用户在线状态 |
+    | `playing_state` | `str` | 用户游玩/听歌状态 |
+    | `role` | `int` | 域角色id |
+    | `role_sort` | `int` |  |
+    | `role_status` | `int` |  |
+
 
 === "缓存说明"
 
-    `get_area_members()` 带短期缓存，适合重复查询域成员列表。
+    `get_area_members()` 带短期缓存。
 
     相关配置：
 
@@ -85,16 +90,16 @@ for area in areas:
 
     | 字段 | 类型 | API 字段 | 说明 |
     | --- | --- | --- | --- |
-    | `area_id` | `str` | `id` | 域 ID。 |
-    | `code` | `str` | `code` | 域邀请码或短码。 |
-    | `name` | `str` | `name` | 域名称。 |
-    | `avatar` | `str` | `avatar` | 域头像。 |
-    | `banner` | `str` | `banner` | 域横幅。 |
-    | `level` | `int` | `level` | 域等级。 |
-    | `owner` | `str` | `owner` | 域主 UID。 |
-    | `group_id` | `str` | `groupID` | 域分组 ID。 |
-    | `group_name` | `str` | `groupName` | 域分组名称。 |
-    | `subscript` | `int` | `subscript` | 订阅或角标状态。 |
+    | `area_id` | `str` | `id` | 域 ID |
+    | `code` | `str` | `code` |   |
+    | `name` | `str` | `name` | 域名称 |
+    | `avatar` | `str` | `avatar` | 域头像的url |
+    | `banner` | `str` | `banner` | 域横幅的url |
+    | `level` | `int` | `level` | 域等级 |
+    | `owner` | `str` | `owner` | 域主 UID |
+    | `group_id` | `str` | `groupID` |  |
+    | `group_name` | `str` | `groupName` | |
+    | `subscript` | `int` | `subscript` |  |
 
 ---
 
@@ -426,7 +431,8 @@ print(names)
 
 ## 常见任务：获取域和频道 ID
 
-很多用户第一次使用 SDK 时，不知道 `area` 和 `channel` 应该填什么。可以先调用 `get_joined_areas()` 和 `get_area_channels()` 打印出来。
+很多用户第一次使用 SDK 时，不知道 `area` 和 `channel` 应该填什么。可以先调用 `get_joined_areas()` 和 `get_area_channels()`
+打印出来。
 
 ```python
 areas = await client.areas.get_joined_areas()

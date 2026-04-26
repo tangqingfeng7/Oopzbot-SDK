@@ -1,6 +1,4 @@
-# Member Service
-
-入口：`client.members` 或 `bot.members`。
+# Person Service
 
 该 service 负责用户资料、好友、好友请求等能力。
 
