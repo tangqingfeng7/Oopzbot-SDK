@@ -13,7 +13,7 @@ pip install mkdocs mkdocs-material pymdown-extensions
 在项目根目录运行：
 
 ```bash
-mkdocs serve
+mkdocs serve --livereload
 ```
 
 默认访问：

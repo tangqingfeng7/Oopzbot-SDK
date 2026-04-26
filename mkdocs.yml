@@ -36,8 +36,7 @@ nav:
       - Area Service: reference/area-service.md
       - Channel Service: reference/channel-service.md
       - Media Service: reference/media-service.md
-      - Member Service: reference/member-service.md
-      - Person Service 兼容说明: reference/person-service.md
+      - Person Service: reference/person-service.md
       - Moderation Service: reference/moderation-service.md
       - Voice Service: reference/voice-service.md
       - Event 类型: reference/events.md
