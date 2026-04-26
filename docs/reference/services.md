@@ -8,7 +8,7 @@ client.messages
 client.media
 client.areas
 client.channels
-client.members
+client.person
 client.moderation
 ```
 
@@ -29,9 +29,6 @@ bot.voice
 | `members` | `Member` | 用户资料、好友、好友请求。 |
 | `moderation` | `Moderation` | 禁言、解禁、禁麦、踢人、拉黑、黑名单。 |
 | `voice` | `Voice` | 进入语音频道、推流播放、暂停、恢复、音量、退出。 |
-
-!!! note
-    旧文档可能写过 `client.person` / `bot.person`。当前代码实际入口是 `client.members` / `bot.members`。
 
 ## 调用约定
 

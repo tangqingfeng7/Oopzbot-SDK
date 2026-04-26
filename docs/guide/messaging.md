@@ -114,7 +114,7 @@ await bot.messages.send_message(
     Text("你好 "),
     Mention("2ce12124c07111ef9e5dc6b17c3481f1"),
     Text(" 这是一张图：\n"),
-    Image.from_file("./demo.png"),
+    Image("./demo.png"),
     area="域 ID",
     channel="频道 ID",
 )
@@ -126,7 +126,7 @@ await bot.messages.send_message(
 
 Oopz的图片发送需要先上传图片获取 `file_key`，然后在消息文本中用 `![IMAGEw{weight}h{height}]({file_key})` 占位，最后把附件信息放到 `attachments` 参数里。
 
-Segment 的 `Image` 已经封装了这个流程，如果你不想用 Segment，也可以手动实现：
+Segment 的 `Image` 已经封装了这个流程，如果你不想用 Segment，也可以手动拼装信息：
 
 ```python
 from oopz_sdk.utils.image import get_image_info

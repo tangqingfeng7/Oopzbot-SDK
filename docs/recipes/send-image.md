@@ -23,7 +23,7 @@ async def main() -> None:
             Text("你好 "),
             Mention("2ce12124c07111ef9e5dc6b17c3481f1"),
             Text(" 这是一张图：\n"),
-            Image.from_file("./demo.png"),
+            Image("./demo.png"),
             area="域 ID",
             channel="频道 ID",
         )

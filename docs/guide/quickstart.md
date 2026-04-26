@@ -121,7 +121,7 @@ pong
 | 目标 | 文档 |
 | --- | --- |
 | 查询自己加入了哪些域和频道 | [列出 area 和 channel](../recipes/list-areas-and-channels.md) |
-| 主动发送频道消息 | [发送频道消息](../recipes/send-message.md) |
+| 撤回消息 | [撤回消息](../recipes/recall-message.md) |
 | 发送图片 | [发送图片](../recipes/send-image.md) |
 | 了解事件回调 | [事件系统](events.md) |
 | 了解消息、私信和撤回 | [消息发送](messaging.md) |

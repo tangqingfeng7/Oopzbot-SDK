@@ -20,9 +20,8 @@ bot = OopzBot(config)
 
 
 @bot.on_message
-async def on_message(event, ctx):
-    message = event.message
-    if message and message.text.strip() == "ping":
+async def on_message(message, ctx):
+    if message.text.strip() == "ping":
         await ctx.reply("pong")
 
 

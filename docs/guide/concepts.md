@@ -44,7 +44,7 @@ async def on_message(event, ctx):
 
 ## OopzRESTClient
 
-`OopzRESTClient` 只用于 HTTP API 场景，例如脚本主动发送消息、上传文件、获取用户信息。
+`OopzRESTClient` 只用于bot推送场景，例如脚本主动发送消息、上传文件、获取用户信息。只使用Client 时是无法获取消息推送的。
 
 ```python
 from oopz_sdk import OopzRESTClient
@@ -75,13 +75,11 @@ await bot.messages.send_message("hello", area="域 ID", channel="频道 ID")
 area + channel
 ```
 
-只知道 `channel` 通常不够，因为某些接口需要域上下文。
-
 ## private channel
 
 私信会话也有 `channel`，但它不是普通频道 ID，而是私信会话 ID。
 
-私信发送推荐只传 `target`，SDK 会自动打开或创建私信会话：
+私信发送可以只传 `target`，SDK 会自动打开或创建私信会话：
 
 ```python
 await bot.messages.send_private_message("你好", target="目标用户 UID")
@@ -89,7 +87,7 @@ await bot.messages.send_private_message("你好", target="目标用户 UID")
 
 ## Event
 
-WebSocket 收到的原始事件会被解析成事件模型，例如：
+WebSocket 收到的原始事件会被解析成[事件模型](../reference/events.md)，例如：
 
 - `MessageEvent`
 - `MessageDeleteEvent`
@@ -97,12 +95,13 @@ WebSocket 收到的原始事件会被解析成事件模型，例如：
 - `VoiceChannelPresenceEvent`
 - `UnknownEvent`
 
-事件 handler 推荐签名：
 
 ```python
 async def handler(event, ctx):
     ...
 ```
+
+可以使用 `ctx.event` 访问当前事件，可以使用事件封装的属性来获取事件数据来进行开发。具体请参考[事件系统](../guide/events.md)。
 
 ## EventContext
 
