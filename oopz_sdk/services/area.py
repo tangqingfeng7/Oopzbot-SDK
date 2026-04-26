@@ -165,9 +165,9 @@ class AreaService(BaseService):
 
     async def edit_user_role(
             self,
+            area: str,
             target_uid: str,
             role_id: int,
-            area: str,
             add: bool = True,
     ) -> models.OperationResult:
         """给目标用户添加或取消指定身份组。"""

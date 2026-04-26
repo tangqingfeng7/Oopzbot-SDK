@@ -409,8 +409,8 @@ class Channel(BaseService):
 
     async def enter_channel(
             self,
-            channel: str,
             area: str,
+            channel: str,
             channel_type: str = "TEXT",
             from_channel: str = "",
             from_area: str = "",
@@ -440,8 +440,8 @@ class Channel(BaseService):
 
     async def leave_voice_channel(
             self,
-            channel: str,
             area: str,
+            channel: str,
             target: Optional[str] = None,
     ) -> models.OperationResult:
         """退出语音频道。
@@ -490,7 +490,7 @@ class Channel(BaseService):
         resp = await self._request_data("POST", url_path, body=body)
         return models.VoiceChannelMembersResult.from_api(resp)
 
-    async def get_voice_channel_for_user(self, user_uid: str, area: str) -> Optional[str]:
+    async def get_voice_channel_for_user(self, area: str, user_uid: str) -> Optional[str]:
         """获取用户当前所在的语音频道 ID，不在任何语音频道则返回 None。
 
         area 必填：语音频道列表按域取，没给域就没法圈定范围。

@@ -363,7 +363,7 @@ class Message(BaseService):
             preview_file_key=getattr(upload_result, "preview_file_key", ""),
         )
 
-    async def top_message(self, message_id: str, channel: str, area: str, top_message: bool = True) -> models.OperationResult:
+    async def top_message(self, message_id: str, area: str, channel: str,  top_message: bool = True) -> models.OperationResult:
         """置顶或取消置顶消息。"""
         if message_id.strip() == "":
             raise ValueError("message_id is required for top_message")
