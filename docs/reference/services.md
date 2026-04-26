@@ -32,11 +32,9 @@ bot.voice
 
 ## 调用约定
 
-- 所有网络方法都是 `async`，必须使用 `await`。
-- 参数为空时通常抛出 `ValueError`。
-- API 响应格式异常时通常抛出 `OopzApiError`。
-- 返回值尽量是 `pydantic` 模型，例如 `MessageSendResult`、`OperationResult`、`ChannelSetting`。
-- 不要对子 service 单独 `async with`；它们共享 `OopzRESTClient` 的 transport。
+- 所有网络方法都是 `async`，必须使用 `await`
+- 参数为空时通常抛出 `ValueError`
+- API 响应格式异常时通常抛出 `OopzApiError`
 
 ## REST 使用模式
 

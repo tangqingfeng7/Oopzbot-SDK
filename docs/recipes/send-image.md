@@ -21,7 +21,7 @@ async def main() -> None:
     async with OopzRESTClient(config) as client:
         await client.messages.send_message(
             Text("你好 "),
-            Mention("2ce12124c07111ef9e5dc6b17c3481f1"),
+            Mention("2ce12121207111ef9d5dc6b17a3481f1"),
             Text(" 这是一张图：\n"),
             Image("./demo.png"),
             area="域 ID",

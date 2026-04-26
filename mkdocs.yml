@@ -9,6 +9,7 @@ theme:
     - navigation.sections
     - navigation.expand
     - content.code.copy
+    - content.tabs.link
 nav:
   - 首页: index.md
   - 快速开始:
@@ -52,3 +53,7 @@ markdown_extensions:
   - fenced_code
   - pymdownx.highlight
   - pymdownx.superfences
+  - pymdownx.details
+  - pymdownx.tabbed:
+      alternate_style: true
+
