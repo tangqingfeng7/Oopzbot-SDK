@@ -1,6 +1,13 @@
 # Changelog
 
 ## Unreleased
+## 0.7.2  - 2026-04-26
+
+### 变更
+
+调整了`edit_user_role`, `enter_channel`, `leave_voice_channel`, `get_voice_channel_for_user`, `top_message`, `mute_mic`的参数顺序,
+提高可读性
+
 
 ## 0.7.1 - 2026-04-24
 
