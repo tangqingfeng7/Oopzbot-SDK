@@ -1,0 +1,55 @@
+site_name: Oopz SDK 文档
+site_description: Oopz 平台 Python SDK 使用文档
+repo_url: https://github.com/tangqingfeng7/Oopzbot-SDK
+theme:
+  name: material
+  language: zh
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.expand
+    - content.code.copy
+nav:
+  - 首页: index.md
+  - 快速开始:
+      - 5 分钟上手: guide/quickstart.md
+      - 安装: guide/installation.md
+      - 配置方法: guide/configuration.md
+      - 核心概念: guide/concepts.md
+  - 基础用法:
+      - Bot 生命周期: guide/bot-lifecycle.md
+      - 消息发送: guide/messaging.md
+      - 事件系统: guide/events.md
+  - 常见任务:
+      - 示例总览: recipes/index.md
+      - 回复机器人: recipes/reply-ping.md
+      - 发送频道消息: recipes/send-message.md
+      - 发送图片: recipes/send-image.md
+      - 撤回消息: recipes/recall-message.md
+      - 列出 area 和 channel: recipes/list-areas-and-channels.md
+      - 发送私信: recipes/private-message.md
+  - 适配器:
+      - OneBot v12 适配: adapters/onebot-v12.md
+  - API 参考:
+      - Service 总览: reference/services.md
+      - Message Service: reference/message-service.md
+      - Area Service: reference/area-service.md
+      - Channel Service: reference/channel-service.md
+      - Media Service: reference/media-service.md
+      - Member Service: reference/member-service.md
+      - Person Service 兼容说明: reference/person-service.md
+      - Moderation Service: reference/moderation-service.md
+      - Voice Service: reference/voice-service.md
+      - Event 类型: reference/events.md
+      - 数据模型: reference/models.md
+  - 开发:
+      - 构建文档站点: development/docs-site.md
+      - 贡献指南: development/contributing.md
+markdown_extensions:
+  - admonition
+  - toc:
+      permalink: true
+  - tables
+  - fenced_code
+  - pymdownx.highlight
+  - pymdownx.superfences
