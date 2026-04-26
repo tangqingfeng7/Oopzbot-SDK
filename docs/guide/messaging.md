@@ -1,12 +1,15 @@
+from oopz_sdk.utils.image import get_image_info
+
 # 消息发送
 
 本页适合你已经跑通 [5 分钟上手](quickstart.md)，并且想发送文本、图片、私信、回复或撤回消息。
 
-消息能力由 `bot.messages` 或者根据会话由 `context` 提供。频道消息、私信、撤回、置顶、历史消息拉取都在 `Message Service` 中。
+消息能力由 `bot.messages` 或者根据会话由 `context` 提供。频道消息、私信、撤回、置顶、历史消息拉取都在 Message Service
+`oopz_sdk.services.message` 中。
 
 ## 发送频道文本
 
-我们可以使用 `bot.messages.send_message()` 发送频道消息：
+bot实例中已经暴露所有service对象，我们可以使用 `bot.messages.send_message()` 发送频道消息：
 
 `area` 和 `channel` 必填；为空会抛出 `ValueError`。
 
@@ -28,8 +31,8 @@ bot = OopzBot(OopzConfig(
 @bot.on_message
 async def handle_message(message: Message, ctx: EventContext):
     area = message.area  # 域 ID
-    channel = message.channel # 频道 ID
-    text = message.text # 消息文本
+    channel = message.channel  # 频道 ID
+    text = message.text  # 消息文本
     await bot.messages.send_message(text, area=area, channel=channel)
 
 
@@ -47,9 +50,8 @@ asyncio.run(main())
 
 ```python
 @bot.on_message
-async def on_message(event, ctx):
-    message = event.message
-    if message and message.text.strip() == "ping":
+async def handle_message(message: Message, ctx: EventContext):
+    if message.text.strip() == "ping":
         await ctx.reply("pong")
 ```
 
@@ -75,9 +77,18 @@ await client.messages.send_message(
 ## 私信
 
 ```python
-await client.messages.send_private_message(
-    "你好",
-    target="目标用户 UID",
+@bot.on_private_message
+async def handle_message(message: Message, ctx: EventContext):
+    await ctx.reply("这是私信回复")
+```
+
+当然, 你也可以直接调用 `bot.messages.send_private_message()` 发送私信：
+
+```python
+await bot.messages.send_private_message(
+    "这是私信",
+    target="目标  UID",
+    channel="私信会话 ID",
 )
 ```
 
@@ -87,13 +98,12 @@ await client.messages.send_private_message(
 
 SDK 支持用 `Segment` 组合消息内容。常用类型：
 
-| Segment | 用途 |
-| --- | --- |
-| `Text("文本")` | 普通文本。 |
-| `Mention("用户 UID")` | 艾特指定用户。 |
-| `MentionAll()` | 艾特全体。 |
-| `Image.from_file("a.png")` | 本地图片，发送前会自动上传。 |
-| `Image.from_uploaded(...)` | 已上传图片。 |
+| Segment             | 用途            |
+|---------------------|---------------|
+| `Text("文本")`        | 普通文本          |
+| `Mention("用户 UID")` | at指定用户        |
+| `MentionAll()`      | at全体          |
+| `Image("a.png")`    | 本地图片，发送前会自动上传 |
 
 示例：
 
@@ -112,33 +122,33 @@ await bot.messages.send_message(
 
 当传入 Segment 时，不要同时传 `attachments=`，否则会抛出 `ValueError`。这是为了避免文本中的图片占位和附件列表不一致。
 
-## 自动上传本地图片
-
-更推荐直接使用 `Image.from_file()`：
-
-```python
-from oopz_sdk.models.segment import Image, Text
-
-await bot.messages.send_message(
-    Text("图片：\n"),
-    Image.from_file("./demo.png"),
-    area="域 ID",
-    channel="频道 ID",
-)
-```
-
 ## 手动附件方式
 
-只有当你需要完全控制附件数据时才建议这样写：
+Oopz的图片发送需要先上传图片获取 `file_key`，然后在消息文本中用 `![IMAGEw{weight}h{height}]({file_key})` 占位，最后把附件信息放到 `attachments` 参数里。
+
+Segment 的 `Image` 已经封装了这个流程，如果你不想用 Segment，也可以手动实现：
 
 ```python
+from oopz_sdk.utils.image import get_image_info
+
 uploaded = await client.media.upload_file("./demo.png", file_type="IMAGE", ext="png")
+width, height, file_size = get_image_info("./demo.png")
 
 await client.messages.send_message(
-    "图片：",
+    f"图片：![IMAGEw{weight}h{height}]({uploaded.file_key})\n",
     area="域 ID",
     channel="频道 ID",
-    attachments=[uploaded.to_attachment_dict()],
+    attachments=[{
+            "file_key": uploaded.file_key,
+            "url": uploaded.url,
+            "display_name": "demo.png",
+            "file_size": file_size,
+            "animated": uploaded.animated,
+            "hash": "",
+            "width": width,
+            "height": height,
+            "preview_file_key": uploaded.preview_file_key,
+    }],
 )
 ```
 
@@ -166,9 +176,18 @@ await bot.messages.send_message(
 )
 ```
 
-当前实现中，`send_message(auto_recall=True)` 会尝试按 `config.auto_recall.delay` 延迟撤回；`auto_recall=False` 不会为本条消息安排撤回。
+当前实现中，`send_message(auto_recall=True)` 会尝试按 `config.auto_recall.delay` 延迟撤回；`auto_recall=False`
+不会为本条消息安排撤回。
 
 ## 撤回频道消息
+
+如果在事件回调里，直接调用 `ctx.recall()` 就能撤回当前消息：
+
+```python
+await asyncio.sleep(5)  # 等 5 秒
+await ctx.recall()
+```
+
 
 ```python
 await bot.messages.recall_message(
@@ -178,8 +197,6 @@ await bot.messages.recall_message(
 )
 ```
 
-频道撤回需要 `area`、`channel` 和 `message_id`。这也是 OneBot v12 适配器需要维护内部消息映射的原因：OneBot 的 `message_id` 无法天然携带 Oopz 撤回所需的域和频道信息。
-
 ## 撤回私信
 
 ```python
@@ -188,11 +205,4 @@ await bot.messages.recall_private_message(
     channel="私信会话 ID",
     target="目标 UID",
 )
-```
-
-## 置顶 / 取消置顶
-
-```python
-await bot.messages.top_message(message_id, channel=channel, area=area, top_message=True)
-await bot.messages.top_message(message_id, channel=channel, area=area, top_message=False)
 ```

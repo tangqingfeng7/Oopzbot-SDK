@@ -36,6 +36,7 @@ from oopz_sdk import OopzBot
 
 bot = OopzBot(config)
 
+
 @bot.on_message
 async def on_message(event, ctx):
     await ctx.reply("收到")
@@ -109,12 +110,12 @@ async def handler(event, ctx):
 
 常用方法：
 
-| 方法 | 说明 |
-| --- | --- |
+| 方法               | 说明                                       |
+|------------------|------------------------------------------|
 | `ctx.reply(...)` | 回复当前消息。频道消息会自动带上 `reference_message_id`。 |
-| `ctx.send(...)` | 在当前上下文所在频道或私信中发送消息。 |
-| `ctx.recall()` | 撤回当前频道消息。 |
-| `ctx.bot` | 访问完整 `OopzBot` 实例。 |
+| `ctx.send(...)`  | 在当前上下文所在频道或私信中发送消息。                      |
+| `ctx.recall()`   | 撤回当前频道消息。                                |
+| `ctx.bot`        | 访问完整 `OopzBot` 实例。                       |
 
 示例：
 
@@ -128,15 +129,13 @@ async def on_message(event, ctx):
 
 `OopzBot` 和 `OopzRESTClient` 都会挂载 service：
 
-| 属性 | 说明 |
-| --- | --- |
-| `messages` | 频道消息、私信、撤回、置顶、历史消息。 |
-| `media` | 上传文件。 |
-| `areas` | 域信息、域成员、域频道。 |
-| `channels` | 频道创建、修改、删除、设置。 |
-| `members` | 用户资料、好友、好友请求。 |
-| `moderation` | 禁言、解禁、踢人、黑名单。 |
-| `voice` | 语音频道和推流能力，仅 `OopzBot` 默认挂载。 |
+| 属性           | 说明                          |
+|--------------|-----------------------------|
+| `messages`   | 频道消息、私信、撤回、置顶、历史消息。         |
+| `media`      | 上传文件。                       |
+| `areas`      | 域信息、域成员、域频道。                |
+| `channels`   | 频道创建、修改、删除、设置。              |
+| `person`     | 用户资料、好友、好友请求。               |
+| `moderation` | 禁言、解禁、踢人、黑名单。               |
+| `voice`      | 语音频道和推流能力，仅 `OopzBot` 默认挂载。 |
 
-!!! note
-    旧文档可能写过 `client.person`。当前代码实际入口是 `client.members` / `bot.members`。
