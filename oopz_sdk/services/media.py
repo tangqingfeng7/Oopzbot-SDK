@@ -3,9 +3,11 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+from typing import BinaryIO
 
 from oopz_sdk import models
 from oopz_sdk.exceptions import OopzApiError
+from oopz_sdk.utils.image import read_image_bytes
 
 from . import BaseService
 
@@ -17,12 +19,13 @@ class Media(BaseService):
 
     async def upload_file(
             self,
-            file: str,
+            file: str | bytes | bytearray | memoryview | BinaryIO | os.PathLike[str],
             file_type: str,
             ext: str,
-            animated=False,
+            animated: bool = False,
+            display_name: str = "",
     ) -> models.UploadedFileResult:
-        """上传本地文件并返回附件模型。"""
+        """上传文件并返回附件模型。支持本地路径、bytes、base64、file-like。"""
         ticket_data = await self._request_data(
             "PUT",
             "/rtc/v1/cos/v1/signedUploadUrl",
@@ -30,7 +33,8 @@ class Media(BaseService):
         )
         ticket = models.UploadTicket.from_api(ticket_data)
 
-        payload, file_size = await asyncio.to_thread(_read_file_bytes, file)
+        payload, filename = await asyncio.to_thread(read_image_bytes, file)
+        file_size = len(payload)
 
         resp = await self.transport.request_raw(
             "PUT",
@@ -44,15 +48,16 @@ class Media(BaseService):
                 status_code=resp.status_code,
             )
 
-        attachment = models.UploadedFileResult.from_manually(
+        final_display_name = display_name or filename or "image"
+
+        return models.UploadedFileResult.from_manually(
             ticket.file_key,
             ticket.url,
             file_type,
-            os.path.basename(file),
+            final_display_name,
             file_size,
-            animated
+            animated,
         )
-        return attachment
 
 
 def _read_file_bytes(path: str) -> tuple[bytes, int]:

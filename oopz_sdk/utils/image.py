@@ -1,16 +1,135 @@
+from __future__ import annotations
+
+import base64
 import os
-from PIL import Image
+import re
+from io import BytesIO
+from pathlib import Path
+from typing import BinaryIO
 
-def get_image_info(file_path: str) -> tuple[int, int, int]:
+from PIL import Image as PILImage
+
+
+ImageInput = str | bytes | bytearray | memoryview | BinaryIO | os.PathLike[str]
+
+
+_DATA_URL_RE = re.compile(r"^data:(?P<mime>[\w/+.-]+);base64,(?P<data>.+)$", re.DOTALL)
+
+
+def read_image_bytes(file: ImageInput) -> tuple[bytes, str]:
     """
-    读取本地图片宽高和文件大小。
+    返回: (payload, filename_hint)
+
+    支持:
+    - 本地路径 str / Path
+    - base64 字符串
+    - data:image/png;base64,...
+    - bytes / bytearray / memoryview
+    - file-like 对象
     """
+    if isinstance(file, os.PathLike):
+        path = Path(file)
+        return path.read_bytes(), path.name
 
-    if not os.path.isfile(file_path):
-        raise FileNotFoundError(f"Image file not found: {file_path}")
+    if isinstance(file, str):
+        text = file.strip()
 
-    with Image.open(file_path) as img:
+        # 优先当作本地路径
+        if os.path.isfile(text):
+            path = Path(text)
+            return path.read_bytes(), path.name
+
+        # data url base64
+        match = _DATA_URL_RE.match(text)
+        if match:
+            mime = match.group("mime")
+            ext = _ext_from_mime(mime)
+            return base64.b64decode(match.group("data")), f"image{ext}"
+
+        # 普通 base64
+        try:
+            return base64.b64decode(text, validate=True), "image"
+        except Exception as exc:
+            raise ValueError("Image file string is neither an existing path nor valid base64") from exc
+
+    if isinstance(file, bytes):
+        return file, "image"
+
+    if isinstance(file, bytearray):
+        return bytes(file), "image"
+
+    if isinstance(file, memoryview):
+        return file.tobytes(), "image"
+
+    if hasattr(file, "read"):
+        if hasattr(file, "seek"):
+            file.seek(0)
+
+        data = file.read()
+
+        if hasattr(file, "seek"):
+            file.seek(0)
+
+        if isinstance(data, str):
+            data = data.encode()
+
+        name = os.path.basename(str(getattr(file, "name", "image")))
+        return bytes(data), name or "image"
+
+    raise TypeError(f"Unsupported image input type: {type(file)!r}")
+
+
+def get_image_info(file: ImageInput) -> tuple[int, int, int]:
+    """
+    读取图片宽高和文件大小。
+    """
+    payload, _ = read_image_bytes(file)
+
+    with PILImage.open(BytesIO(payload)) as img:
         width, height = img.size
 
-    file_size = os.path.getsize(file_path)
-    return int(width), int(height), int(file_size)
+    return int(width), int(height), len(payload)
+
+
+def guess_image_ext(file: ImageInput) -> str:
+    """
+    尽量推断图片扩展名，默认 .jpg。
+    """
+    # 路径优先
+    if isinstance(file, (str, os.PathLike)) and os.path.isfile(str(file)):
+        ext = Path(file).suffix
+        return ext or ".jpg"
+
+    payload, filename = read_image_bytes(file)
+
+    ext = Path(filename).suffix
+    if ext:
+        return ext
+
+    try:
+        with PILImage.open(BytesIO(payload)) as img:
+            fmt = (img.format or "").lower()
+    except Exception:
+        return ".jpg"
+
+    mapping = {
+        "jpeg": ".jpg",
+        "jpg": ".jpg",
+        "png": ".png",
+        "gif": ".gif",
+        "webp": ".webp",
+        "bmp": ".bmp",
+    }
+    return mapping.get(fmt, ".jpg")
+
+
+def _ext_from_mime(mime: str) -> str:
+    mapping = {
+        "image/jpeg": ".jpg",
+        "image/jpg": ".jpg",
+        "image/png": ".png",
+        "image/gif": ".gif",
+        "image/webp": ".webp",
+        "image/bmp": ".bmp",
+    }
+    return mapping.get(mime.lower(), ".jpg")

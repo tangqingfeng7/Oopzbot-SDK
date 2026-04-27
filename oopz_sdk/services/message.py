@@ -9,7 +9,7 @@ from oopz_sdk import models
 from oopz_sdk.exceptions import OopzApiError
 from oopz_sdk.models.segment import Image, Segment
 from oopz_sdk.services import BaseService
-from oopz_sdk.utils.image import get_image_info
+from oopz_sdk.utils.image import get_image_info, guess_image_ext
 from oopz_sdk.models import build_segments, normalize_message_parts
 
 logger = logging.getLogger(__name__)
@@ -251,8 +251,8 @@ class Message(BaseService):
                     resolved.append(seg)
                     continue
 
-                if seg.has_local_file:
-                    resolved.append(await self._upload_local_image_segment(seg))
+                if seg.has_file:
+                    resolved.append(await self._upload_image_segment(seg))
                     continue
 
                 raise ValueError("ImageSegment is neither uploaded nor backed by a local file")
@@ -337,25 +337,27 @@ class Message(BaseService):
             )
         return [models.Message.from_api(message) for message in data["messages"]]
 
-    async def _upload_local_image_segment(self, seg: Image) -> Image:
-        source_path = seg.source_path
-        if not source_path:
-            raise ValueError("Image segment has no source_path for upload")
+    async def _upload_image_segment(self, seg: Image) -> Image:
+        if not seg.file:
+            raise ValueError("Image segment has no file for upload")
 
         width = seg.width
         height = seg.height
         file_size = seg.file_size
+
         if width <= 0 or height <= 0 or file_size <= 0:
             width, height, file_size = await asyncio.to_thread(
-                get_image_info, source_path
+                get_image_info, seg.file
             )
 
-        ext = os.path.splitext(source_path)[1] or ".jpg"
+        ext = await asyncio.to_thread(guess_image_ext, seg.file)
 
         upload_result = await self._bot.media.upload_file(
-            source_path,
+            seg.file,
             file_type="IMAGE",
             ext=ext,
+            animated=seg.animated,
+            display_name=seg.display_name,
         )
 
         return Image.from_uploaded(
