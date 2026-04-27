@@ -20,6 +20,8 @@ class OperationResult(BaseModel):
 
     @classmethod
     def from_api(cls, data: Any) -> "OperationResult":
+        if data is None:
+            return cls.model_validate({"ok": True, "message": ""})
         if isinstance(data, bool):
             return cls.model_validate({"ok": data})
         if isinstance(data, Mapping):

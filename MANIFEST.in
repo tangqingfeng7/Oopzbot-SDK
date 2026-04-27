@@ -2,3 +2,4 @@ include README.md
 include CHANGELOG.md
 include LICENSE
 include oopz_sdk/py.typed
+include oopz_sdk/assets/voice/agora_player.html

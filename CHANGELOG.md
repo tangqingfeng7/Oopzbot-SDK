@@ -19,6 +19,8 @@
 
 ### 修复
 
+- `OperationResult.from_api(None)` 现在会返回 `ok=True`。这和 `HttpTransport.request_data()` 对 `{"status": true, "data": null}` 的处理保持一致：外层响应已经确认成功时，空 `data` 代表“没有额外结果”，不再把撤回、禁言、删频道等操作误报为失败。
+- 发布包现在包含 `oopz_sdk/assets/voice/agora_player.html`。此前 wheel 里只带了 `py.typed`，安装后的语音浏览器后端会因为找不到页面文件而无法启动。
 - `Voice.join` 在调用 `enter_channel` 之前严格校验 `rtc_uid`：`None` 用后端默认 UID；非负整数或"整数字符串"通过；`bool` / `float` / 非数字字符串 / 负数一律提前抛 `TypeError` / `ValueError`。此前非法 UID 要等 `BrowserVoiceTransport.join` 里 `int(uid)` 才崩，届时服务端已经记录加入语音房，留下脏状态。
 - `Voice.join` 的 post-`enter_channel` 失败完整回滚：`sign` 为空、`backend.join` 抛错或返回 `False`、`_send_identity_once` 返回 `False` 这三条路径都会调用 `backend.leave()` + 服务端 `leave_voice_channel`（后者 try/except 吞错，防御性），不再出现"Oopz 侧已记录加入、Agora / 浏览器桥实际没进去"的不一致。`_send_identity_once` 返回 `bool`，首次失败触发 `Voice.leave()` 完全清理；心跳循环里的后续失败仍只记 debug 日志、等下次重试。
 - `AreaService.cache_max_entries <= 0` 现在真正关闭域成员缓存：新增 `_cache_disabled()`，`get` 直接返回 `None`、`set` 清空已有条目并跳过写入。此前因 `if len(store) >= 0` 恒真、空字典再去 `min()` 会抛 `ValueError`，把缓存开关卡死在"永远写不进来"。驱逐从 `if` 改为 `while`，支持阈值调小时一次性清理多条。
