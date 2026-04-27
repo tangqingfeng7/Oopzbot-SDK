@@ -26,6 +26,8 @@ class UserInfo(BaseModel):
     name: str = ""
     online: bool = False
 
+    memberLevel: int = Field(default=0, alias="memberLevel")
+
     person_role: str = Field(default="", alias="personRole")
     person_type: str = Field(default="", alias="personType")
 
@@ -55,6 +57,7 @@ class UserInfo(BaseModel):
         normalized["status"] = str(normalized.get("status") or "")
         normalized["uid"] = str(normalized.get("uid") or "")
         normalized["userCommonId"] = str(normalized.get("userCommonId") or "")
+        normalized["memberLevel"] = int(normalized.get("memberLevel") or 0)
 
         normalized["online"] = bool(normalized.get("online", False))
 

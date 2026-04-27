@@ -262,7 +262,7 @@ sign = await client.channels.enter_channel(
     channel="语音频道 ID",
     area="域 ID",
     channel_type="VOICE",
-    pid="数字 ID", # 这个uid是bot的数字id, 也就是加好友的id
+    pid="数字 PID", # 这个uid是bot的数字id, 也就是加好友的id
 )
 
 print(sign.room_id)
@@ -271,8 +271,8 @@ print(sign.rtc_token)
 ```
 
 !!! note
-    用户数字id (加好友使用): `1234567890`
-    字符串id (内部请求使用): `6adadd1bcaddd1e867842331981a0972`
+    用户数字pid (加好友使用): `1234567890`
+    字符串uid (内部请求使用): `6adadd1bcaddd1e867842331981a0972`
 
 === "参数"
 
