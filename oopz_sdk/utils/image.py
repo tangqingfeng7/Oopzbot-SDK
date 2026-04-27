@@ -84,24 +84,42 @@ def get_image_info(file: ImageInput) -> tuple[int, int, int]:
     读取图片宽高和文件大小。
     """
     payload, _ = read_image_bytes(file)
-
-    with PILImage.open(BytesIO(payload)) as img:
-        width, height = img.size
-
-    return int(width), int(height), len(payload)
+    return get_image_info_from_bytes(payload)
 
 
 def guess_image_ext(file: ImageInput) -> str:
     """
     尽量推断图片扩展名，默认 .jpg。
     """
-    # 路径优先
-    if isinstance(file, (str, os.PathLike)) and os.path.isfile(str(file)):
-        ext = Path(file).suffix
-        return ext or ".jpg"
-
     payload, filename = read_image_bytes(file)
+    return guess_image_ext_from_bytes(payload, filename)
 
+
+def _ext_from_mime(mime: str) -> str:
+    mapping = {
+        "image/jpeg": ".jpg",
+        "image/jpg": ".jpg",
+        "image/png": ".png",
+        "image/gif": ".gif",
+        "image/webp": ".webp",
+        "image/bmp": ".bmp",
+    }
+    return mapping.get(mime.lower(), ".jpg")
+
+def get_image_info_from_bytes(payload: bytes) -> tuple[int, int, int]:
+    """
+    从图片 bytes 读取宽、高、文件大小。
+    """
+    with PILImage.open(BytesIO(payload)) as img:
+        width, height = img.size
+
+    return int(width), int(height), len(payload)
+
+
+def guess_image_ext_from_bytes(payload: bytes, filename: str = "") -> str:
+    """
+    从文件名或图片 bytes 推断扩展名，默认 .jpg。
+    """
     ext = Path(filename).suffix
     if ext:
         return ext
@@ -121,15 +139,3 @@ def guess_image_ext(file: ImageInput) -> str:
         "bmp": ".bmp",
     }
     return mapping.get(fmt, ".jpg")
-
-
-def _ext_from_mime(mime: str) -> str:
-    mapping = {
-        "image/jpeg": ".jpg",
-        "image/jpg": ".jpg",
-        "image/png": ".png",
-        "image/gif": ".gif",
-        "image/webp": ".webp",
-        "image/bmp": ".bmp",
-    }
-    return mapping.get(mime.lower(), ".jpg")

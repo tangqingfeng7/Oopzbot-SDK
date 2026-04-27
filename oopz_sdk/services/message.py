@@ -9,7 +9,8 @@ from oopz_sdk import models
 from oopz_sdk.exceptions import OopzApiError
 from oopz_sdk.models.segment import Image, Segment
 from oopz_sdk.services import BaseService
-from oopz_sdk.utils.image import get_image_info, guess_image_ext
+from oopz_sdk.utils.image import get_image_info, guess_image_ext, get_image_info_from_bytes, guess_image_ext_from_bytes, \
+    read_image_bytes
 from oopz_sdk.models import build_segments, normalize_message_parts
 
 logger = logging.getLogger(__name__)
@@ -338,8 +339,10 @@ class Message(BaseService):
         return [models.Message.from_api(message) for message in data["messages"]]
 
     async def _upload_image_segment(self, seg: Image) -> Image:
-        if not seg.file:
+        if seg.file is None:
             raise ValueError("Image segment has no file for upload")
+
+        payload, filename = await asyncio.to_thread(read_image_bytes, seg.file)
 
         width = seg.width
         height = seg.height
@@ -347,17 +350,18 @@ class Message(BaseService):
 
         if width <= 0 or height <= 0 or file_size <= 0:
             width, height, file_size = await asyncio.to_thread(
-                get_image_info, seg.file
+                get_image_info_from_bytes,
+                payload,
             )
 
-        ext = await asyncio.to_thread(guess_image_ext, seg.file)
+        ext = guess_image_ext_from_bytes(payload, filename)
 
-        upload_result = await self._bot.media.upload_file(
-            seg.file,
+        upload_result = await self._bot.media.upload_bytes(
+            payload,
             file_type="IMAGE",
             ext=ext,
             animated=seg.animated,
-            display_name=seg.display_name,
+            display_name=seg.display_name or filename,
         )
 
         return Image.from_uploaded(
