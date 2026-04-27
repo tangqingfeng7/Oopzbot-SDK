@@ -50,7 +50,10 @@ class OopzBot:
         self.members = self.person
         self.moderation = self.rest.moderation
         self.voice: voice_service.Voice = voice_service.Voice(self, config, self.rest.transport, self.rest.signer)
+        self.onebot_v12 = None
+        self.onebot_v12_server = None
 
+        self._init_onebot_v12()
         # WS 客户端只负责底层连接和回调
         self.ws = OopzWSClient(
             config=config,
@@ -137,13 +140,27 @@ class OopzBot:
 
     async def start(self):
         rest_started = False
+        onebot_started = False
+
         try:
             await self.rest.start()
             rest_started = True
+
+            await self._start_onebot_v12_server()
+            onebot_started = self.onebot_v12_server is not None
+
             await self.ws.start()
+
         except BaseException:
+            if onebot_started:
+                try:
+                    await self._stop_onebot_v12_server()
+                except BaseException as close_exc:
+                    logger.exception("Failed to stop OneBot v12 server after start failure: %s", close_exc)
+
             if rest_started:
                 await self._close_rest_after_start_failure()
+
             raise
 
     async def run(self):
@@ -162,14 +179,23 @@ class OopzBot:
         except BaseException as exc:
             voice_error = exc
 
-        if stop_error is None and voice_error is None:
+        onebot_error = None
+        try:
+            await self._stop_onebot_v12_server()
+        except BaseException as exc:
+            onebot_error = exc
+
+        if stop_error is None and voice_error is None and onebot_error is None:
             await self.rest.close()
             return
 
         await self._close_rest_after_stop_failure()
+
         if stop_error is not None:
             raise stop_error
-        raise voice_error
+        if voice_error is not None:
+            raise voice_error
+        raise onebot_error
 
     # -------------------------
     # 高层便捷方法
@@ -244,6 +270,10 @@ class OopzBot:
             if isinstance(event, MessageEvent) and self._should_ignore_self_message(event.message):
                 return
 
+            # handle onebot v12 event conversion and dispatch
+            if self.onebot_v12 is not None:
+                await self.onebot_v12.emit_event(event)
+
             await self.dispatcher.dispatch("raw_event", event, ctx)
             await self.dispatcher.dispatch(event.event_name, event, ctx)
 
@@ -283,3 +313,69 @@ class OopzBot:
         if not self.config.ignore_self_messages:
             return False
         return message.sender_id == self.config.person_uid
+
+    def _init_onebot_v12(self) -> None:
+        onebot_config = getattr(self.config, "onebot_v12", None)
+        if onebot_config is None or not getattr(onebot_config, "enabled", False):
+            return
+
+        from oopz_sdk.adapters.onebot.v12 import OneBotV12Adapter
+
+        self.onebot_v12 = OneBotV12Adapter(
+            self,
+            platform=getattr(onebot_config, "platform", "oopz"),
+            self_id=self.config.person_uid,
+            db_path=getattr(onebot_config, "db_path", None),
+        )
+
+    async def _start_onebot_v12_server(self) -> None:
+        onebot_config = getattr(self.config, "onebot_v12", None)
+        if onebot_config is None:
+            return
+
+        if not getattr(onebot_config, "enabled", False):
+            return
+
+        if not getattr(onebot_config, "auto_start_server", True):
+            return
+
+        if self.onebot_v12 is None:
+            return
+
+        if self.onebot_v12_server is not None:
+            return
+
+        from oopz_sdk.adapters.onebot.v12.server import (
+            OneBotV12Server,
+            OneBotV12ServerConfig,
+        )
+
+        server_config = OneBotV12ServerConfig(
+            host=getattr(onebot_config, "host", "127.0.0.1"),
+            port=getattr(onebot_config, "port", 6727),
+            access_token=getattr(onebot_config, "access_token", ""),
+            enable_http=getattr(onebot_config, "enable_http", True),
+            enable_ws=getattr(onebot_config, "enable_ws", True),
+            webhook_urls=list(getattr(onebot_config, "webhook_urls", []) or []),
+            ws_reverse_urls=list(getattr(onebot_config, "ws_reverse_urls", []) or []),
+            ws_reverse_reconnect_interval=getattr(
+                onebot_config,
+                "ws_reverse_reconnect_interval",
+                3.0,
+            ),
+            send_connect_event=getattr(onebot_config, "send_connect_event", True),
+        )
+
+        self.onebot_v12_server = OneBotV12Server(
+            self.onebot_v12,
+            server_config,
+        )
+        await self.onebot_v12_server.start()
+
+    async def _stop_onebot_v12_server(self) -> None:
+        if self.onebot_v12_server is None:
+            return
+
+        server = self.onebot_v12_server
+        self.onebot_v12_server = None
+        await server.stop()
