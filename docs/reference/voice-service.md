@@ -37,42 +37,69 @@ config = OopzConfig(
 | `get_current_time()` | 获取当前播放时间。 |
 | `close()` | 关闭语音后端。 |
 
-## 加入并播放本地文件
+待完善
 
-```python
-await bot.voice.start()
-await bot.voice.join(area="域 ID", channel="语音频道 ID")
-await bot.voice.play_file("./demo.mp3")
-```
+[//]: # (## 加入并播放本地文件)
 
-播放完成后如果希望机器人离开频道：
+[//]: # ()
+[//]: # (```python)
 
-```python
-await bot.voice.leave()
-```
+[//]: # (await bot.voice.start&#40;&#41;)
 
-`play_file()` 只负责播放音频，不会自动离开语音频道。是否保持在频道内由业务决定。
+[//]: # (await bot.voice.join&#40;area="域 ID", channel="语音频道 ID"&#41;)
 
-## RTC UID
+[//]: # (await bot.voice.play_file&#40;"./demo.mp3"&#41;)
 
-`join(..., rtc_uid=...)` 的 `rtc_uid` 必须是整数或可转换为整数的字符串。SDK 会在进入服务端频道前校验，避免服务端已记录进入语音频道后浏览器侧才失败，造成残留状态。
+[//]: # (```)
 
-## 失败清理
+[//]: # ()
+[//]: # (播放完成后如果希望机器人离开频道：)
 
-`join()` 在以下情况会尝试回滚：
+[//]: # ()
+[//]: # (```python)
 
-- `enter_channel()` 返回缺失 `rtc_token` 或 `rtc_channel_name`。
-- 浏览器后端加入 Agora 失败。
-- 身份绑定桥接首次发送失败。
+[//]: # (await bot.voice.leave&#40;&#41;)
 
-回滚包括：
+[//]: # (```)
 
-1. `backend.leave()`
-2. `channels.leave_voice_channel()`
+[//]: # ()
+[//]: # (`play_file&#40;&#41;` 只负责播放音频，不会自动离开语音频道。是否保持在频道内由业务决定。)
 
-## 属性
+[//]: # ()
+[//]: # (## RTC UID)
 
-| 属性 | 说明 |
-| --- | --- |
-| `agora_uid` | 浏览器后端生成或使用的 Agora UID。 |
-| `current_sign` | 当前语音频道的 `ChannelSign`，未加入时为 `None`。 |
+[//]: # ()
+[//]: # (`join&#40;..., rtc_uid=...&#41;` 的 `rtc_uid` 必须是整数或可转换为整数的字符串。SDK 会在进入服务端频道前校验，避免服务端已记录进入语音频道后浏览器侧才失败，造成残留状态。)
+
+[//]: # ()
+[//]: # (## 失败清理)
+
+[//]: # ()
+[//]: # (`join&#40;&#41;` 在以下情况会尝试回滚：)
+
+[//]: # ()
+[//]: # (- `enter_channel&#40;&#41;` 返回缺失 `rtc_token` 或 `rtc_channel_name`。)
+
+[//]: # (- 浏览器后端加入 Agora 失败。)
+
+[//]: # (- 身份绑定桥接首次发送失败。)
+
+[//]: # ()
+[//]: # (回滚包括：)
+
+[//]: # ()
+[//]: # (1. `backend.leave&#40;&#41;`)
+
+[//]: # (2. `channels.leave_voice_channel&#40;&#41;`)
+
+[//]: # ()
+[//]: # (## 属性)
+
+[//]: # ()
+[//]: # (| 属性 | 说明 |)
+
+[//]: # (| --- | --- |)
+
+[//]: # (| `agora_uid` | 浏览器后端生成或使用的 Agora UID。 |)
+
+[//]: # (| `current_sign` | 当前语音频道的 `ChannelSign`，未加入时为 `None`。 |)
