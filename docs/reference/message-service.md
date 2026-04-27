@@ -2,13 +2,6 @@
 
 `Message Service` 用于发送频道消息、发送私信、打开私信会话、撤回消息、获取频道历史消息和置顶消息。
 
-入口：
-
-```python
-client.messages
-bot.messages
-```
-
 ---
 
 ## `open_private_session(target)`
