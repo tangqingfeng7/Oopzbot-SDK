@@ -47,6 +47,7 @@ class MediaInfo(BaseModel):
     def from_api(cls, data: Mapping[str, Any]) -> "MediaInfo":
         return cls.model_validate(data)
 
+logger = logging.getLogger("oopz_sdk.models.message")
 
 class Message(BaseModel):
     target: str = ""
