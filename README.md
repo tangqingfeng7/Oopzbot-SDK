@@ -10,10 +10,10 @@
 
 | 入口 | 说明 |
 | --- | --- |
-| [文档首页](https://github.com/tangqingfeng7/Oopzbot-SDK/blob/main/docs/index.md) | 完整的使用指南、概念说明和参考文档。 |
-| [5 分钟上手](https://github.com/tangqingfeng7/Oopzbot-SDK/blob/main/docs/guide/quickstart.md) | 从零跑通一个最小机器人。 |
-| [API 参考](https://github.com/tangqingfeng7/Oopzbot-SDK/blob/main/docs/reference/services.md) | 查看 service、参数、返回值和调用约定。 |
-| [示例目录](https://github.com/tangqingfeng7/Oopzbot-SDK/tree/main/examples) | 参考可运行的本地示例脚本。 |
+| [文档首页](docs/index.md) | 完整的使用指南、概念说明和参考文档。 |
+| [5 分钟上手](docs/guide/quickstart.md) | 从零跑通一个最小机器人。 |
+| [API 参考](docs/reference/services.md) | 查看 service、参数、返回值和调用约定。 |
+| [示例目录](examples/) | 参考可运行的本地示例脚本。 |
 
 ## 安装
 
@@ -36,4 +36,4 @@ pip install -e ".[dev]"
 
 ## 许可证
 
-MIT License，详见 [LICENSE](https://github.com/tangqingfeng7/Oopzbot-SDK/blob/main/LICENSE)。
+MIT License，详见 [LICENSE](LICENSE)。
