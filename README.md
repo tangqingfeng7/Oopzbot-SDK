@@ -24,7 +24,7 @@
 
 ## 这是什么？
 
-`oopz-sdk` 是一个面向 **Oopz 平台** 的 Python SDK，用于编写机器人、监听事件、发送消息、上传媒体、调用平台 API，并逐步提供 OneBot v12 / NoneBot2 生态适配能力。
+`oopz-sdk` 是一个面向 **Oopz 平台** 的 Python SDK，用于编写机器人、监听事件、发送消息、上传媒体、调用平台 API，并逐步提供 OneBot v12 生态适配能力。
 
 
 > [!IMPORTANT]
