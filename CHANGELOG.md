@@ -1,13 +1,47 @@
 # Changelog
 
-## Unreleased
-## 0.7.2  - 2026-04-26
+## 0.8.0 - 2026-04-28
 
 ### 变更
 
-调整了`edit_user_role`, `enter_channel`, `leave_voice_channel`, `get_voice_channel_for_user`, `top_message`, `mute_mic`的参数顺序,
-提高可读性
+- **BREAKING**：彻底移除内置「自动撤回」机制。删除 `AutoRecallConfig` 类、`OopzConfig.auto_recall` / `auto_recall_enabled` / `auto_recall_delay` 四个字段及 property、`Message.send_message` 的 `auto_recall` 参数，以及 `_schedule_auto_recall` / `_do_auto_recall` 两个内部协程。原实现用 `loop.create_task` 起的撤回任务不进 bot 任务集合，`bot.stop()` 不会 cancel，错误只进 logger 不抛、调用方无法感知撤回成败、也无法取消未到期的撤回；同时 `send_private_message` 不参与这套机制，所谓"全局"从一开始就是半残的。需要"发完延迟撤回"行为的调用方自行 `asyncio.create_task(asyncio.sleep + bot.messages.recall_message)`，task 生命周期与错误处理由调用方掌握；docs `recipes/recall-message.md` 给出 5 行的参考写法。`recall_message` / `recall_private_message` / `ctx.recall()` 三个真正的撤回 API 不变。
+- `ChannelEdit.accessible` 属性内部更名为 `accessible_roles`（Pydantic alias 仍为 `"accessible"`，`to_request_body()` 产出的 JSON 字段不变，对服务端完全兼容）。直接通过属性访问 `.accessible` 的调用方需要改为 `.accessible_roles`。
+- `HttpTransport.request_json` 与 `OperationResult.from_api` 对 `status` 字段改为严格布尔：字符串 `"false"` / `"0"` / `"no"` 等会被正确判为失败，不再因为 Python 真值规则被当成"字符串 true"而误判成功。若服务端个别接口用字符串下发 `status`，之前被静默当成功的响应现在会按真实失败处理。
 
+### 新增
+
+- `oopz_sdk.utils.payload.coerce_bool`：严格把 API payload 里的值转成 `bool`——`bool` 原样；`int` / `float` 按 `!= 0`；`str` 大小写不敏感白名单（`true/1/yes/y/on` → True，`false/0/no/n/off/""` → False）；未知字面量走 `default` 兜底。与 `safe_json_loads` 一并从 `oopz_sdk.utils` 导出。
+- `ChannelType.AUDIO`：语音频道在协议里可能返回 `AUDIO` 而不是 `VOICE`，枚举补齐，`CreateChannelResult` / `VoiceChannelMemberInfo` 不再因此 `ValidationError`。`Channel._get_voice_channel_ids` 继续兼容两个值。
+- `AudioAttachment` / `FileAttachment`：`Attachment.parse` 现在支持 `attachmentType=AUDIO / FILE`，消息里的语音与文件附件不再被当作未知类型丢掉；两者均提供 `from_manually(...)` 构造器，并从 `oopz_sdk.models` 导出。`AudioAttachment.duration` 自动强转 `int`。
+- `ChannelDeleteEvent` + 事件名 `channel.delete`：`EVENT_CHANNEL_DELETE` 现在会被 `EventParser` 归类为独立事件（此前走 `UnknownEvent`）。
+- `CreateChannelResult.channel_id` 字段：服务端在创建频道响应里可能用 `id` / `channel` / `channelId`，现在都归一到 `channel_id`（模型 alias `"id"`），且支持 `int` / `float` / `str` 三种原始值。
+- `examples/voice_join_and_play.py`：语音频道加入 + 推流播放示例。展示 `bot.start()` 放入 `asyncio.create_task`、主协程通过 `@bot.on_ready` + `asyncio.Event` 等 WS 就绪后再做 `voice.join` / `voice.play_file` 的正确异步生命周期，最后在 `finally` 里 `bot.stop()` 并回收后台任务。
+
+### 修复
+
+- `OperationResult.from_api(None)` 现在会返回 `ok=True`。这和 `HttpTransport.request_data()` 对 `{"status": true, "data": null}` 的处理保持一致：外层响应已经确认成功时，空 `data` 代表“没有额外结果”，不再把撤回、禁言、删频道等操作误报为失败。
+- 发布包现在包含 `oopz_sdk/assets/voice/agora_player.html`。此前 wheel 里只带了 `py.typed`，安装后的语音浏览器后端会因为找不到页面文件而无法启动。
+- `Voice.join` 在调用 `enter_channel` 之前严格校验 `rtc_uid`：`None` 用后端默认 UID；非负整数或"整数字符串"通过；`bool` / `float` / 非数字字符串 / 负数一律提前抛 `TypeError` / `ValueError`。此前非法 UID 要等 `BrowserVoiceTransport.join` 里 `int(uid)` 才崩，届时服务端已经记录加入语音房，留下脏状态。
+- `Voice.join` 的 post-`enter_channel` 失败完整回滚：`sign` 为空、`backend.join` 抛错或返回 `False`、`_send_identity_once` 返回 `False` 这三条路径都会调用 `backend.leave()` + 服务端 `leave_voice_channel`（后者 try/except 吞错，防御性），不再出现"Oopz 侧已记录加入、Agora / 浏览器桥实际没进去"的不一致。`_send_identity_once` 返回 `bool`，首次失败触发 `Voice.leave()` 完全清理；心跳循环里的后续失败仍只记 debug 日志、等下次重试。
+- `AreaService.cache_max_entries <= 0` 现在真正关闭域成员缓存：新增 `_cache_disabled()`，`get` 直接返回 `None`、`set` 清空已有条目并跳过写入。此前因 `if len(store) >= 0` 恒真、空字典再去 `min()` 会抛 `ValueError`，把缓存开关卡死在"永远写不进来"。驱逐从 `if` 改为 `while`，支持阈值调小时一次性清理多条。
+- `PrivateSession.from_api` 不再因为数字型 `sessionId` / `uid` / `lastTime` 抛 `ValidationError`：这些字段统一强转 `str`（`None → ""`、`bool → "true"/"false"`、`float.is_integer() → "1"`、其它 `float → str(value)`），`mute` 走 `coerce_bool`。
+- `Channel.create_channel(channel_type=ChannelType.TEXT)` 不再 `Object of type ChannelType is not JSON serializable`：枚举入参会统一取 `.value` 字符串；非 `str` / 非 `ChannelType` 类型抛 `TypeError`，不再把错误留给 `aiohttp` 的 JSON 序列化。
+- `ChannelSetting` / `ChannelCreateEvent` 合并 `accessibleRoles` 与 `accessible` 两种 key：只给短 key 的响应不再被读成空列表，避免"改频道名不改权限"的编辑请求把 `accessible: []` 回写到服务端清掉可见角色。优先级：非空 `accessibleRoles` > 非空 `accessible` > 空列表兜底。
+- `ChannelCreateEvent` 支持协议里 `type` 或 `channelType` 任一写法：之前只读 `channelType`，对端只下发 `type` 时 `channel_type` 会读成空串。
+- `MessageDeleteEvent.isMentionAll` 从 `bool(v or "")` 的诡异写法改为 `coerce_bool(v, default=False)`；原写法字符串 `"false"` 会被当成 mention 全员。
+- 各模型 / 事件的布尔字段整体切到 `coerce_bool`，修掉 "`bool("false") == True`" 这类 Python 真值陷阱。覆盖：`UserInfo.online`、`Profile` 9 个字段、`UserLevelInfo.hasNotReceivePrize`、`ChannelSetting` 6 个字段、`VoiceChannelMemberInfo.isBot`、`CreateChannelResult.secret`、`ChannelUpdateEvent` / `ChannelCreateEvent` 布尔字段、`RoleChangedEvent.isDisplay`、`Message.isMentionAll` / `Message.senderIsBot`、`MentionInfo.isBot`、`Attachment.animated`、`RoleInfo.owned`。
+- `ChannelGroupInfo.is_enable_temp` 用 `AliasChoices("IsEnableTemp", "isEnableTemp")` 兼容两种 casing；序列化仍走 `"IsEnableTemp"` 不破坏回写。
+
+### 改进
+
+- `pyproject.toml` 将 `license-files = []` 改回 `["LICENSE"]`，消除 setuptools 关于 `LICENSE` 未声明的告警，与 `MANIFEST.in` 的 include 保持一致（0.6.1 修过一次，0.7.0/0.7.1 又回退成空数组，这里重新落地）。
+- `oopz_sdk/models/attachment.py` 删除 `Attachment.parse` 中 `raise` 之后的 unreachable 赋值。
+
+## 0.7.2 - 2026-04-26
+
+### 变更
+
+调整了 `edit_user_role`、`enter_channel`、`leave_voice_channel`、`get_voice_channel_for_user`、`top_message`、`mute_mic` 的参数顺序，提高可读性。
 
 ## 0.7.1 - 2026-04-24
 

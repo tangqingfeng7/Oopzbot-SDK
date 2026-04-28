@@ -4,11 +4,11 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "oopz-sdk"
-version = "0.7.2"
+version = "0.8.0"
 description = "Oopz 平台 Python SDK，提供 HTTP API、文件上传与 WebSocket 事件能力。"
 readme = "README.md"
 requires-python = ">=3.10"
-license-files = []
+license-files = ["LICENSE"]
 authors = [
   { name = "Oopzbot Contributors" },
 ]
@@ -43,7 +43,7 @@ dev = [
   "build>=1.2,<2",
   "pytest>=8,<9",
   "tomli>=2,<3; python_version < '3.11'",
-  "twine>=6,<7",
+  "twine>=6.2,<8",
 ]
 
 [tool.setuptools]
@@ -53,7 +53,7 @@ include-package-data = true
 include = ["oopz_sdk", "oopz_sdk.*"]
 
 [tool.setuptools.package-data]
-oopz_sdk = ["py.typed"]
+oopz_sdk = ["py.typed", "assets/voice/agora_player.html"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

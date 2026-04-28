@@ -1,15 +1,17 @@
 from __future__ import annotations
 
 import copy
+import inspect
 import logging
 import time
 from typing import Optional, List
 
 from oopz_sdk import models
+from oopz_sdk.exceptions import OopzApiError
 
 from . import BaseService
 
-logger = logging.getLogger("oopz_sdk.services.area")
+logger = logging.getLogger(__name__)
 
 
 class AreaService(BaseService):
@@ -22,12 +24,26 @@ class AreaService(BaseService):
             self._area_members_cache = store
         return store
 
+    def _cache_disabled(self) -> bool:
+        """``cache_max_entries <= 0`` 视为完全关闭域成员缓存。
+
+        这样既避免 ``min()`` 在空 store 上的 ``ValueError``（原先 `len >= 0` 恒真
+        会直接对空字典执行 ``min``），也让 0/负数具备「关闭缓存」的自然语义。
+        """
+        try:
+            max_entries = int(getattr(self._config, "cache_max_entries", 200))
+        except (TypeError, ValueError):
+            return False
+        return max_entries <= 0
+
     def _get_cached_area_members(
         self,
         cache_key: tuple[str, int, int],
         *,
         max_age: float,
     ) -> Optional[dict]:
+        if self._cache_disabled():
+            return None
         store = self._get_area_members_cache_store()
         cached = store.get(cache_key)
         if not isinstance(cached, dict):
@@ -41,10 +57,20 @@ class AreaService(BaseService):
         return copy.deepcopy(data)
 
     def _set_cached_area_members(self, cache_key: tuple[str, int, int], data: dict) -> None:
+        if self._cache_disabled():
+            # 关闭缓存时，顺手清空历史残留，避免配置切换后命中脏条目
+            store = getattr(self, "_area_members_cache", None)
+            if isinstance(store, dict):
+                store.clear()
+            return
         store = self._get_area_members_cache_store()
         max_entries = int(getattr(self._config, "cache_max_entries", 200))
-        if len(store) >= max_entries:
-            oldest = min(store, key=lambda k: store[k].get("ts", 0) if isinstance(store[k], dict) else 0)
+        # while 而非 if：之前若放宽过 max_entries 又调小，可能一次性要驱逐多条
+        while store and len(store) >= max_entries:
+            oldest = min(
+                store,
+                key=lambda k: store[k].get("ts", 0) if isinstance(store[k], dict) else 0,
+            )
             store.pop(oldest, None)
         store[cache_key] = {"ts": time.time(), "data": copy.deepcopy(data)}
 
@@ -156,9 +182,17 @@ class AreaService(BaseService):
 
         data = await self._request_data("GET", url_path, params={"area": area, "target": target})
 
-        roles = data.get('roles')
-        if roles is None:
-            raise ValueError("Invalid API response: 'roles' field is missing or not a list")
+        if not isinstance(data, dict):
+            raise OopzApiError(
+                "area can give roles response format error: expected dict",
+                payload=data,
+            )
+        roles = data.get("roles")
+        if not isinstance(roles, list):
+            raise OopzApiError(
+                "area can give roles response format error: expected 'roles' list",
+                payload=data,
+            )
 
         return [models.RoleInfo.from_api(role) for role in roles]
 
@@ -188,6 +222,31 @@ class AreaService(BaseService):
         body = {"area": area, "target": target_uid, "targetRoleIDs": current_ids}
         resp = await self._request_data("POST", "/area/v3/role/editUserRole", body=body)
         return models.OperationResult.from_api(resp)
+
+    async def get_user_area_nicknames(self, area: str, uids: list[str]) -> dict[str, str]:
+        """批量获取用户在域内的昵称（备注）。"""
+        if not area:
+            raise ValueError("area is required for getUserAreaNicknames()")
+        if not uids:
+            raise ValueError("uids list cannot be empty for getUserAreaNicknames()")
+
+        url_path = "/area/v2/getUserAreaNicknames"
+        body = {"area": area, "uids": uids}
+        data = await self._request_data("POST", url_path, body=body)
+
+        if not isinstance(data, dict):
+            raise OopzApiError(
+                "area nicknames response format error: expected dict",
+                payload=data,
+            )
+        nicknames = data.get("nicknames")
+        if not isinstance(nicknames, dict):
+            raise OopzApiError(
+                "area nicknames response format error: expected 'nicknames' dict",
+                payload=data,
+            )
+
+        return {str(uid): str(nick) for uid, nick in nicknames.items()}
 
     # async def search_area_members(
     #         self,
@@ -225,7 +284,9 @@ class AreaService(BaseService):
         for area in areas:
             if area.area_id and area.name:
                 if set_area:
-                    set_area(area.area_id, area.name)
+                    result = set_area(area.area_id, area.name)
+                    if inspect.isawaitable(result):
+                        await result
                     areas_count += 1
 
             groups = await self.get_area_channels(area.area_id)
@@ -233,7 +294,9 @@ class AreaService(BaseService):
                 for ch in group.channels:
                     if ch.channel_id and ch.name:
                         if set_channel:
-                            set_channel(ch.channel_id, ch.name)
+                            result = set_channel(ch.channel_id, ch.name)
+                            if inspect.isawaitable(result):
+                                await result
                             channels_count += 1
 
         logger.info("Name population completed: %d areas, %d channels", areas_count, channels_count)

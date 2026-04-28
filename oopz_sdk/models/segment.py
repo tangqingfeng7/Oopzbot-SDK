@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import os
 import re
 from dataclasses import dataclass
-from typing import Any, Iterable, TYPE_CHECKING
+from typing import Any, Iterable, TYPE_CHECKING, BinaryIO
 
 if TYPE_CHECKING:
     from .message import MentionInfo
@@ -27,8 +28,6 @@ class Segment:
     def __init__(self, type_: str):
         self.type = type_
 
-    def to_dict(self) -> dict[str, Any]:
-        raise NotImplementedError("Segment.to_dict() must be implemented by subclasses")
 
     def to_message_text(self) -> str:
         raise NotImplementedError("Segment.to_message_text() must be implemented by subclasses")
@@ -44,14 +43,6 @@ class Text(Segment):
         self.text = text
         self.plain_text = text if plain_text is None else plain_text
 
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "type": self.type,
-            "data": {
-                "text": self.text,
-                "plain_text": self.plain_text,
-            },
-        }
 
     def to_message_text(self) -> str:
         return self.text
@@ -67,14 +58,6 @@ class Mention(Segment):
         self.person = str(user_id)
         self.raw = raw or f"(met){self.person}(met)"
 
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "type": "mention",
-            "data": {
-                "user_id": self.person,
-            },
-        }
-
     def to_message_text(self) -> str:
         return f" {self.raw.strip()} "
 
@@ -87,20 +70,16 @@ class MentionAll(Segment):
         Segment.__init__(self, "mention_all")
         self.raw = raw or "(met)All(met)"
 
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "type": "mention_all",
-            "data": {},
-        }
-
     def to_message_text(self) -> str:
         return f" {self.raw.strip()} "
 
 
+ImageFile = str | bytes | bytearray | memoryview | BinaryIO | os.PathLike[str]
+
+
 @dataclass(slots=True)
 class Image(Segment):
-    file_path: str = ""
-    local_path: str = ""
+    file: ImageFile | None = None
     file_key: str = ""
     url: str = ""
     width: int = 0
@@ -113,9 +92,10 @@ class Image(Segment):
 
     def __init__(
             self,
-            file_path: str = "",
+            file: ImageFile | None = None,
             *,
-            local_path: str = "",
+            # 兼容旧参数：Image(file_path="xxx.png")
+            file_path: ImageFile | None = None,
             file_key: str = "",
             url: str = "",
             width: int = 0,
@@ -127,8 +107,9 @@ class Image(Segment):
             preview_file_key: str = "",
     ):
         Segment.__init__(self, "image")
-        self.file_path = file_path
-        self.local_path = local_path
+
+        # 新字段优先，其次兼容旧 file_path
+        self.file = file if file is not None else file_path
         self.file_key = file_key
         self.url = url
         self.width = int(width or 0)
@@ -143,8 +124,8 @@ class Image(Segment):
         return f"![IMAGEw{self.width}h{self.height}]({self.file_key})\n"
 
     @classmethod
-    def from_file(cls, file_path: str) -> "Image":
-        return cls(file_path=file_path)
+    def from_file(cls, file: ImageFile) -> "Image":
+        return cls(file=file)
 
     @classmethod
     def from_uploaded(
@@ -173,9 +154,8 @@ class Image(Segment):
         )
 
     @classmethod
-    def from_attachment(cls, attachment: ImageAttachment, *, local_path: str = "") -> "Image":
+    def from_attachment(cls, attachment: ImageAttachment) -> "Image":
         return cls(
-            local_path=local_path,
             file_key=attachment.file_key,
             url=attachment.url,
             width=attachment.width,
@@ -192,16 +172,13 @@ class Image(Segment):
         return bool(self.file_key and self.url)
 
     @property
-    def has_local_file(self) -> bool:
-        return bool(self.file_path or self.local_path)
+    def has_file(self) -> bool:
+        return self.file is not None
 
-    @property
-    def source_path(self) -> str:
-        return self.file_path or self.local_path
 
     @property
     def can_send(self) -> bool:
-        return self.is_uploaded or self.has_local_file
+        return self.is_uploaded or self.has_file
 
     def to_attachment(self) -> ImageAttachment:
         if not self.is_uploaded:
@@ -219,23 +196,6 @@ class Image(Segment):
             preview_file_key=self.preview_file_key,
         )
 
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "type": self.type,
-            "data": {
-                "file_path": self.file_path,
-                "local_path": self.local_path,
-                "file_key": self.file_key,
-                "url": self.url,
-                "width": self.width,
-                "height": self.height,
-                "file_size": self.file_size,
-                "hash": self.hash,
-                "animated": self.animated,
-                "display_name": self.display_name,
-                "preview_file_key": self.preview_file_key,
-            },
-        }
 
 
 def strip_markdown(text: str) -> str:

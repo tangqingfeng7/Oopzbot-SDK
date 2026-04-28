@@ -3,34 +3,38 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+from typing import BinaryIO
 
 from oopz_sdk import models
 from oopz_sdk.exceptions import OopzApiError
+from oopz_sdk.utils.image import read_image_bytes
 
 from . import BaseService
 
-logger = logging.getLogger("oopz_sdk.services.media")
+logger = logging.getLogger(__name__)
 
 
 class Media(BaseService):
     """Media upload capabilities."""
 
-    async def upload_file(
+    async def upload_bytes(
             self,
-            file: str,
+            payload: bytes,
             file_type: str,
             ext: str,
-            animated=False,
+            animated: bool = False,
+            display_name: str = "",
     ) -> models.UploadedFileResult:
-        """上传本地文件并返回附件模型。"""
+        """上传 bytes 并返回附件模型。"""
+        if not payload:
+            raise ValueError("upload payload is empty")
+
         ticket_data = await self._request_data(
             "PUT",
             "/rtc/v1/cos/v1/signedUploadUrl",
             body={"type": file_type, "ext": ext},
         )
         ticket = models.UploadTicket.from_api(ticket_data)
-
-        payload, file_size = await asyncio.to_thread(_read_file_bytes, file)
 
         resp = await self.transport.request_raw(
             "PUT",
@@ -44,18 +48,31 @@ class Media(BaseService):
                 status_code=resp.status_code,
             )
 
-        attachment = models.UploadedFileResult.from_manually(
+        return models.UploadedFileResult.from_manually(
             ticket.file_key,
             ticket.url,
             file_type,
-            os.path.basename(file),
-            file_size,
-            animated
+            display_name or "image",
+            len(payload),
+            animated,
         )
-        return attachment
 
+    async def upload_file(
+            self,
+            file: str | bytes | bytearray | memoryview | BinaryIO | os.PathLike[str],
+            file_type: str,
+            ext: str,
+            animated: bool = False,
+            display_name: str = "",
+    ) -> models.UploadedFileResult:
+        """上传文件并返回附件模型。支持本地路径、bytes、base64、file-like。"""
+        payload, filename = await asyncio.to_thread(read_image_bytes, file)
 
-def _read_file_bytes(path: str) -> tuple[bytes, int]:
-    with open(path, "rb") as f:
-        payload = f.read()
-    return payload, len(payload)
+        return await self.upload_bytes(
+            payload,
+            file_type=file_type,
+            ext=ext,
+            animated=animated,
+            display_name=display_name or filename,
+        )
+

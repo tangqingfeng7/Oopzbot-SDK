@@ -9,10 +9,11 @@ from oopz_sdk import models
 from oopz_sdk.exceptions import OopzApiError
 from oopz_sdk.models.segment import Image, Segment
 from oopz_sdk.services import BaseService
-from oopz_sdk.utils.image import get_image_info
+from oopz_sdk.utils.image import get_image_info, guess_image_ext, get_image_info_from_bytes, guess_image_ext_from_bytes, \
+    read_image_bytes
 from oopz_sdk.models import build_segments, normalize_message_parts
 
-logger = logging.getLogger("oopz_sdk.services.message")
+logger = logging.getLogger(__name__)
 
 
 class Message(BaseService):
@@ -106,7 +107,6 @@ class Message(BaseService):
             is_mention_all: bool = False,
             style_tags: Optional[list] = None,
             reference_message_id: Optional[str] = None,
-            auto_recall: bool = False,
             animated: bool = False,
             display_name: str = "",
             duration: int = 0,
@@ -148,11 +148,7 @@ class Message(BaseService):
 
         resp = await self._request_data("POST", url_path, body=body)
 
-        model = models.MessageSendResult.from_api(resp)
-
-        if auto_recall and model.message_id:
-            await self._schedule_auto_recall(model.message_id, area, channel)
-        return model
+        return models.MessageSendResult.from_api(resp)
 
     async def send_private_message(
             self,
@@ -211,29 +207,6 @@ class Message(BaseService):
         model = models.MessageSendResult.from_api(resp)
         return model
 
-    async def _schedule_auto_recall(self, message_id: str, area: str, channel: str) -> None:
-        if not self._config.auto_recall_enabled:
-            return
-        delay = self._config.auto_recall_delay
-        if delay <= 0:
-            return
-        try:
-            loop = asyncio.get_running_loop()
-            loop.create_task(self._do_auto_recall(message_id, area, channel, delay))
-        except Exception as exc:
-            logger.error("failed to schedule auto recall: %s", exc)
-
-    async def _do_auto_recall(
-            self, message_id: str, area: str, channel: str, delay: float
-    ) -> None:
-        try:
-            await asyncio.sleep(delay)
-            result = await self.recall_message(message_id, area=area, channel=channel)
-            if not result.ok:
-                logger.warning("auto recall failed: %s, area: %s, channel: %s", message_id, area, channel)
-        except Exception as e:
-            logger.error("auto recall exception: %s", e)
-
     async def _resolve_segments(self, segments: list[Segment]) -> list[Segment]:
         resolved: list[Segment] = []
 
@@ -244,8 +217,8 @@ class Message(BaseService):
                     resolved.append(seg)
                     continue
 
-                if seg.has_local_file:
-                    resolved.append(await self._upload_local_image_segment(seg))
+                if seg.has_file:
+                    resolved.append(await self._upload_image_segment(seg))
                     continue
 
                 raise ValueError("ImageSegment is neither uploaded nor backed by a local file")
@@ -330,25 +303,30 @@ class Message(BaseService):
             )
         return [models.Message.from_api(message) for message in data["messages"]]
 
-    async def _upload_local_image_segment(self, seg: Image) -> Image:
-        source_path = seg.source_path
-        if not source_path:
-            raise ValueError("Image segment has no source_path for upload")
+    async def _upload_image_segment(self, seg: Image) -> Image:
+        if seg.file is None:
+            raise ValueError("Image segment has no file for upload")
+
+        payload, filename = await asyncio.to_thread(read_image_bytes, seg.file)
 
         width = seg.width
         height = seg.height
         file_size = seg.file_size
+
         if width <= 0 or height <= 0 or file_size <= 0:
             width, height, file_size = await asyncio.to_thread(
-                get_image_info, source_path
+                get_image_info_from_bytes,
+                payload,
             )
 
-        ext = os.path.splitext(source_path)[1] or ".jpg"
+        ext = guess_image_ext_from_bytes(payload, filename)
 
-        upload_result = await self._bot.media.upload_file(
-            source_path,
+        upload_result = await self._bot.media.upload_bytes(
+            payload,
             file_type="IMAGE",
             ext=ext,
+            animated=seg.animated,
+            display_name=seg.display_name or filename,
         )
 
         return Image.from_uploaded(

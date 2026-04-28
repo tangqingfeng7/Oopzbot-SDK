@@ -13,7 +13,7 @@ from .rest import OopzRESTClient
 from .ws import CloseInfo, OopzWSClient
 from ..models import MessageEvent, Message
 
-logger = logging.getLogger("oopz_sdk.client.bot")
+logger = logging.getLogger(__name__)
 
 
 class OopzBot:
@@ -46,7 +46,8 @@ class OopzBot:
         self.media = self.rest.media
         self.areas = self.rest.areas
         self.channels = self.rest.channels
-        self.members = self.rest.members
+        self.person = self.rest.person
+        self.members = self.person
         self.moderation = self.rest.moderation
         self.voice: voice_service.Voice = voice_service.Voice(self, config, self.rest.transport, self.rest.signer)
 
@@ -244,7 +245,7 @@ class OopzBot:
                 return
 
             await self.dispatcher.dispatch("raw_event", event, ctx)
-            await self.dispatcher.dispatch(event.name, event, ctx)
+            await self.dispatcher.dispatch(event.event_name, event, ctx)
 
         except Exception as exc:
             logger.exception("Unhandled exception while processing websocket event: %s", exc)

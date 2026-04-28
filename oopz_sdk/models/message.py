@@ -9,10 +9,10 @@ from pydantic import Field, model_validator
 from .attachment import Attachment
 from .base import BaseModel
 from oopz_sdk.exceptions import OopzApiError
+from oopz_sdk.utils.payload import coerce_bool
 from .segment import parse_message_segments, Text
 
-logger = logging.getLogger("oopz_sdk.models.message")
-
+logger = logging.getLogger(__name__)
 
 
 class MediaInfo(BaseModel):
@@ -47,7 +47,6 @@ class MediaInfo(BaseModel):
     def from_api(cls, data: Mapping[str, Any]) -> "MediaInfo":
         return cls.model_validate(data)
 
-logger = logging.getLogger("oopz_sdk.models.message")
 
 class Message(BaseModel):
     target: str = ""
@@ -100,21 +99,21 @@ class Message(BaseModel):
 
         # 基础字符串字段
         for key in (
-            "target",
-            "area",
-            "areaPage",
-            "channel",
-            "type",
-            "clientMessageId",
-            "messageId",
-            "timestamp",
-            "person",
-            "content",
-            "text",
-            "topTime",
-            "displayName",
-            "referenceMessageId",
-            "senderBotType",
+                "target",
+                "area",
+                "areaPage",
+                "channel",
+                "type",
+                "clientMessageId",
+                "messageId",
+                "timestamp",
+                "person",
+                "content",
+                "text",
+                "topTime",
+                "displayName",
+                "referenceMessageId",
+                "senderBotType",
         ):
             normalized[key] = str(normalized.get(key) or "")
 
@@ -125,8 +124,8 @@ class Message(BaseModel):
             except (TypeError, ValueError):
                 normalized[key] = 0
 
-        normalized["isMentionAll"] = bool(normalized.get("isMentionAll", False))
-        normalized["senderIsBot"] = bool(normalized.get("senderIsBot", False))
+        normalized["isMentionAll"] = coerce_bool(normalized.get("isMentionAll"), default=False)
+        normalized["senderIsBot"] = coerce_bool(normalized.get("senderIsBot"), default=False)
 
         # attachments
         attachments_raw = normalized.get("attachments", [])
@@ -193,7 +192,6 @@ class Message(BaseModel):
         return "".join(parts)
 
 
-
 class MentionInfo(BaseModel):
     person: str = ""
     is_bot: bool = Field(default=False, alias="isBot")
@@ -209,7 +207,7 @@ class MentionInfo(BaseModel):
         normalized = dict(data)
 
         normalized["person"] = str(normalized.get("person") or "")
-        normalized["isBot"] = bool(normalized.get("isBot", False))
+        normalized["isBot"] = coerce_bool(normalized.get("isBot"), default=False)
         normalized["botType"] = str(normalized.get("botType") or "")
 
         try:
@@ -238,6 +236,10 @@ class MessageSendResult(BaseModel):
             raise OopzApiError("invalid message send result payload: expected dict", payload=data)
 
         normalized = dict(data)
+        if "messageId" in normalized:
+            normalized["messageId"] = str(normalized["messageId"])
+        if "timestamp" in normalized:
+            normalized["timestamp"] = str(normalized["timestamp"])
         return normalized
 
     @classmethod
@@ -246,11 +248,37 @@ class MessageSendResult(BaseModel):
             raise OopzApiError("invalid message send result payload: expected dict", payload=data)
         return cls.model_validate(data)
 
+
 class PrivateSession(BaseModel):
     last_time: str = Field(default="", alias="lastTime")
     mute: bool = False
     session_id: str = Field(default="", alias="sessionId")
     uid: str = ""
+
+    @model_validator(mode="before")
+    @classmethod
+    def validate_and_normalize(cls, data: Any) -> Any:
+        if not isinstance(data, Mapping):
+            raise OopzApiError("invalid private session payload: expected dict", payload=data)
+
+        normalized = dict(data)
+
+        # sessionId / lastTime / uid 在协议里偶尔会以整数下发（例如 uid 为数值，
+        # sessionId 为时间戳数字），不归一化会导致 Pydantic 的 str 字段直接 ValidationError。
+        for key in ("sessionId", "lastTime", "uid"):
+            value = normalized.get(key)
+            if value is None:
+                normalized[key] = ""
+            elif isinstance(value, bool):
+                # bool 也是 int 的子类，避免 True/False 被写成 "True"
+                normalized[key] = "true" if value else "false"
+            elif isinstance(value, float):
+                normalized[key] = str(int(value)) if value.is_integer() else str(value)
+            else:
+                normalized[key] = str(value)
+
+        normalized["mute"] = coerce_bool(normalized.get("mute"), default=False)
+        return normalized
 
     @classmethod
     def from_api(cls, data: Mapping[str, Any]) -> "PrivateSession":

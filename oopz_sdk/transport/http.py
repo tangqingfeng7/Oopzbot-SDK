@@ -12,7 +12,7 @@ from oopz_sdk.auth.headers import build_oopz_headers
 from oopz_sdk.auth.signer import Signer
 from oopz_sdk.config.settings import OopzConfig
 from oopz_sdk.exceptions import OopzConnectionError, OopzApiError, OopzRateLimitError
-from oopz_sdk.utils.payload import safe_json
+from oopz_sdk.utils.payload import coerce_bool, safe_json
 from .base import BaseTransport
 from .proxy import build_aiohttp_proxy
 
@@ -225,7 +225,9 @@ class HttpTransport(BaseTransport):
                 payload=data,
                 response=resp,
             )
-        if not data.get("status"):
+        # status 字段可能是 bool、整数或字符串（包括 "false"/"0"），用严格布尔转换
+        # 避免 Python 真值默认把 "false" 当成功
+        if not coerce_bool(data.get("status"), default=False):
             message = data.get("message", "")
             raise OopzApiError(
                 f"status is not True: {message}",

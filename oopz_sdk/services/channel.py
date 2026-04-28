@@ -2,13 +2,13 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import Optional, Any, List
+from typing import Optional
 
 from oopz_sdk import models
 
 from . import BaseService
 
-logger = logging.getLogger("oopz_sdk.services.channel")
+logger = logging.getLogger(__name__)
 
 
 class Channel(BaseService):
@@ -46,11 +46,18 @@ class Channel(BaseService):
             raise ValueError("name cannot be empty")
         if isinstance(channel_type, str):
             try:
-                channel_type = models.ChannelType(channel_type.upper())
-                channel_type = channel_type.value
+                channel_type = models.ChannelType(channel_type.upper()).value
             except ValueError as exc:
                 allowed = ", ".join(member.value for member in models.ChannelType)
                 raise ValueError(f"invalid channel_type: {channel_type!r}, allowed: {allowed}") from exc
+        elif isinstance(channel_type, models.ChannelType):
+            # 默认是 ChannelType.TEXT 等枚举；必须转成 str，否则 body 进 JSON 会
+            # `Object of type ChannelType is not JSON serializable`
+            channel_type = channel_type.value
+        else:
+            raise TypeError(
+                f"channel_type must be str or ChannelType, got {type(channel_type).__name__}"
+            )
 
         # if group_id is not provided, call area get_area_channels
         # and choose first group as default group to request

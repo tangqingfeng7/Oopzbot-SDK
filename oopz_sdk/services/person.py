@@ -8,10 +8,10 @@ from oopz_sdk.exceptions import OopzApiError
 
 from . import BaseService
 
-logger = logging.getLogger("oopz_sdk.services.member")
+logger = logging.getLogger(__name__)
 
 
-class Member(BaseService):
+class Person(BaseService):
     """用户相关能力：个人资料、成员搜索、身份组分配等。"""
 
     async def get_person_infos_batch(self, uids: list[str]) -> list[models.UserInfo]:
@@ -84,3 +84,35 @@ class Member(BaseService):
         data = await self._request_data("GET", url_path)
         return models.UserLevelInfo.from_api(data)
 
+    async def get_friendship(self) -> list[models.Friendship]:
+        """获取好友信息"""
+        url_path = "/client/v1/list/v1/friendship"
+        data = await self._request_data("GET", url_path)
+        if not isinstance(data, list):
+            raise OopzApiError(f"friendship response format error: {data}")
+
+        return [models.Friendship.from_api(d) for d in data]
+
+    async def get_friendship_requests(self) -> list[models.FriendshipRequest]:
+        """获取好友请求列表"""
+        url_path = "/client/v1/friendship/v1/requests"
+        data = await self._request_data("GET", url_path)
+        if not isinstance(data, dict):
+            raise OopzApiError(f"friendship request response format error: {data}")
+
+        requests = data.get("requests")
+        if not isinstance(requests, list):
+            raise OopzApiError(f"friendship request response format error: {data}")
+
+        return [models.FriendshipRequest.from_api(item) for item in requests]
+
+    async def post_friendship_response(self, target: str, friend_request_id: int, agree: bool) -> models.OperationResult:
+        """接受或拒绝好友请求"""
+        # POST /client/v1/friendship/v1/respond
+        url_path = "/client/v1/friendship/v1/response"
+        data = await self._request_data("POST", url_path, body={
+            "agree": agree,
+            "friendRequestId": friend_request_id,
+            "target": target,
+        })
+        return models.OperationResult.from_api(data)

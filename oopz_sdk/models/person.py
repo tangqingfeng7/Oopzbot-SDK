@@ -7,8 +7,7 @@ from pydantic import Field, model_validator
 from .base import BaseModel
 
 from oopz_sdk.exceptions import OopzApiError
-
-
+from oopz_sdk.utils.payload import coerce_bool
 
 
 class UserInfo(BaseModel):
@@ -25,6 +24,8 @@ class UserInfo(BaseModel):
 
     name: str = ""
     online: bool = False
+
+    memberLevel: int = Field(default=0, alias="memberLevel")
 
     person_role: str = Field(default="", alias="personRole")
     person_type: str = Field(default="", alias="personType")
@@ -55,8 +56,9 @@ class UserInfo(BaseModel):
         normalized["status"] = str(normalized.get("status") or "")
         normalized["uid"] = str(normalized.get("uid") or "")
         normalized["userCommonId"] = str(normalized.get("userCommonId") or "")
+        normalized["memberLevel"] = int(normalized.get("memberLevel") or 0)
 
-        normalized["online"] = bool(normalized.get("online", False))
+        normalized["online"] = coerce_bool(normalized.get("online"), default=False)
 
         try:
             normalized["avatarFrameExpireTime"] = int(normalized.get("avatarFrameExpireTime") or 0)
@@ -216,7 +218,7 @@ class Profile(BaseModel):
             "useBooster",
         )
         for key in bool_fields:
-            normalized[key] = bool(normalized.get(key, False))
+            normalized[key] = coerce_bool(normalized.get(key), default=False)
 
         badges = normalized.get("badges", [])
         normalized["badges"] = badges if isinstance(badges, list) else []
@@ -271,7 +273,9 @@ class UserLevelInfo(BaseModel):
             except (TypeError, ValueError):
                 normalized[key] = default
 
-        normalized["hasNotReceivePrize"] = bool(normalized.get("hasNotReceivePrize", False))
+        normalized["hasNotReceivePrize"] = coerce_bool(
+            normalized.get("hasNotReceivePrize"), default=False
+        )
 
         return normalized
 
@@ -279,3 +283,53 @@ class UserLevelInfo(BaseModel):
     def from_api(cls, data: Mapping[str, Any]) -> "UserLevelInfo":
         return cls.model_validate(data)
 
+
+class Friendship(BaseModel):
+    uid: str = ""
+    online: bool = False
+    name: str = ""
+
+    @model_validator(mode="before")
+    @classmethod
+    def validate_and_normalize(cls, data: Any) -> Any:
+        if not isinstance(data, dict):
+            raise OopzApiError("invalid friendship payload: expected dict", payload=data)
+
+        normalized = dict(data)
+        normalized["uid"] = str(normalized.get("uid") or "")
+        normalized["online"] = coerce_bool(normalized.get("online"), default=False)
+        normalized["name"] = str(normalized.get("name") or "")
+
+        return normalized
+
+    @classmethod
+    def from_api(cls, data: Mapping[str, Any]) -> "Friendship":
+        return Friendship.model_validate(data)
+
+
+class FriendshipRequest(BaseModel):
+    friend_request_id: int = Field(default=0, alias="friendRequestId")
+    uid: str = ""
+    create_time: str = Field(default="", alias="createTime")
+
+    @model_validator(mode="before")
+    @classmethod
+    def validate_and_normalize(cls, data: Any) -> Any:
+        if not isinstance(data, Mapping):
+            raise OopzApiError("invalid friendship request payload: expected dict", payload=data)
+
+        normalized = dict(data)
+
+        try:
+            normalized["friendRequestId"] = int(normalized.get("friendRequestId") or 0)
+        except (TypeError, ValueError):
+            normalized["friendRequestId"] = 0
+
+        normalized["uid"] = str(normalized.get("uid") or "")
+        normalized["createTime"] = str(normalized.get("createTime") or "")
+
+        return normalized
+
+    @classmethod
+    def from_api(cls, data: Mapping[str, Any]) -> "FriendshipRequest":
+        return cls.model_validate(data)

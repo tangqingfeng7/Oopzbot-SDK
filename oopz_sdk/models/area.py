@@ -2,9 +2,10 @@ from __future__ import annotations
 
 from typing import Any, Mapping
 
-from pydantic import Field, model_validator
+from pydantic import AliasChoices, Field, model_validator
 
 from oopz_sdk.exceptions import OopzApiError
+from oopz_sdk.utils.payload import coerce_bool
 from .base import BaseModel
 
 
@@ -86,6 +87,7 @@ class AreaInfo(BaseModel):
             raise OopzApiError("invalid area detail payload: expected dict", payload=data)
         return cls.model_validate(data)
 
+
 class AreaMemberInfo(BaseModel):
     display_type: str = Field(default="", alias="displayType")
     online: int = 0
@@ -111,6 +113,7 @@ class AreaRoleCountInfo(BaseModel):
         if not isinstance(data, Mapping):
             raise OopzApiError("invalid area role count payload: expected dict", payload=data)
         return cls.model_validate(data)
+
 
 class AreaMembersPage(BaseModel):
     members: list[AreaMemberInfo] = Field(default_factory=list)
@@ -140,7 +143,6 @@ class AreaMembersPage(BaseModel):
     @classmethod
     def from_api(cls, data: Mapping[str, Any]) -> "AreaMembersPage":
         return cls.model_validate(data)
-
 
 
 class ChannelSettings(BaseModel):
@@ -182,7 +184,14 @@ class ChannelInfo(BaseModel):
 
 
 class ChannelGroupInfo(BaseModel):
-    is_enable_temp: bool = Field(default=False, alias="IsEnableTemp")
+    # 接口实际返回的键在不同版本间可能是 `IsEnableTemp`（大驼峰）或 `isEnableTemp`
+    # （与本模型其它小驼峰字段一致）。用 AliasChoices 两边都兼容；序列化仍按
+    # 历史字段名 `IsEnableTemp` 输出，避免回写破坏。
+    is_enable_temp: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("IsEnableTemp", "isEnableTemp"),
+        serialization_alias="IsEnableTemp",
+    )
     area: str = ""
     channels: list[ChannelInfo] = Field(default_factory=list)
     group_id: str = Field(default="", alias="id")
@@ -197,6 +206,7 @@ class ChannelGroupInfo(BaseModel):
         if not isinstance(data, dict):
             raise OopzApiError("invalid channel group payload: expected dict", payload=data)
         return cls.model_validate(data)
+
 
 class AreaUserDetail(BaseModel):
     disable_text_to: Any = Field(default=None, alias="disableTextTo")
@@ -250,7 +260,7 @@ class RoleInfo(BaseModel):
 
         normalized["description"] = str(normalized.get("description") or "")
         normalized["name"] = str(normalized.get("name") or "")
-        normalized["owned"] = bool(normalized.get("owned", False))
+        normalized["owned"] = coerce_bool(normalized.get("owned"), default=False)
 
         try:
             normalized["roleID"] = int(normalized.get("roleID") or 0)
@@ -264,8 +274,6 @@ class RoleInfo(BaseModel):
 
         return normalized
 
-
     @classmethod
     def from_api(cls, data: Mapping[str, Any]) -> "RoleInfo":
         return cls.model_validate(data)
-
