@@ -95,7 +95,7 @@ async def on_ready(ctx):
 
 @bot.on_message
 async def on_message(message, ctx):
-    if message and message.text.strip() == "ping":
+    if message.text.strip() == "ping":
         await ctx.reply("pong")
 
 
