@@ -47,7 +47,7 @@ def to_onebot_message(oopz_message: Any) -> list[dict[str, Any]]:
             continue
 
         if isinstance(seg, Image):
-            file_id = seg.file_key or seg.url or seg.source_path
+            file_id = seg.file_key
             if file_id:
                 data: dict[str, Any] = {
                     "file_id": file_id,
