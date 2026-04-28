@@ -130,8 +130,8 @@ class MessageDeleteEvent(Event):
     channel: str = ""
     message_id: str = Field(default="", alias="messageId")
     person: str = ""
-    isMentionAll: bool = False
-    mentionList: list[Any] = Field(default_factory=list, alias="mentionList")
+    is_mention_all: bool = Field(default=False, alias="isMentionAll")
+    mention_list: list[Any] = Field(default_factory=list, alias="mentionList")
 
     @model_validator(mode="before")
     @classmethod

@@ -33,14 +33,14 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
-如果你是在事件 handler 里需要 `area` 和 `channel`，可以直接从事件对象里取：
+如果你是在事件 handler 里需要当前消息的 `area` 和 `channel`，可以直接从消息对象里取：
 
 ```python
 import asyncio
 
 from oopz_sdk import OopzBot, OopzConfig
 from oopz_sdk.events import EventContext
-from oopz_sdk.models import Message, ChannelGroupInfo, JoinedAreaInfo
+from oopz_sdk.models import Message
 
 bot = OopzBot(OopzConfig(
     device_id="你的设备 ID",
@@ -52,14 +52,8 @@ bot = OopzBot(OopzConfig(
 
 @bot.on_message
 async def handle_message(message: Message, ctx: EventContext):
-    areas: list[JoinedAreaInfo] = await bot.areas.get_joined_areas()
-    for area in areas:
-        print(f"[AREA] {area.name}  id={area.area_id}")
-        groups: list[ChannelGroupInfo] = await bot.areas.get_area_channels(message.area)
-        for group in groups:
-            print(f"  [GROUP] {group.name}  id={group.group_id}")
-            for channel in group.channels:
-                print(f"    [CHANNEL] {channel.name}  id={channel.channel_id}  type={channel.channel_type}")
+    print("area:", message.area)
+    print("channel:", message.channel)
 
 
 

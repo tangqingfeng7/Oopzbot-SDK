@@ -30,12 +30,6 @@ class ProxyConfig:
 
 
 @dataclass
-class AutoRecallConfig:
-    enabled: bool = False
-    delay: float = 30.0
-
-
-@dataclass
 class OopzConfig:
     device_id: str
     person_uid: str
@@ -67,7 +61,6 @@ class OopzConfig:
     retry: RetryConfig = field(default_factory=RetryConfig)
     heartbeat: HeartbeatConfig = field(default_factory=HeartbeatConfig)
     proxy: ProxyConfig = field(default_factory=ProxyConfig)
-    auto_recall: AutoRecallConfig = field(default_factory=AutoRecallConfig)
 
     ignore_self_messages: bool = True   # 如果设置为False, 会导致bot接收到自己处理的消息, 可能导致死循环
 
@@ -105,22 +98,6 @@ class OopzConfig:
     @request_timeout.setter
     def request_timeout(self, value: float | tuple[float, float]) -> None:
         self.retry.timeout = value
-
-    @property
-    def auto_recall_enabled(self) -> bool:
-        return self.auto_recall.enabled
-
-    @auto_recall_enabled.setter
-    def auto_recall_enabled(self, value: bool) -> None:
-        self.auto_recall.enabled = value
-
-    @property
-    def auto_recall_delay(self) -> float:
-        return self.auto_recall.delay
-
-    @auto_recall_delay.setter
-    def auto_recall_delay(self, value: float) -> None:
-        self.auto_recall.delay = value
 
     def get_headers(self) -> dict[str, str]:
         return {**DEFAULT_HEADERS, **self.headers}

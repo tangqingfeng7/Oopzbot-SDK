@@ -4,7 +4,7 @@
 
 ### 变更
 
-- `Message.send_message` 的 `auto_recall` 改为三态 `Optional[bool]`，默认 `None`：不传时跟随 `OopzConfig.auto_recall_enabled`；`True` 强制撤回，`False` 强制保留（用于全局开启后想保留公告 / 日报等个别消息的场景）。原先默认 `False` + 内部只检查 `auto_recall and ...` 的写法，导致"全局 `auto_recall_enabled=True` 但 `send_message()` 不传 `auto_recall` 就不会撤回"，与 `OopzConfig.auto_recall_enabled` 字段名直觉相反。
+- **BREAKING**：彻底移除内置「自动撤回」机制。删除 `AutoRecallConfig` 类、`OopzConfig.auto_recall` / `auto_recall_enabled` / `auto_recall_delay` 四个字段及 property、`Message.send_message` 的 `auto_recall` 参数，以及 `_schedule_auto_recall` / `_do_auto_recall` 两个内部协程。原实现用 `loop.create_task` 起的撤回任务不进 bot 任务集合，`bot.stop()` 不会 cancel，错误只进 logger 不抛、调用方无法感知撤回成败、也无法取消未到期的撤回；同时 `send_private_message` 不参与这套机制，所谓"全局"从一开始就是半残的。需要"发完延迟撤回"行为的调用方自行 `asyncio.create_task(asyncio.sleep + bot.messages.recall_message)`，task 生命周期与错误处理由调用方掌握；docs `recipes/recall-message.md` 给出 5 行的参考写法。`recall_message` / `recall_private_message` / `ctx.recall()` 三个真正的撤回 API 不变。
 - `ChannelEdit.accessible` 属性内部更名为 `accessible_roles`（Pydantic alias 仍为 `"accessible"`，`to_request_body()` 产出的 JSON 字段不变，对服务端完全兼容）。直接通过属性访问 `.accessible` 的调用方需要改为 `.accessible_roles`。
 - `HttpTransport.request_json` 与 `OperationResult.from_api` 对 `status` 字段改为严格布尔：字符串 `"false"` / `"0"` / `"no"` 等会被正确判为失败，不再因为 Python 真值规则被当成"字符串 true"而误判成功。若服务端个别接口用字符串下发 `status`，之前被静默当成功的响应现在会按真实失败处理。
 
@@ -34,7 +34,6 @@
 
 ### 改进
 
-- README 补充语音示例条目、`auto_recall` 三态语义说明，并把"发消息后自动撤回"的配置方式统一说明成"构造 `OopzConfig` 时传 `auto_recall=AutoRecallConfig(enabled=True, delay=...)` 或直接改 `config.auto_recall_enabled` / `config.auto_recall_delay`，开启后 `send_message` 自动按延迟撤回、不必每次传 `auto_recall=True`"。
 - `pyproject.toml` 将 `license-files = []` 改回 `["LICENSE"]`，消除 setuptools 关于 `LICENSE` 未声明的告警，与 `MANIFEST.in` 的 include 保持一致（0.6.1 修过一次，0.7.0/0.7.1 又回退成空数组，这里重新落地）。
 - `oopz_sdk/models/attachment.py` 删除 `Attachment.parse` 中 `raise` 之后的 unreachable 赋值。
 

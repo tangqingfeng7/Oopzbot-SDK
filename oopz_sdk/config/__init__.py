@@ -10,13 +10,12 @@ from .constants import (
     STYLE_TAG_IMPORTANT,
     STYLE_TAGS,
 )
-from .settings import AutoRecallConfig, HeartbeatConfig, OopzConfig, ProxyConfig, RetryConfig
+from .settings import HeartbeatConfig, OopzConfig, ProxyConfig, RetryConfig
 
 __all__ = [
     "ATTACHMENT_TYPE_AUDIO",
     "ATTACHMENT_TYPE_FILE",
     "ATTACHMENT_TYPE_IMAGE",
-    "AutoRecallConfig",
     "DEFAULT_HEADERS",
     "EVENT_AUTH",
     "EVENT_CHAT_MESSAGE",

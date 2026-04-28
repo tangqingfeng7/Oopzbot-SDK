@@ -4,6 +4,7 @@ __pycache__/
 build/
 dist/
 dist-check/
+site/
 *.egg-info/
 .venv/
 test.env
@@ -11,3 +12,7 @@ smoke/test_private_key.pem
 .vscode/
 .idea/
 *.log
+.oopz_capture_credentials/
+config.py
+private_key.py
+data/credentials.txt

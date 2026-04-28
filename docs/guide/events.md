@@ -4,55 +4,49 @@
 
 1. `OopzWSClient` 接收原始 WebSocket 消息。
 2. `EventParser` 将原始 JSON 转换为结构化事件模型。
-3. `EventDispatcher` 根据 `name` 调用注册的 handler。
+3. `EventDispatcher` 根据 SDK 事件名（`event_name`）调用注册的 handler。
 
 ## 事件回调函数
 
 事件回调函数是用于注册事件处理逻辑的异步函数。当特定事件发生时，SDK 会调用对应的回调函数，并传入事件数据和上下文。
 
-事件回调函数通常接受两个参数：
+不同事件的回调签名**不一样**，按下表区分：
 
-```python
-async def handler(event: Event, ctx: EventContext):
-    ...
-```
+| 事件 | 回调签名 | 说明 |
+| --- | --- | --- |
+| `message` / `message.private` / `message.edit` / `message.private.edit` | `handler(message, ctx)` | 第一个参数是解析后的 `Message`（不是 `MessageEvent`），可以为 `None`。 |
+| `ready` / `reconnect` | `handler(ctx)` | 只有一个参数，多写参数会 `TypeError`。 |
+| `error` / `close` / `raw_event` / 其他自定义事件 | `handler(ctx, event)` | `ctx` 在前，`event` 在后。`error` 时第二个参数是异常对象，`close` 时是包含 `code`/`reason`/`error`/`reconnecting` 的 `dict`。 |
 
-其中：
-
-- `event` 是具体事件模型，例如 `MessageEvent`、`MessageDeleteEvent`、`ChannelUpdateEvent`。
-- `ctx` 是 `EventContext`，包含 `ctx.bot`、`ctx.config`、`ctx.event`。
-
-消息事件的回调和其他Event不同，消息事件的回调传递的是解析后的 `Message` 模型。
-
-```python
-async def handler(message: Message, ctx: EventContext):
-    ...
-```
+`ctx` 是 `EventContext`，包含 `ctx.bot`、`ctx.config`、`ctx.event`。在消息事件中可以通过 `ctx.event` 拿到原始的 `MessageEvent`，从而获取 `is_private` 等额外信息。
 
 ## 注册事件
 
 ```python
-# 当接受到频道消息时调用
+from oopz_sdk.events import EventContext
+from oopz_sdk.models import Message
+
+# 当接收到频道消息时调用
 @bot.on_message
 async def on_message(message: Message, ctx: EventContext):
     ...
 
 
-# 当接受到私信消息时调用
+# 当接收到私信消息时调用
 @bot.on_private_message
-async def on_private_message(event, ctx):
+async def on_private_message(message: Message, ctx: EventContext):
     ...
 
 
-# 当频道消息被撤回时调用
+# 当频道消息被撤回时调用（非消息事件，签名是 (ctx, event)）
 @bot.on_recall
-async def on_recall(event, ctx):
+async def on_recall(ctx, event):
     ...
 
 
 # 当用户身份组发生变化时调用
 @bot.on("role.change")
-async def on_role_change(event, ctx):
+async def on_role_change(ctx, event):
     ...
 ```
 
@@ -70,9 +64,11 @@ async def on_role_change(event, ctx):
 | `@bot.on_error`                | `error`                | handler 或底层连接错误。                  |
 | `@bot.on_close`                | `close`                | WebSocket 关闭。                     |
 | `@bot.on_reconnect`            | `reconnect`            | WebSocket 重连。                     |
-| `@bot.on_raw_event`            | `raw_event`            | 所有事件的原始分发。                        |
+| `@bot.on_raw_event`            | `raw_event`            | 经过 SDK 过滤后的事件分发。                   |
 
 其他事件使用 `@bot.on("事件名")` 注册。
+
+`raw_event` 拿到的是 `EventParser` 解析后的结构化事件对象，不是原始 JSON 字符串。默认 `ignore_self_messages=True` 时，自己发出的消息事件会在 `raw_event` 之前被过滤。
 
 ## Oopz 原生 event code 到 SDK event name 映射
 
@@ -108,9 +104,10 @@ async def on_role_change(event, ctx):
 
 ```python
 @bot.on_raw_event
-async def raw(event, ctx):
-    if event.name.startswith("event_"):
-        print(event.body)
+async def raw(ctx, event):
+    if event.event_name.startswith("event_"):
+        # event 是 UnknownEvent 时，原始 body 通过 payload 暴露
+        print(event.event_type, getattr(event, "payload", None))
 ```
 
 这可以帮助后续补充新的事件模型。

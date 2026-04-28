@@ -8,7 +8,7 @@ client.messages
 client.media
 client.areas
 client.channels
-client.person
+client.person       # 也可以使用 client.members（别名）
 client.moderation
 ```
 
@@ -26,9 +26,9 @@ bot.voice
 | `media` | `Media` | 文件上传。 |
 | `areas` | `AreaService` | 域信息、域成员、域频道、域身份组。 |
 | `channels` | `Channel` | 频道设置、创建、修改、删除、进入频道、语音成员。 |
-| `members` | `Member` | 用户资料、好友、好友请求。 |
+| `person`（别名 `members`） | `Person` | 用户资料、好友、好友请求。 |
 | `moderation` | `Moderation` | 禁言、解禁、禁麦、踢人、拉黑、黑名单。 |
-| `voice` | `Voice` | 进入语音频道、推流播放、暂停、恢复、音量、退出。 |
+| `voice` | `Voice` | 进入语音频道、推流播放、暂停、恢复、音量、退出。仅 `OopzBot` 默认挂载。 |
 
 ## 调用约定
 
@@ -42,7 +42,7 @@ bot.voice
 from oopz_sdk import OopzRESTClient
 
 async with OopzRESTClient(config) as client:
-    me = await client.members.get_person_info()
+    me = await client.person.get_person_info()
     await client.messages.send_message("hello", area=area, channel=channel)
 ```
 
@@ -52,7 +52,7 @@ async with OopzRESTClient(config) as client:
 bot = OopzBot(config)
 
 @bot.on_message
-async def on_message(event, ctx):
+async def on_message(message, ctx):
     await ctx.reply("pong")
 
 try:

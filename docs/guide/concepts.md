@@ -4,7 +4,7 @@
 
 ## OopzConfig
 
-`OopzConfig` 保存 SDK 运行所需的配置，包括凭证、API 地址、WebSocket 地址、代理、重试、心跳、语音和自动撤回等。
+`OopzConfig` 保存 SDK 运行所需的配置，包括凭证、API 地址、WebSocket 地址、代理、重试、心跳和语音等。
 
 ```python
 from oopz_sdk import OopzConfig
@@ -38,7 +38,7 @@ bot = OopzBot(config)
 
 
 @bot.on_message
-async def on_message(event, ctx):
+async def on_message(message, ctx):
     await ctx.reply("收到")
 ```
 
@@ -50,7 +50,7 @@ async def on_message(event, ctx):
 from oopz_sdk import OopzRESTClient
 
 async with OopzRESTClient(config) as client:
-    me = await client.members.get_person_info()
+    me = await client.person.get_person_info()
 ```
 
 如果你需要长期监听消息，应该使用 `OopzBot`，而不是只用 `OopzRESTClient`。
@@ -97,11 +97,13 @@ WebSocket 收到的原始事件会被解析成[事件模型](../reference/events
 
 
 ```python
-async def handler(event, ctx):
+async def handler(ctx, event):
     ...
 ```
 
-可以使用 `ctx.event` 访问当前事件，可以使用事件封装的属性来获取事件数据来进行开发。具体请参考[事件系统](../guide/events.md)。
+> 不同事件的回调签名不同：消息类事件是 `(message, ctx)`，`ready` / `reconnect` 是 `(ctx,)`，其他事件是 `(ctx, event)`。详见[事件系统](../guide/events.md#事件回调函数)。
+
+可以使用 `ctx.event` 访问当前事件，可以使用事件封装的属性来获取事件数据来进行开发。
 
 ## EventContext
 
@@ -120,7 +122,7 @@ async def handler(event, ctx):
 
 ```python
 @bot.on_message
-async def on_message(event, ctx):
+async def on_message(message, ctx):
     await ctx.reply("收到")
 ```
 
@@ -128,13 +130,13 @@ async def on_message(event, ctx):
 
 `OopzBot` 和 `OopzRESTClient` 都会挂载 service：
 
-| 属性           | 说明                          |
-|--------------|-----------------------------|
-| `messages`   | 频道消息、私信、撤回、置顶、历史消息。         |
-| `media`      | 上传文件。                       |
-| `areas`      | 域信息、域成员、域频道。                |
-| `channels`   | 频道创建、修改、删除、设置。              |
-| `person`     | 用户资料、好友、好友请求。               |
-| `moderation` | 禁言、解禁、踢人、黑名单。               |
-| `voice`      | 语音频道和推流能力，仅 `OopzBot` 默认挂载。 |
+| 属性                          | 说明                          |
+|-----------------------------|-----------------------------|
+| `messages`                  | 频道消息、私信、撤回、置顶、历史消息。         |
+| `media`                     | 上传文件。                       |
+| `areas`                     | 域信息、域成员、域频道。                |
+| `channels`                  | 频道创建、修改、删除、设置。              |
+| `person`（别名 `members`）       | 用户资料、好友、好友请求。               |
+| `moderation`                | 禁言、解禁、踢人、黑名单。               |
+| `voice`                     | 语音频道和推流能力，仅 `OopzBot` 默认挂载。 |
 

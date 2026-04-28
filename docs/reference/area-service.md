@@ -18,7 +18,7 @@ page = await bot.areas.get_area_members(
 print(page.total_count)
 
 for member in page.members:
-    print(member.uid, member.name)
+    print(member.uid, member.role, member.online)
 ```
 
 === "参数"
@@ -39,7 +39,8 @@ for member in page.members:
     | --- | --- | --- |
     | `total_count` | `int` | 域成员总数。 |
     | `members` | `list[AreaMemberInfo]` | 当前分页中的成员列表。 |
-    | `roleCount` | `list[AreaRoleCountInfo]` |  |
+    | `role_count` | `list[AreaRoleCountInfo]` |  |
+    | `from_cache` | `bool` | 是否来自 SDK 本地缓存。 |
 
     `AreaMemberInfo` 常见字段：
 
@@ -62,8 +63,8 @@ for member in page.members:
 
     | 配置 | 默认值 | 说明 |
     | --- | --- | --- |
-    | `config.area_members_cache_ttl` | `15` | 域成员缓存有效期，单位为秒。 |
-    | `config.cache_max_entries` | - | 最大缓存条目数；小于等于 `0` 表示关闭缓存。 |
+    | `config.area_members_cache_ttl` | `15.0` | 域成员缓存有效期，单位为秒。 |
+    | `config.cache_max_entries` | `200` | 最大缓存条目数；小于等于 `0` 表示关闭缓存。 |
 
 ---
 
@@ -132,8 +133,8 @@ print(info.home_page_channel_id)
     | `banner` | `str` | `""` | 域横幅 URL。 |
     | `code` | `str` | `""` | 域数字id。 |
     | `desc` | `str` | `""` | 域描述。 |
-    | `disable_text_to` | `str | None` | `None` | 当前用户禁言到期时间。 |
-    | `disable_voice_to` | `str | None` | `None` | 当前用户禁麦到期时间。 |
+    | `disable_text_to` | `str \| None` | `None` | 当前用户禁言到期时间。 |
+    | `disable_voice_to` | `str \| None` | `None` | 当前用户禁麦到期时间。 |
     | `edit_count` | `int` | `0` | 域信息编辑次数。 |
     | `home_page_channel_id` | `str` | `""` | 域主页频道 ID。 |
     | `area_id` | `str` | `""` | 域 ID。 |
@@ -262,8 +263,8 @@ for group in groups:
 
     | 字段 | 类型 | 默认值 | 说明 |
     | --- | --- | --- | --- |
-    | `disable_text_levels` | `list[int] | None` | `None` |  |
-    | `disable_voice_levels` | `list[int] | None` | `None` |  |
+    | `disable_text_levels` | `list[int] \| None` | `None` |  |
+    | `disable_voice_levels` | `list[int] \| None` | `None` |  |
     | `max_member` | `int` | `0` | 最大成员数。 |
     | `member_public` | `bool` | `False` |  |
     | `text_control_enabled` | `bool` | `False` | 是否启用文本权限控制。 |
@@ -307,7 +308,7 @@ print([role.role_id for role in detail.roles])
     | --- | --- | --- | --- |
     | `disable_text_to` | `Any` | `None` | 禁言到期时间。 |
     | `disable_voice_to` | `Any` | `None` | 禁麦到期时间。 |
-    | `higher_uid` | `str` | `""` | 用户 UID。 |
+    | `higher_uid` | `str` | `""` | 上级用户 UID（域内层级关系字段）。 |
     | `roles` | `list[RoleInfo]` | `[]` | 用户当前拥有的身份组信息列表。 |
     | `now` | `int` | `0` | 服务端时间戳。 |
 
@@ -317,11 +318,9 @@ print([role.role_id for role in detail.roles])
     | --- | --- | --- | --- |
     | `description` | `str` | `""` | 身份组描述。 |
     | `name` | `str` | `""` | 身份组名称。 |
+    | `owned` | `bool` | `False` | 当前用户是否拥有该身份组；部分接口可能不返回该字段，此时模型默认 `False`。 |
     | `role_id` | `int` | `0` | 身份组 ID。 |
     | `sort` | `int` | `0` | 身份组排序。 |
-
-    !!! note
-        注意: RoleInfo 中没有 `owned` 字段
 ---
 
 ## `get_area_can_give_list(area, target)`
@@ -367,7 +366,7 @@ for role in roles:
     roles = data.get("roles")
     ```
 
-    如果接口响应中没有 `roles`，SDK 会抛出 `ValueError`。
+    如果接口响应不是 dict，或没有 `roles` 列表，SDK 会抛出 `OopzApiError`。
 
 ---
 
@@ -435,15 +434,65 @@ print(result.ok)
 
 ---
 
+## `get_user_area_nicknames(area, uids)`
+
+批量获取一组用户在指定域内的昵称（域内备注名）。
+
+```python
+nicknames = await bot.areas.get_user_area_nicknames(
+    area="域 ID",
+    uids=["uid1", "uid2", "uid3"],
+)
+
+for uid, nickname in nicknames.items():
+    print(uid, "=>", nickname)
+```
+
+=== "参数"
+
+    | 参数 | 类型 | 必填 | 说明 |
+    | --- | --- | --- | --- |
+    | `area` | `str` | 是 | 域 ID，不能为空。 |
+    | `uids` | `list[str]` | 是 | 要查询的用户 UID 列表，不能为空。 |
+
+=== "返回值"
+
+    返回：`dict[str, str]`，键是 UID，值是该用户在域内的昵称。如果用户在该域内没有自定义昵称，对应值通常为空字符串。
+
+=== "异常"
+
+    | 场景 | 异常 |
+    | --- | --- |
+    | `area` 为空 | `ValueError` |
+    | `uids` 为空列表 | `ValueError` |
+    | 接口返回不是 dict 或缺少 `nicknames` 字段 | `OopzApiError` |
+
+---
+
 ## `populate_names(set_area=None, set_channel=None)`
 
+遍历当前账号已加入的所有域以及各域下的频道，把 `(area_id, area_name)` 和 `(channel_id, channel_name)` 通过回调返还给业务层，方便上层做名称缓存或日志可读化。
+
+回调可以是同步函数，也可以是异步函数（SDK 内部会自动 `await` 协程）。
+
+```python
+area_names: dict[str, str] = {}
+channel_names: dict[str, str] = {}
+
+result = await bot.areas.populate_names(
+    set_area=lambda area_id, name: area_names.update({area_id: name}),
+    set_channel=lambda channel_id, name: channel_names.update({channel_id: name}),
+)
+
+print(result)
+```
 
 === "参数"
 
     | 参数 | 类型 | 必填 | 默认值 | 说明 |
     | --- | --- | --- | --- | --- |
-    | `set_area` | `Callable[[str, str], None] \| None` | 否 | `None` | 域名称缓存回调，接收 `(area_id, area_name)`。 |
-    | `set_channel` | `Callable[[str, str], None] \| None` | 否 | `None` | 频道名称缓存回调，接收 `(channel_id, channel_name)`。 |
+    | `set_area` | `Callable[[str, str], Awaitable[None] \| None] \| None` | 否 | `None` | 域名称缓存回调，接收 `(area_id, area_name)`。可同步可异步。 |
+    | `set_channel` | `Callable[[str, str], Awaitable[None] \| None] \| None` | 否 | `None` | 频道名称缓存回调，接收 `(channel_id, channel_name)`。可同步可异步。 |
 
 === "返回值"
 

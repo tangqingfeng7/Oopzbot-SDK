@@ -1,5 +1,3 @@
-from oopz_sdk.utils.image import get_image_info
-
 # 消息发送
 
 本页适合你已经跑通 [5 分钟上手](quickstart.md)，并且想发送文本、图片、私信、回复或撤回消息。
@@ -87,7 +85,7 @@ async def handle_message(message: Message, ctx: EventContext):
 ```python
 await bot.messages.send_private_message(
     "这是私信",
-    target="目标  UID",
+    target="目标 UID",
     channel="私信会话 ID",
 )
 ```
@@ -103,7 +101,7 @@ SDK 支持用 `Segment` 组合消息内容。常用类型：
 | `Text("文本")`        | 普通文本          |
 | `Mention("用户 UID")` | at指定用户        |
 | `MentionAll()`      | at全体          |
-| `Image("a.png")`    | 本地图片，发送前会自动上传 |
+| `Image("a.png")`    | 图片输入，发送前会自动上传 |
 
 示例：
 
@@ -120,11 +118,13 @@ await bot.messages.send_message(
 )
 ```
 
+`Image` 的输入类型与 [Media Service](../reference/media-service.md) 的 `ImageInput` 一致，支持本地路径、bytes、base64 / data URL 和 file-like 对象。
+
 当传入 Segment 时，不要同时传 `attachments=`，否则会抛出 `ValueError`。这是为了避免文本中的图片占位和附件列表不一致。
 
 ## 手动附件方式
 
-Oopz的图片发送需要先上传图片获取 `file_key`，然后在消息文本中用 `![IMAGEw{weight}h{height}]({file_key})` 占位，最后把附件信息放到 `attachments` 参数里。
+Oopz的图片发送需要先上传图片获取 `file_key`，然后在消息文本中用 `![IMAGEw{width}h{height}]({file_key})` 占位，最后把附件信息放到 `attachments` 参数里。
 
 Segment 的 `Image` 已经封装了这个流程，如果你不想用 Segment，也可以手动拼装信息：
 
@@ -137,49 +137,23 @@ uploaded = await client.media.upload_file("./demo.png", file_type="IMAGE", ext="
 width, height, file_size = get_image_info("./demo.png")
 
 await client.messages.send_message(
-    f"图片：![IMAGEw{weight}h{height}]({uploaded.file_key})\n",
+    f"图片：![IMAGEw{width}h{height}]({uploaded.file_key})\n",
     area="域 ID",
     channel="频道 ID",
     attachments=[{
-            "file_key": uploaded.file_key,
+            "fileKey": uploaded.file_key,
             "url": uploaded.url,
-            "display_name": "demo.png",
-            "file_size": file_size,
+            "attachmentType": "IMAGE",
+            "displayName": "demo.png",
+            "fileSize": file_size,
             "animated": uploaded.animated,
             "hash": "",
             "width": width,
             "height": height,
-            "preview_file_key": uploaded.preview_file_key,
+            "previewFileKey": "",
     }],
 )
 ```
-
-## 自动撤回
-
-全局配置：
-
-```python
-from oopz_sdk import AutoRecallConfig, OopzConfig
-
-config = OopzConfig(
-    ...,
-    auto_recall=AutoRecallConfig(enabled=True, delay=30.0),
-)
-```
-
-单条消息启用：
-
-```python
-await bot.messages.send_message(
-    "30 秒后撤回",
-    area=area,
-    channel=channel,
-    auto_recall=True,
-)
-```
-
-当前实现中，`send_message(auto_recall=True)` 会尝试按 `config.auto_recall.delay` 延迟撤回；`auto_recall=False`
-不会为本条消息安排撤回。
 
 ## 撤回频道消息
 
