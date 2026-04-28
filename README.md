@@ -2,7 +2,7 @@
 
 # Oopzbot SDK
 
-面向 Oopz 机器人开发与生态适配的现代异步 Python SDK。
+面向 Oopz 机器人开发与生态的现代异步 Python SDK。
 
 
 [![License](https://img.shields.io/github/license/tangqingfeng7/Oopzbot-SDK)](https://github.com/tangqingfeng7/Oopzbot-SDK)
@@ -16,7 +16,7 @@
 
 [//]: # (· OneBot v12 适配)
 
-[快速开始](#-快速开始) · [功能特性](#-功能特性) · [文档](#-文档) · [示例](#-示例) · [贡献](#-参与贡献)
+[快速开始](https://tangqingfeng7.github.io/Oopzbot-SDK/guide/quickstart/) · [功能特性](#-功能特性) · [文档](https://tangqingfeng7.github.io/Oopzbot-SDK/) · [示例](https://tangqingfeng7.github.io/Oopzbot-SDK/recipes/) · [贡献](https://tangqingfeng7.github.io/Oopzbot-SDK/development/contributing/)
 
 </div>
 
