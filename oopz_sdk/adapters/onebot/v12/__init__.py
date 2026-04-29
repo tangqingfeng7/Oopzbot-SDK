@@ -3,6 +3,7 @@ from __future__ import annotations
 from .adapter import OneBotV12Adapter
 from .event import to_onebot_event
 from .message import alt_message, from_onebot_message, to_onebot_message
+from .server import OneBotV12Server, OneBotV12ServerConfig
 from .types import (
     ActionResponse,
     DetailType,
@@ -19,6 +20,8 @@ from .types import (
 
 __all__ = [
     "OneBotV12Adapter",
+    "OneBotV12Server",
+    "OneBotV12ServerConfig",
     "to_onebot_event",
     "to_onebot_message",
     "from_onebot_message",

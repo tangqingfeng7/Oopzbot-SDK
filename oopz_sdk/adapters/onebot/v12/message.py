@@ -209,8 +209,9 @@ def _image_from_onebot_data(data: Mapping[str, Any]) -> Image | None:
     if _looks_like_local_path(file_id):
         return Image.from_file(file_id)
 
-    # 已经是 Oopz 上传资源时，可以直接带 file_key + url
-    if file_id and url:
+    # 已经是 Oopz 上传资源时，可以直接带 file_key + url。
+    # OneBot v12 标准 image 只有 file_id，因此这里允许 file_id 直接作为 Oopz file_key 复用。
+    if file_id:
         return Image(
             file_key=file_id,
             url=url,

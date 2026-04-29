@@ -17,6 +17,7 @@ from .config import (
     EVENT_SERVER_ID,
     AutoRecallConfig,
     HeartbeatConfig,
+    OneBotV11Config,
     OneBotV12Config,
     OopzConfig,
     ProxyConfig,
@@ -105,5 +106,6 @@ __all__ = [
     "VoiceChannelMembersResult",
     "__version__",
     "setup_logging",
+    "OneBotV11Config",
     "OneBotV12Config",
 ]

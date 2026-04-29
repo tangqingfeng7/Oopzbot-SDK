@@ -86,6 +86,40 @@ class OneBotV12Config:
 
 
 @dataclass
+class OneBotV11Config:
+    """
+    OneBot v11 适配配置。
+
+    注意：Oopz 是 area/channel 双层结构，而 v11 是 group 单层结构。
+    v11 的 group_id 默认映射为 Oopz channel_id；发送群消息时建议额外传
+    oopz_area_id/area/guild_id，或在 default_area 中配置默认 area。
+    """
+
+    enabled: bool = False
+    auto_start_server: bool = True
+
+    platform: str = "oopz"
+    self_id: str = ""
+
+    db_path: str | None = None
+
+    host: str = "127.0.0.1"
+    port: int = 6700
+
+    access_token: str = ""
+
+    enable_http: bool = True
+    enable_ws: bool = True
+
+    webhook_urls: list[str] = field(default_factory=list)
+
+    ws_reverse_urls: list[str] = field(default_factory=list)
+    ws_reverse_reconnect_interval: float = 3.0
+
+    send_connect_event: bool = True
+
+
+@dataclass
 class OopzConfig:
     device_id: str
     person_uid: str
@@ -121,6 +155,7 @@ class OopzConfig:
 
     ignore_self_messages: bool = True   # 如果设置为False, 会导致bot接收到自己处理的消息, 可能导致死循环
 
+    onebot_v11: OneBotV11Config = field(default_factory=OneBotV11Config)
     onebot_v12: OneBotV12Config = field(default_factory=OneBotV12Config)
 
     def __post_init__(self) -> None:

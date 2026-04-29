@@ -14,6 +14,7 @@ from .constants import (
 from .settings import (
     AutoRecallConfig,
     HeartbeatConfig,
+    OneBotV11Config,
     OneBotV12Config,
     OopzConfig,
     ProxyConfig,
@@ -36,5 +37,6 @@ __all__ = [
     "RetryConfig",
     "STYLE_TAG_IMPORTANT",
     "STYLE_TAGS",
+    "OneBotV11Config",
     "OneBotV12Config",
 ]

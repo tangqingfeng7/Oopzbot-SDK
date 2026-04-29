@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import logging
+import time
+from collections import deque
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Mapping
 from typing import TYPE_CHECKING
 
 from oopz_sdk.models.event import HeartbeatEvent, ServerIdEvent
+
 from .event import to_onebot_event
 from .message import from_onebot_message
 from .types import (
@@ -23,7 +26,13 @@ from .types import (
 
 logger = logging.getLogger(__name__)
 
+BAD_REQUEST = 10001
+UNSUPPORTED_ACTION = 10002
+BAD_PARAM = 10003
+INTERNAL_HANDLER_ERROR = 20002
+
 EventSink = Callable[[JsonDict], Awaitable[None] | None]
+ActionHandler = Callable[[Mapping[str, Any]], Awaitable[Any]]
 
 if TYPE_CHECKING:
     from oopz_sdk import OopzBot, models
@@ -37,12 +46,12 @@ class OneBotV12Adapter:
     protocol = "onebot.v12"
 
     def __init__(
-            self,
-            oopz_bot: OopzBot,
-            self_id: str,
-            *,
-            platform: str = "oopz",
-            db_path: str | Path | None = None,
+        self,
+        oopz_bot: OopzBot,
+        self_id: str,
+        *,
+        platform: str = "oopz",
+        db_path: str | Path | None = None,
     ) -> None:
         self.oopz_bot = oopz_bot
         self.platform = platform
@@ -54,6 +63,58 @@ class OneBotV12Adapter:
 
         self.store = MessageStore(db_path)
         self._event_sinks: list[EventSink] = []
+        self._event_queue: deque[JsonDict] = deque(maxlen=1000)
+
+        self._actions: dict[str, ActionHandler] = self._build_actions()
+
+    # ------------------------------------------------------------------
+    # Action 注册表
+    # ------------------------------------------------------------------
+
+    def _build_actions(self) -> dict[str, ActionHandler]:
+        """
+        OneBot v12 action -> handler 映射。
+
+        """
+        return {
+            "get_supported_actions": self.get_supported_actions,
+            "get_latest_events": self.get_latest_events,
+
+            "get_status": self.get_status,
+            "get_version": self.get_version,
+
+            "send_message": self.send_message,
+
+            "delete_message": self.delete_message,
+            "recall_message": self.delete_message,
+            "delete_msg": self.delete_message,
+
+            "get_self_info": self.get_self_info,
+            "get_user_info": self.get_user_info,
+            "get_friend_list": self.get_friend_list,
+
+            "get_guild_info": self.get_guild_info,
+            "get_guild_list": self.get_guild_list,
+            "set_guild_name": self.set_guild_name,
+            "get_guild_member_info": self.get_guild_member_info,
+            "get_guild_member_list": self.not_implemented("get_guild_member_list"),
+            "leave_guild": self.not_implemented("leave_guild"),
+
+            "get_channel_info": self.get_channel_info,
+            "get_channel_list": self.get_channel_list,
+            "set_channel_name": self.set_channel_name,
+            "get_channel_member_info": self.get_channel_member_info,
+            "get_channel_member_list": self.get_channel_member_list,
+            "leave_channel": self.not_implemented("leave_channel"),
+
+            "cleanup_message_mapping": self.cleanup_message_mapping,
+        }
+
+    def not_implemented(self, name: str) -> ActionHandler:
+        async def handler(params: Mapping[str, Any]) -> Any:
+            raise NotImplementedError(f"{name} is not implemented yet")
+
+        return handler
 
     # ------------------------------------------------------------------
     # 事件：Oopz Event -> OneBot Event
@@ -72,7 +133,10 @@ class OneBotV12Adapter:
             self_info=self.self_info,
             store=self.store,
         )
-        print(payload)
+
+        self._event_queue.append(payload)
+        logger.debug("emit onebot v12 event: %s", payload)
+
         for sink in list(self._event_sinks):
             try:
                 result = sink(payload)
@@ -95,100 +159,66 @@ class OneBotV12Adapter:
     # ------------------------------------------------------------------
     # Action 入口
     # ------------------------------------------------------------------
+
     async def call_action_payload(self, payload: Mapping[str, Any]) -> ActionResponse:
-        action = str(payload.get("action") or "")
-        params = payload.get("params") or {}
         echo = payload.get("echo")
 
+        action = payload.get("action")
+        if not isinstance(action, str) or not action:
+            return failed(BAD_REQUEST, "action must be a non-empty string", echo=echo)
+
+        params = payload.get("params")
         if not isinstance(params, Mapping):
-            return failed(1400, "params must be an object", echo=echo)
+            return failed(BAD_REQUEST, "params must be an object", echo=echo)
 
         return await self.call_action(action, params, echo=echo)
 
     async def call_action(
-            self,
-            action: str,
-            params: Mapping[str, Any] | None = None,
-            *,
-            echo: Any = None,
+        self,
+        action: str,
+        params: Mapping[str, Any] | None = None,
+        *,
+        echo: Any = None,
     ) -> ActionResponse:
         params = params or {}
 
+        handler = self._actions.get(action)
+        if handler is None:
+            return failed(UNSUPPORTED_ACTION, f"unsupported action: {action}", echo=echo)
+
         try:
-            if action == "send_message":
-                return ok(await self.send_message(params), echo=echo)
-
-            if action in {"delete_message", "recall_message", "delete_msg"}:
-                return ok(await self.delete_message(params), echo=echo)
-
-            if action == "get_self_info":
-                return ok(await self.get_self_info(), echo=echo)
-
-            if action == "get_user_info":
-                return ok(await self.get_user_info(params), echo=echo)
-
-            if action == "get_friend_list":
-                return ok(await self.get_friend_list(), echo=echo)
-
-            if action == "get_status":
-                return ok(await self.get_status(), echo=echo)
-
-            if action == "get_version":
-                return ok(await self.get_version(), echo=echo)
-
-            if action == "get_guild_info":
-                return ok(await self.get_guild_info(params), echo=echo)
-
-            if action == "get_guild_list":
-                return ok(await self.get_guild_list(), echo=echo)
-
-            if action == "set_guild_name":
-                return ok(await self.set_guild_name(params), echo=echo)
-
-            if action == "get_guild_member_info":
-                return ok(await self.get_guild_member_info(params), echo=echo)
-
-            if action == "cleanup_message_mapping":
-                seconds = int(params.get("older_than_seconds") or 7 * 24 * 3600)
-                return ok({"deleted": self.store.cleanup(seconds)}, echo=echo)
-
-            if action == "get_guild_member_list":
-                raise NotImplementedError("get_guild_member_list is not implemented yet")
-
-            if action == "leave_guild":
-                raise NotImplementedError("leave_guild is not implemented yet")
-
-            if action == "get_channel_info":
-                return ok(await self.get_channel_info(params), echo=echo)
-
-            if action == "get_channel_list":
-                return ok(await self.get_channel_list(params), echo=echo)
-
-            if action == "set_channel_name":
-                return ok(await self.set_channel_name(params), echo=echo)
-
-            if action == "get_channel_member_info":
-                return ok(await self.get_channel_member_info(params), echo=echo)
-
-            if action == "get_channel_member_list":
-                return ok(await self.get_channel_member_list(params), echo=echo)
-
-            if action == "leave_channel":
-                raise NotImplementedError("leave_channel is not implemented yet")
-
-            return failed(1404, f"unsupported action: {action}", echo=echo)
-
+            data = await handler(params)
+            return ok(data, echo=echo)
         except NotImplementedError as exc:
-            return failed(1401, str(exc), echo=echo)
+            return failed(UNSUPPORTED_ACTION, str(exc), echo=echo)
         except ValueError as exc:
-            return failed(1400, str(exc), echo=echo)
+            return failed(BAD_PARAM, str(exc), echo=echo)
         except Exception as exc:
             logger.exception("onebot v12 action failed: %s", action)
-            return failed(1500, str(exc), echo=echo)
+            return failed(INTERNAL_HANDLER_ERROR, str(exc), echo=echo)
+
+    async def get_supported_actions(self, params: Mapping[str, Any]) -> list[str]:
+        return list(self._actions)
+
+    async def get_latest_events(self, params: Mapping[str, Any]) -> list[JsonDict]:
+        limit = int(params.get("limit") or 0)
+        events = list(self._event_queue)
+        if limit > 0:
+            return events[-limit:]
+        return events
+
+    async def cleanup_message_mapping(self, params: Mapping[str, Any]) -> JsonDict:
+        seconds = int(params.get("older_than_seconds") or 7 * 24 * 3600)
+        return {"deleted": self.store.cleanup(seconds)}
+
+    def failed_response(self, retcode: int, message: str, *, echo: Any = None) -> ActionResponse:
+        return failed(retcode, message, echo=echo)
+
 
     # ------------------------------------------------------------------
     # Action: send_message
     # ------------------------------------------------------------------
+
     async def send_message(self, params: Mapping[str, Any]) -> JsonDict:
         detail_type = str(params.get("detail_type") or "")
         message = params.get("message") or ""
@@ -262,10 +292,11 @@ class OneBotV12Adapter:
 
         raise ValueError(f"unsupported detail_type: {detail_type!r}")
 
+
     # ------------------------------------------------------------------
     # Action: delete_message
     # ------------------------------------------------------------------
-    async def delete_message(self, params: Mapping[str, Any]) -> JsonDict:
+    async def delete_message(self, params: Mapping[str, Any]) -> None:
         ob_message_id = require_str(params, "message_id")
         record = self.store.get(ob_message_id)
 
@@ -288,12 +319,10 @@ class OneBotV12Adapter:
                 target=target,
             )
 
-            return {
-                "ok": result.ok,
-                "message": result.message,
-                "message_id": ob_message_id,
-                "original_message_id": ob_message_id,
-            }
+            if not getattr(result, "ok", True):
+                raise RuntimeError(getattr(result, "message", "recall failed"))
+
+            return None
 
         if record.detail_type == "private":
             result = await self.oopz_bot.messages.recall_private_message(
@@ -310,62 +339,70 @@ class OneBotV12Adapter:
                 target=record.target,
             )
 
-        return {
-            "ok": result.ok,
-            "message": result.message,
-            "message_id": ob_message_id,
-            "original_message_id": record.oopz_message_id,
-        }
+        if not getattr(result, "ok", True):
+            raise RuntimeError(getattr(result, "message", "recall failed"))
+
+        return None
 
     # ------------------------------------------------------------------
     # 基础信息
     # ------------------------------------------------------------------
-    async def get_self_info(self) -> JsonDict:
+
+    async def get_self_info(self, params: Mapping[str, Any]) -> JsonDict:
         profile: models.Profile = await self.oopz_bot.person.get_self_detail()
 
         return {
             "user_id": self.self_id,
             "user_name": getattr(profile, "name", ""),
-            "user_displayname": "",  # 不适用
-
-            "extra": self.model_to_profile_extra(profile)
+            "user_displayname": "",
+            "extra": self.model_to_profile_extra(profile),
         }
 
-    async def get_user_info(self, param) -> JsonDict:
-        user_id = require_str(param, "user_id")
-        nicknames_resp = (await self.oopz_bot.person.get_person_remark_name(self.self_id)).user_remark_names
+    async def get_user_info(self, params: Mapping[str, Any]) -> JsonDict:
+        user_id = require_str(params, "user_id")
+
+        nicknames_resp = (
+            await self.oopz_bot.person.get_person_remark_name(self.self_id)
+        ).user_remark_names
+
         nickname = ""
         for name_model in nicknames_resp:
             if name_model.uid == user_id:
                 nickname = name_model.remark_name
+                break
 
         profile = await self.oopz_bot.person.get_person_detail_full(uid=user_id)
 
         return {
-            "user_id": self.self_id,
+            "user_id": user_id,
             "user_name": getattr(profile, "name", ""),
             "user_displayname": "",
             "user_remark": nickname,
-            "extra": self.model_to_profile_extra(profile)
+            "extra": self.model_to_profile_extra(profile),
         }
 
-    async def get_friend_list(self):
-        nicknames_resp = (await self.oopz_bot.person.get_person_remark_name(self.self_id)).user_remark_names
+    async def get_friend_list(self, params: Mapping[str, Any]) -> list[JsonDict]:
+        nicknames_resp = (
+            await self.oopz_bot.person.get_person_remark_name(self.self_id)
+        ).user_remark_names
+
         nickname_dict = {}
         for name_model in nicknames_resp:
             nickname_dict[name_model.uid] = name_model.remark_name
 
         friendships = await self.oopz_bot.person.get_friendship()
+
         return [
             {
                 "user_id": friend.uid,
                 "user_name": friend.name,
                 "user_displayname": "",
                 "user_remark": nickname_dict.get(friend.uid, ""),
-            } for friend in friendships
+            }
+            for friend in friendships
         ]
 
-    async def get_status(self) -> JsonDict:
+    async def get_status(self, params: Mapping[str, Any]) -> JsonDict:
         return {
             "good": True,
             "bots": [
@@ -376,16 +413,21 @@ class OneBotV12Adapter:
             ],
         }
 
-    async def get_version(self) -> JsonDict:
+    async def get_version(self, params: Mapping[str, Any]) -> JsonDict:
         return {
             "impl": "oopz_sdk",
             "version": "0.1.0",
             "onebot_version": "12",
         }
 
-    async def get_guild_info(self, params):
+    # ------------------------------------------------------------------
+    # Guild / Area
+    # ------------------------------------------------------------------
+
+    async def get_guild_info(self, params: Mapping[str, Any]) -> JsonDict:
         guild_id = require_str(params, "guild_id")
         model: models.AreaInfo = await self.oopz_bot.areas.get_area_info(area=guild_id)
+
         return {
             "guild_id": guild_id,
             "guild_name": model.name,
@@ -406,19 +448,12 @@ class OneBotV12Adapter:
                 "role_list": [rl.model_dump() for rl in model.role_list],
                 "subscribed": model.subscribed,
                 "area_role_infos": model.area_role_infos.model_dump(),
-            }
+            },
         }
 
-    #     code: str = ""
-    #     avatar: str = ""
-    #     banner: str = ""
-    #     level: int = 0
-    #     owner: str = ""
-    #     group_id: str = Field(default="", alias="groupID")
-    #     group_name: str = Field(default="", alias="groupName")
-    #     subscript: int = 0
-    async def get_guild_list(self) -> list:
+    async def get_guild_list(self, params: Mapping[str, Any]) -> list[JsonDict]:
         guild_list: list[models.JoinedAreaInfo] = await self.oopz_bot.areas.get_joined_areas()
+
         return [
             {
                 "guild_id": area.area_id,
@@ -429,54 +464,49 @@ class OneBotV12Adapter:
                     "banner": area.banner,
                     "level": area.level,
                     "owner": area.owner,
-                }
-            } for area in guild_list
+                },
+            }
+            for area in guild_list
         ]
 
-    async def set_guild_name(self, params) -> None:
+    async def set_guild_name(self, params: Mapping[str, Any]) -> None:
         guild_id = require_str(params, "guild_id")
         guild_name = require_str(params, "guild_name")
 
         await self.oopz_bot.areas.edit_area_name(area=guild_id, name=guild_name)
         return None
 
-    async def get_guild_member_info(self, params) -> JsonDict:
+    async def get_guild_member_info(self, params: Mapping[str, Any]) -> JsonDict:
         guild_id = require_str(params, "guild_id")
         user_id = require_str(params, "user_id")
-        nickname_dict = await self.oopz_bot.areas.get_user_area_nicknames(area=guild_id, uids=[user_id])
-        user_name = await self.oopz_bot.person.get_person_detail_full(user_id)
+
+        nickname_dict = await self.oopz_bot.areas.get_user_area_nicknames(
+            area=guild_id,
+            uids=[user_id],
+        )
+        user_name = await self.oopz_bot.person.get_person_detail_full(uid=user_id)
+
         return {
-            "user_id": guild_id,
+            "user_id": user_id,
             "user_name": user_name.name,
             "extra": {
                 "user_displayname": nickname_dict.get(user_id),
-            }
+            },
         }
 
-    # text_gap_second: int = Field(default=0, alias="textGapSecond")
-    #     voice_quality: str = Field(default="64k", alias="voiceQuality")
-    #     voice_delay: str = Field(default="LOW", alias="voiceDelay")
-    #     max_member: int = Field(default=30000, alias="maxMember")
-    #
-    #     voice_control_enabled: bool = Field(default=False, alias="voiceControlEnabled")
-    #     text_control_enabled: bool = Field(default=False, alias="textControlEnabled")
-    #
-    #     text_roles: list[Any] = Field(default_factory=list, alias="textRoles")
-    #     voice_roles: list[Any] = Field(default_factory=list, alias="voiceRoles")
-    #
-    #     access_control_enabled: bool = Field(default=False, alias="accessControlEnabled")
-    #     accessible_roles: list[int] = Field(default_factory=list, alias="accessibleRoles")
-    #     accessible_members: list[str] = Field(default_factory=list, alias="accessibleMembers")
-    #
-    #     member_public: bool = Field(default=False, alias="memberPublic")
-    #     secret: bool = False
-    #     has_password: bool = Field(default=False, alias="hasPassword")
-    #     password: str = ""
-    async def get_channel_info(self, params) -> JsonDict:
-        # onebot v12 需要guild字段, 但是oopz实际查询不需要
+    # ------------------------------------------------------------------
+    # Channel
+    # ------------------------------------------------------------------
+
+    async def get_channel_info(self, params: Mapping[str, Any]) -> JsonDict:
+        # OneBot v12 需要 guild 字段，但是 Oopz 实际查询不需要。
         # guild_id = require_str(params, "guild_id")
         channel_id = require_str(params, "channel_id")
-        model: models.ChannelSetting = await self.oopz_bot.channels.get_channel_setting_info(channel=channel_id)
+
+        model: models.ChannelSetting = await self.oopz_bot.channels.get_channel_setting_info(
+            channel=channel_id
+        )
+
         return {
             "channel_id": channel_id,
             "channel_name": model.name,
@@ -503,60 +533,87 @@ class OneBotV12Adapter:
                 "member_public": model.member_public,
                 "secret": model.secret,
                 "has_password": model.has_password,
-            }
+            },
         }
 
-    async def get_channel_list(self, params) -> list[JsonDict]:
+    async def get_channel_list(self, params: Mapping[str, Any]) -> list[JsonDict]:
         guild_id = require_str(params, "guild_id")
         joined_only = bool(params.get("joined_only") or False)
-        model: list[models.ChannelGroupInfo] = await self.oopz_bot.areas.get_area_channels(area=guild_id)
-        result = []
+
+        # todo joined_only 暂时没有使用。
+        _ = joined_only
+
+        model: list[models.ChannelGroupInfo] = await self.oopz_bot.areas.get_area_channels(
+            area=guild_id
+        )
+
+        result: list[JsonDict] = []
+
         for group in model:
             for channel in group.channels:
-                result.append({
-                    "channel_id": channel.channel_id,
-                    "channel_name": channel.name,
-                    "guild_id": channel.area_id,
-                    "extra": {
-                        "channel_type": channel.channel_type,
-                        "category_id": channel.group_id,
-                        "text_gap_second": channel.settings.text_gap_second,
-                        "voice_quality": channel.settings.voice_quality,
-                        "voice_delay": channel.settings.voice_delay,
-                        "max_member": channel.settings.max_member,
+                result.append(
+                    {
+                        "channel_id": channel.channel_id,
+                        "channel_name": channel.name,
+                        "guild_id": channel.area_id,
+                        "extra": {
+                            "channel_type": channel.channel_type,
+                            "category_id": channel.group_id,
+                            "text_gap_second": channel.settings.text_gap_second,
+                            "voice_quality": channel.settings.voice_quality,
+                            "voice_delay": channel.settings.voice_delay,
+                            "max_member": channel.settings.max_member,
 
-                        "voice_control_enabled": channel.settings.voice_control_enabled,
-                        "text_control_enabled": channel.settings.text_control_enabled,
+                            "voice_control_enabled": channel.settings.voice_control_enabled,
+                            "text_control_enabled": channel.settings.text_control_enabled,
 
-                        "text_roles": channel.settings.text_roles,
-                        "voice_roles": channel.settings.voice_roles,
+                            "text_roles": channel.settings.text_roles,
+                            "voice_roles": channel.settings.voice_roles,
 
-                        "member_public": channel.settings.member_public,
-                        "secret": channel.secret,
+                            "member_public": channel.settings.member_public,
+                            "secret": channel.secret,
+                        },
                     }
-                })
+                )
+
         return result
 
-    async def set_channel_name(self, params):
+    async def set_channel_name(self, params: Mapping[str, Any]) -> None:
         guild_id = require_str(params, "guild_id")
         channel_id = require_str(params, "channel_id")
         channel_name = require_str(params, "channel_name")
-        await self.oopz_bot.channels.update_channel(area=guild_id, channel_id=channel_id, name=channel_name)
-        return
 
-    async def get_channel_member_info(self, params) -> JsonDict:
-        guild_id = require_str(params, "guild_id")
-        # channel_id = require_str(params, "channel_id")
-        user_id = require_str(params, "user_id")
-        model: models.UserInfo = await self.oopz_bot.person.get_person_info(user_id)
-        nickname_dict = await self.oopz_bot.areas.get_user_area_nicknames(area=guild_id, uids=[user_id])
-        return self._model_to_userinfo_dict(user_id, model, nickname_dict)
+        await self.oopz_bot.channels.update_channel(
+            area=guild_id,
+            channel_id=channel_id,
+            name=channel_name,
+        )
+        return None
 
-    async def get_channel_member_list(self, params) -> list[JsonDict]:
+    async def get_channel_member_info(self, params: Mapping[str, Any]) -> JsonDict:
         guild_id = require_str(params, "guild_id")
         channel_id = require_str(params, "channel_id")
-        voice_channel_number_model: models.VoiceChannelMembersResult = await self.oopz_bot.channels.get_voice_channel_members(
-            area=guild_id)
+        user_id = require_str(params, "user_id")
+
+        # channel_id 当前只用于符合 OneBot v12 参数语义。
+        _ = channel_id
+
+        model: models.UserInfo = await self.oopz_bot.person.get_person_info(user_id)
+        nickname_dict = await self.oopz_bot.areas.get_user_area_nicknames(
+            area=guild_id,
+            uids=[user_id],
+        )
+
+        return self._model_to_userinfo_dict(user_id, model, nickname_dict)
+
+    async def get_channel_member_list(self, params: Mapping[str, Any]) -> list[JsonDict]:
+        guild_id = require_str(params, "guild_id")
+        channel_id = require_str(params, "channel_id")
+
+        voice_channel_number_model: models.VoiceChannelMembersResult = (
+            await self.oopz_bot.channels.get_voice_channel_members(area=guild_id)
+        )
+
         for channel, member in voice_channel_number_model.channel_members.items():
             if channel == channel_id:
                 uids = [user.uid for user in member]
@@ -570,8 +627,13 @@ class OneBotV12Adapter:
     # ------------------------------------------------------------------
     # 内部工具
     # ------------------------------------------------------------------
+
     @staticmethod
-    def _model_to_userinfo_dict(user_id: str, model: models.UserInfo, nickname_dict) -> dict:
+    def _model_to_userinfo_dict(
+        user_id: str,
+        model: models.UserInfo,
+        nickname_dict: Mapping[str, str],
+    ) -> dict[str, Any]:
         return {
             "user_id": getattr(model, "uid", "") or user_id,
             "user_name": getattr(model, "name", ""),
@@ -601,7 +663,7 @@ class OneBotV12Adapter:
         }
 
     @staticmethod
-    def model_to_profile_extra(profile: models.Profile) -> dict:
+    def model_to_profile_extra(profile: models.Profile) -> dict[str, Any]:
         return {
             "area_avatar": getattr(profile, "area_avatar", ""),
             "area_max_num": getattr(profile, "area_max_num", 0),
@@ -687,15 +749,15 @@ class OneBotV12Adapter:
         }
 
     def _save_sent_message(
-            self,
-            *,
-            oopz_message_id: str,
-            detail_type: str,
-            area: str = "",
-            channel: str = "",
-            target: str = "",
-            user_id: str = "",
-            timestamp: str = "",
+        self,
+        *,
+        oopz_message_id: str,
+        detail_type: str,
+        area: str = "",
+        channel: str = "",
+        target: str = "",
+        user_id: str = "",
+        timestamp: str = "",
     ) -> str:
         ob_message_id = make_ob_message_id(
             oopz_message_id=oopz_message_id,
