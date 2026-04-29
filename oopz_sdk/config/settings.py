@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import os
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -82,6 +84,71 @@ class OopzConfig:
         if not text:
             raise ValueError(f"{field_name} is required")
         return text
+
+    @classmethod
+    def from_env(cls, prefix: str = "OOPZ_", **overrides: Any) -> "OopzConfig":
+        """从环境变量创建配置。
+
+        默认读取 `OOPZ_DEVICE_ID`、`OOPZ_PERSON_UID`、`OOPZ_JWT_TOKEN`
+        和 `OOPZ_PRIVATE_KEY`。可通过关键字参数覆盖其他配置项。
+        """
+        values: dict[str, Any] = {
+            "device_id": cls._require_env(f"{prefix}DEVICE_ID"),
+            "person_uid": cls._require_env(f"{prefix}PERSON_UID"),
+            "jwt_token": cls._require_env(f"{prefix}JWT_TOKEN"),
+            "private_key": cls._require_env(f"{prefix}PRIVATE_KEY"),
+        }
+        app_version = os.environ.get(f"{prefix}APP_VERSION", "").strip()
+        if app_version:
+            values["app_version"] = app_version
+        values.update(overrides)
+        return cls(**values)
+
+    @classmethod
+    async def from_password_env(
+        cls,
+        *,
+        phone_env: str = "OOPZ_LOGIN_PHONE",
+        password_env: str = "OOPZ_LOGIN_PASSWORD",
+        headless: bool = True,
+        **kwargs: Any,
+    ) -> "OopzConfig":
+        """用环境变量中的 OOPZ 账号密码登录并创建配置。
+
+        `kwargs` 会先传给 `login_with_password()`；其中 `config_overrides`
+        可用于覆盖最终 `OopzConfig` 的字段。
+        """
+        from oopz_sdk.auth.password_login import login_with_password
+
+        config_overrides = dict(kwargs.pop("config_overrides", {}) or {})
+        credentials = await login_with_password(
+            cls._require_env(phone_env),
+            cls._require_env(password_env),
+            headless=headless,
+            **kwargs,
+        )
+        values: dict[str, Any] = {
+            "device_id": credentials.device_id,
+            "person_uid": credentials.person_uid,
+            "jwt_token": credentials.jwt_token,
+            "private_key": credentials.private_key_pem,
+        }
+        if credentials.app_version:
+            values["app_version"] = credentials.app_version
+        values.update(config_overrides)
+        return cls(**values)
+
+    @classmethod
+    def from_password_env_sync(cls, **kwargs: Any) -> "OopzConfig":
+        """`from_password_env()` 的同步包装，适合一次性脚本。"""
+        return asyncio.run(cls.from_password_env(**kwargs))
+
+    @staticmethod
+    def _require_env(name: str) -> str:
+        value = os.environ.get(name, "").strip()
+        if not value:
+            raise ValueError(f"{name} environment variable is required")
+        return value
 
     @property
     def rate_limit_interval(self) -> float:

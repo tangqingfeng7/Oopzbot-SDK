@@ -67,6 +67,8 @@ pytest
 python -m playwright install chromium
 ```
 
+需要通过账号密码自动登录时，也使用同一个 Chromium 运行时。
+
 ## 🚀 快速开始
 
 创建 `bot.py`：
@@ -78,49 +80,28 @@ import os
 from oopz_sdk import OopzBot, OopzConfig
 
 
-config = OopzConfig(
-    device_id=os.environ["OOPZ_DEVICE_ID"],
-    person_uid=os.environ["OOPZ_PERSON_UID"],
-    jwt_token=os.environ["OOPZ_JWT_TOKEN"],
-    private_key=os.environ["OOPZ_PRIVATE_KEY"],
-)
+async def main() -> None:
+    config = await OopzConfig.from_password_env(
+        headless=os.environ.get("OOPZ_LOGIN_HEADFUL") != "1",
+    )
+    bot = OopzBot(config)
 
-bot = OopzBot(config)
+    @bot.on_ready
+    async def on_ready(ctx):
+        print("[READY] connected")
 
+    @bot.on_message
+    async def on_message(message, ctx):
+        if message.text.strip() == "ping":
+            await ctx.reply("pong")
 
-@bot.on_ready
-async def on_ready(ctx):
-    print("[READY] connected")
-
-
-@bot.on_message
-async def on_message(message, ctx):
-    if message.text.strip() == "ping":
-        await ctx.reply("pong")
+    await bot.run()
 
 
-asyncio.run(bot.run())
+asyncio.run(main())
 ```
 
-设置环境变量后运行：
-
-```bash
-export OOPZ_DEVICE_ID="你的设备 ID"
-export OOPZ_PERSON_UID="你的账号 UID"
-export OOPZ_JWT_TOKEN="你的 JWT"
-export OOPZ_PRIVATE_KEY=$'-----BEGIN RSA PRIVATE KEY-----\n...\n-----END RSA PRIVATE KEY-----'
-python bot.py
-```
-
-Windows PowerShell：
-
-```powershell
-$env:OOPZ_DEVICE_ID="你的设备 ID"
-$env:OOPZ_PERSON_UID="你的账号 UID"
-$env:OOPZ_JWT_TOKEN="你的 JWT"
-$env:OOPZ_PRIVATE_KEY="-----BEGIN RSA PRIVATE KEY-----`n...`n-----END RSA PRIVATE KEY-----"
-python bot.py
-```
+启动前设置 `OOPZ_LOGIN_PHONE` 和 `OOPZ_LOGIN_PASSWORD` 环境变量；需要人工验证时再设置 `OOPZ_LOGIN_HEADFUL=1`。
 
 在机器人能收到的频道里发送：
 

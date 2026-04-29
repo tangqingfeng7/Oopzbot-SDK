@@ -13,16 +13,17 @@ bot实例中已经暴露所有service对象，我们可以使用 `bot.messages.s
 
 ```python
 import asyncio
+import os
 
 from oopz_sdk import OopzBot, OopzConfig
 from oopz_sdk.events import EventContext
 from oopz_sdk.models import Message
 
 bot = OopzBot(OopzConfig(
-    device_id="你的设备 ID",
-    person_uid="机器人账号 UID",
-    jwt_token="登录态 JWT",
-    private_key="-----BEGIN RSA PRIVATE KEY-----\n...\n-----END RSA PRIVATE KEY-----",
+    device_id=os.environ["OOPZ_DEVICE_ID"],
+    person_uid=os.environ["OOPZ_PERSON_UID"],
+    jwt_token=os.environ["OOPZ_JWT_TOKEN"],
+    private_key=os.environ["OOPZ_PRIVATE_KEY"],
 ))
 
 
