@@ -36,23 +36,7 @@ EventSink = Callable[[JsonDict], Awaitable[None] | None]
 if TYPE_CHECKING:
     from oopz_sdk import OopzBot
 
-SUPPORTED_ACTIONS = [
-    "get_supported_actions",
-    ".get_supported_actions",
-    "get_latest_events",
-    "get_status",
-    "get_version_info",
-    "get_login_info",
-    "send_msg",
-    "send_private_msg",
-    "send_group_msg",
-    "delete_msg",
-    "get_stranger_info",
-    "get_friend_list",
-    "get_group_info",
-    "get_group_list",
-    "get_group_member_info",
-]
+ActionHandler = Callable[[Mapping[str, Any]], Awaitable[Any]]
 
 
 class OneBotV11Adapter:
@@ -90,6 +74,54 @@ class OneBotV11Adapter:
 
         self._event_sinks: list[EventSink] = []
         self._event_queue: deque[JsonDict] = deque(maxlen=1000)
+
+        self._actions: dict[str, ActionHandler] = self._build_actions()
+
+    # ------------------------------------------------------------------
+    # Action 注册表
+    # ------------------------------------------------------------------
+
+    def _build_actions(self) -> dict[str, ActionHandler]:
+        """
+        OneBot v11 action -> handler 映射。
+        """
+        return {
+            # meta / internal
+            "get_supported_actions": self.get_supported_actions,
+            ".get_supported_actions": self.get_supported_actions,
+            "get_latest_events": self.get_latest_events,
+            "get_status": self.get_status,
+            "get_version_info": self.get_version_info,
+            "get_version": self.get_version_info,
+
+            # message
+            "send_msg": self.send_msg,
+            "send_private_msg": self.send_private_msg,
+            "send_group_msg": self.send_group_msg,
+            "delete_msg": self.delete_msg,
+            "recall_message": self.delete_msg,
+
+            # user / friend
+            "get_login_info": self.get_login_info,
+            "get_stranger_info": self.get_stranger_info,
+            "get_friend_list": self.get_friend_list,
+
+            # group compatibility
+            "get_group_info": self.get_group_info,
+            "get_guild_info": self.get_group_info,
+            "get_group_list": self.get_group_list,
+            "get_guild_list": self.get_group_list,
+            "get_group_member_info": self.get_group_member_info,
+
+            # maintenance
+            "cleanup_message_mapping": self.cleanup_message_mapping,
+        }
+
+    def not_implemented(self, name: str) -> ActionHandler:
+        async def handler(params: Mapping[str, Any]) -> Any:
+            raise NotImplementedError(f"{name} is not implemented yet")
+
+        return handler
 
     async def emit_event(self, event: Any) -> JsonDict:
         if isinstance(event, HeartbeatEvent) or isinstance(event, ServerIdEvent):
@@ -139,43 +171,14 @@ class OneBotV11Adapter:
         echo: Any = None,
     ) -> ActionResponse:
         params = params or {}
-        try:
-            if action in {"get_supported_actions", ".get_supported_actions"}:
-                return ok(list(SUPPORTED_ACTIONS), echo=echo)
-            if action == "get_status":
-                return ok({"online": True, "good": True}, echo=echo)
-            if action in {"get_version_info", "get_version"}:
-                return ok(
-                    {
-                        "app_name": "oopz_sdk",
-                        "app_version": "0.1.0",
-                        "protocol_version": "v11",
-                    },
-                    echo=echo,
-                )
-            if action == "get_latest_events":
-                return ok(self.get_latest_events(params), echo=echo)
-            if action == "get_login_info":
-                return ok(await self.get_login_info(), echo=echo)
-            if action == "send_private_msg":
-                return ok(await self.send_private_msg(params), echo=echo)
-            if action == "send_group_msg":
-                return ok(await self.send_group_msg(params), echo=echo)
-            if action == "send_msg":
-                return ok(await self.send_msg(params), echo=echo)
-            if action in {"delete_msg", "recall_message"}:
-                return ok(await self.delete_msg(params), echo=echo)
-            if action == "get_stranger_info":
-                return ok(await self.get_stranger_info(params), echo=echo)
-            if action == "get_friend_list":
-                return ok(await self.get_friend_list(), echo=echo)
-            if action in {"get_group_info", "get_guild_info"}:
-                return ok(await self.get_group_info(params), echo=echo)
-            if action in {"get_group_list", "get_guild_list"}:
-                return ok(await self.get_group_list(), echo=echo)
-            if action == "get_group_member_info":
-                return ok(await self.get_group_member_info(params), echo=echo)
+
+        handler = self._actions.get(action)
+        if handler is None:
             return failed(1404, f"unsupported action: {action}", echo=echo)
+
+        try:
+            data = await handler(params)
+            return ok(data, echo=echo)
         except ValueError as exc:
             return failed(1400, str(exc), echo=echo)
         except KeyError as exc:
@@ -186,13 +189,29 @@ class OneBotV11Adapter:
             logger.exception("onebot v11 action failed: %s", action)
             return failed(1500, str(exc), echo=echo)
 
-    def get_latest_events(self, params: Mapping[str, Any]) -> list[JsonDict]:
+    async def get_supported_actions(self, params: Mapping[str, Any]) -> list[str]:
+        return list(self._actions)
+
+    async def get_status(self, params: Mapping[str, Any]) -> JsonDict:
+        return {"online": True, "good": True}
+
+    async def get_version_info(self, params: Mapping[str, Any]) -> JsonDict:
+        return {
+            "app_name": "oopz_sdk",
+            "app_version": "0.1.0",
+            "protocol_version": "v11",
+        }
+
+    async def get_latest_events(self, params: Mapping[str, Any]) -> list[JsonDict]:
         limit = int(params.get("limit") or 0)
         events = list(self._event_queue)
         return events[-limit:] if limit > 0 else events
 
-    def failed_response(self, retcode: int, message: str, *, echo: Any = None) -> ActionResponse:
-        return failed(retcode, message, echo=echo)
+
+    async def cleanup_message_mapping(self, params: Mapping[str, Any]) -> JsonDict:
+        seconds = int(params.get("older_than_seconds") or 7 * 24 * 3600)
+        return {"deleted": self.store.cleanup(seconds)}
+
 
     def connect_event(self) -> JsonDict:
         return {
@@ -203,7 +222,7 @@ class OneBotV11Adapter:
             "sub_type": "connect",
         }
 
-    async def get_login_info(self) -> JsonDict:
+    async def get_login_info(self, params: Mapping[str, Any] | None = None) -> JsonDict:
         profile = await self.oopz_bot.person.get_self_detail()
         return {"user_id": self.self_id, "nickname": getattr(profile, "name", "")}
 
@@ -342,7 +361,7 @@ class OneBotV11Adapter:
             "oopz_user_id": uid,
         }
 
-    async def get_friend_list(self) -> list[JsonDict]:
+    async def get_friend_list(self, params: Mapping[str, Any] | None = None) -> list[JsonDict]:
         friends = await self.oopz_bot.person.get_friendship()
         result: list[JsonDict] = []
         for friend in friends:
@@ -369,7 +388,7 @@ class OneBotV11Adapter:
             "oopz_channel_id": channel,
         }
 
-    async def get_group_list(self) -> list[JsonDict]:
+    async def get_group_list(self, params: Mapping[str, Any] | None = None) -> list[JsonDict]:
         areas = await self.oopz_bot.areas.get_joined_areas()
         result: list[JsonDict] = []
 
