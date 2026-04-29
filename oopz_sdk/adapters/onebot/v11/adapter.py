@@ -397,27 +397,31 @@ class OneBotV11Adapter:
             if not area_id:
                 continue
 
-            channels = await self._get_area_channels(area_id)
-            for channel_obj in channels:
-                channel_id = getattr(channel_obj, "channel_id", "") or getattr(channel_obj, "channel", "") or getattr(channel_obj, "id", "")
-                if not channel_id:
-                    continue
+            groups = await self.oopz_bot.areas.get_area_channels(area_id)
+            for group in groups:
+                for channel_obj in group.channels:
+                    channel_id = getattr(channel_obj, "channel_id", "")
+                    if not channel_id:
+                        continue
 
-                group_id = self.ids.createId(make_group_source(area=area_id, channel=channel_id)).number
-                result.append(
-                    {
-                        "group_id": group_id,
-                        "group_name": getattr(channel_obj, "name", "") or getattr(channel_obj, "channel_name", "") or channel_id,
-                        "member_count": 0,
-                        "max_member_count": 0,
-                        "oopz_area_id": area_id,
-                        "oopz_channel_id": channel_id,
-                    }
-                )
+                    group_id = self.ids.createId(make_group_source(area=area_id, channel=channel_id)).number
+                    result.append(
+                        {
+                            "group_id": group_id,
+                            "group_name": getattr(channel_obj, "name", "") or channel_id,
+                            "member_count": 0,
+                            "max_member_count": 0,
+                            "oopz_area_id": area_id,
+                            "oopz_channel_id": channel_id,
+                        }
+                    )
 
         return result
 
     async def get_group_member_info(self, params: Mapping[str, Any]) -> JsonDict:
+        """
+        https://github.com/botuniverse/onebot-11/blob/d4456ee706f9ada9c2dfde56a2bcfc69752600e4/api/public.md#get_group_member_info-%E8%8E%B7%E5%8F%96%E7%BE%A4%E6%88%90%E5%91%98%E4%BF%A1%E6%81%AF
+        """
         group_id = require_int(params, "group_id")
         user_id = require_int(params, "user_id")
         area, channel = self._resolve_group_id(group_id)
