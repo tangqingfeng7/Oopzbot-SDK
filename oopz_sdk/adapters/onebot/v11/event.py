@@ -30,11 +30,11 @@ def to_v11_event(event: Any, *, self_id: str | int, ids: IdStore) -> JsonDict:
         return {
             "time": int(time.time()),
             "self_id": self_ob_id,
-            "post_type": "meta_event",
-            "meta_event_type": "oopz",
+            "post_type": "notice",
+            "notice_type": "oopz_event",
             "sub_type": event.event_name,
-            "original_event_name": event.event_name,
-            "original_event_type": event.event_type,
+            "oopz_event_name": event.event_name,
+            "oopz_event_type": event.event_type,
             "payload": event.model_dump(),
         }
 

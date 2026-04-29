@@ -344,7 +344,6 @@ class OopzBot:
             platform=getattr(onebot_config, "platform", "oopz"),
             self_id=getattr(onebot_config, "self_id", "") or self.config.person_uid,
             db_path=getattr(onebot_config, "db_path", None),
-            default_area=getattr(onebot_config, "default_area", ""),
         )
 
     async def _start_onebot_v11_server(self) -> None:

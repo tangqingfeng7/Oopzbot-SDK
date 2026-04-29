@@ -74,7 +74,6 @@ class OneBotV11Adapter:
         *,
         platform: str = "oopz",
         db_path: str | Path | None = None,
-        default_area: str = "",
     ) -> None:
         self.oopz_bot = oopz_bot
         self.platform = platform
@@ -97,7 +96,7 @@ class OneBotV11Adapter:
             return {}
 
         payload = to_v11_event(event, self_id=self.self_oopz_id, ids=self.ids)
-        self._save_event_mapping(payload)
+        self._save_message_event_mapping(payload)
         self._event_queue.append(payload)
         logger.debug("emit onebot v11 event: %s", payload)
 
@@ -476,7 +475,7 @@ class OneBotV11Adapter:
 
         return []
 
-    def _save_event_mapping(self, payload: Mapping[str, Any]) -> None:
+    def _save_message_event_mapping(self, payload: Mapping[str, Any]) -> None:
         if payload.get("post_type") != "message" and payload.get("post_type") != "notice":
             return
 
