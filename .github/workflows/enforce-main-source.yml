@@ -1,0 +1,27 @@
+name: 检查 main 的 PR 来源
+
+on:
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  enforce-source:
+    name: 仅允许 tangqingfeng7/Oopzbot-SDK:dev → main
+    runs-on: ubuntu-latest
+    steps:
+      - name: 验证 PR 来源
+        env:
+          EXPECTED_REPO: tangqingfeng7/Oopzbot-SDK
+          EXPECTED_REF: dev
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          HEAD_REF: ${{ github.head_ref }}
+        run: |
+          echo "PR base: ${{ github.event.pull_request.base.ref }}"
+          echo "PR head: $HEAD_REPO:$HEAD_REF"
+          if [ "$HEAD_REPO" != "$EXPECTED_REPO" ] || [ "$HEAD_REF" != "$EXPECTED_REF" ]; then
+            echo "::error::main 分支只接受来自 $EXPECTED_REPO:$EXPECTED_REF 的 PR"
+            echo "::error::请先把改动 PR 到 dev，再由 dev 创建 PR 合到 main"
+            exit 1
+          fi
+          echo "✓ PR 来源合法，允许合并"
