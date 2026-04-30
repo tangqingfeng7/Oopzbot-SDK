@@ -29,35 +29,17 @@ pip install -e .
 | `jwt_token` | Oopz 登录态 JWT。 |
 | `private_key` | RSA 私钥，用于请求签名。 |
 
-推荐通过环境变量传入，不要硬编码到代码里。
-
-从源码调试时，可以使用仓库里的凭证获取工具辅助获取这些字段：
-
-```powershell
-python .\script\credential_tool.py --save
-```
-
-工具会打开 Oopz 网页端，请在浏览器里登录账号。登录成功后，它会尝试从请求头、WebSocket 鉴权消息和浏览器存储中捕获 `person_uid`、`device_id`、`jwt_token` 和 `private_key`。
-
-首次运行时如果缺少 Playwright，工具会尝试自动安装 `playwright` 和 Chromium。使用 `--save` 时，工具会把完整凭证摘要写入 `data/credentials.txt`，并生成 `private_key.py`；如果项目根目录已有 `config.py`，还会同步更新其中的 `device_id`、`person_uid` 和 `jwt_token`。这些文件都包含真实登录凭证，只能保留在本地，不要提交到仓库。
+推荐通过环境变量传入，不要硬编码到代码里。如果还没有这些凭据，可以参考 [账号密码登录提取凭据](../recipes/password-login.md) 从 OOPZ Web 登录态自动抓取。
 
 ## 3. 创建 `bot.py`
 
 ```python
 import asyncio
-import os
 
 from oopz_sdk import OopzBot, OopzConfig
 
 
-config = OopzConfig(
-    device_id=os.environ["OOPZ_DEVICE_ID"],
-    person_uid=os.environ["OOPZ_PERSON_UID"],
-    jwt_token=os.environ["OOPZ_JWT_TOKEN"],
-    private_key=os.environ["OOPZ_PRIVATE_KEY"],
-)
-
-bot = OopzBot(config)
+bot = OopzBot(OopzConfig.from_env())
 
 
 @bot.on_ready
@@ -67,9 +49,6 @@ async def on_ready(ctx):
 
 @bot.on_message
 async def on_message(message, ctx):
-    if message is None:
-        return
-
     if message.text.strip() == "ping":
         await ctx.reply("pong")
 
@@ -88,6 +67,8 @@ async def main() -> None:
 
 asyncio.run(main())
 ```
+
+`OopzConfig.from_env()` 默认读取 `OOPZ_DEVICE_ID`、`OOPZ_PERSON_UID`、`OOPZ_JWT_TOKEN` 和 `OOPZ_PRIVATE_KEY`；如果你想直接用账号密码登录，可改用 `await OopzConfig.from_password_env()`，详见 [账号密码登录提取凭据](../recipes/password-login.md)。
 
 ## 4. 设置环境变量
 

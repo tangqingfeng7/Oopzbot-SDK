@@ -112,6 +112,12 @@ Segment 分段类型不是 Pydantic 模型，不提供 `model_dump()` 或 `to_di
 |---------------------|-----------------------------------------------------------------------|
 | `OperationResult`   | 通用操作结果：`ok: bool`、`message: str`。`OperationResult.from_api(...)` 会把 bool / dict 都规范化为该结构。 |
 
+## 认证辅助数据
+
+| 类型 | 导入路径 | 说明 |
+|---|---|---|
+| `OopzLoginCredentials` | `oopz_sdk.OopzLoginCredentials` | 账号密码登录提取到的凭据 dataclass，不是 Pydantic 响应模型。常用方法：`to_env()`、`from_env()`、`to_config()`、`masked()`。详见 [认证与凭据](auth.md)。 |
+
 ## 枚举
 
 | 枚举                  | 说明                                              |
