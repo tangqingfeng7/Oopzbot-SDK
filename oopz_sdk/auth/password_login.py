@@ -18,13 +18,23 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from oopz_sdk.config.settings import OopzConfig, ProxyConfig
-from oopz_sdk.exceptions.auth import OopzAuthError
+from oopz_sdk.exceptions.auth import OopzPasswordLoginError
 
 logger = logging.getLogger(__name__)
 
 OOPZ_WEB_LOGIN_URL = "https://web.oopz.cn/#/login"
 LOGIN_API_PATH = "/client/v1/login/v2/login"
 WS_EVENT_AUTH = 253
+
+_TRUTHY_ENV_VALUES = frozenset({"1", "true", "yes", "on", "y", "t"})
+
+
+def truthy_env(value: str | None) -> bool:
+    """常见的「真值」环境变量判断：`1` / `true` / `yes` / `on` 都视为 True。"""
+    if value is None:
+        return False
+    return value.strip().lower() in _TRUTHY_ENV_VALUES
+
 
 _BROWSER_ARGS = [
     "--disable-blink-features=AutomationControlled",
@@ -35,10 +45,6 @@ _BROWSER_ARGS = [
     "--disable-crash-reporter",
     "--disable-crashpad",
 ]
-
-
-class OopzPasswordLoginError(OopzAuthError):
-    """OOPZ 账号密码登录或凭据提取失败。"""
 
 
 @dataclass(frozen=True, slots=True)
@@ -134,6 +140,13 @@ class OopzLoginCredentials:
             "expires_in_seconds": self.expires_in_seconds,
         }
 
+    def __repr__(self) -> str:
+        # 默认 dataclass __repr__ 会把 jwt_token / private_key_pem 完整打出来，
+        # 走脱敏摘要避免凭据泄漏到日志或异常回溯。
+        masked = self.masked()
+        fields = ", ".join(f"{k}={v!r}" for k, v in masked.items())
+        return f"OopzLoginCredentials({fields})"
+
 
 def save_credentials_json(credentials: OopzLoginCredentials, path: str | os.PathLike[str]) -> Path:
     """把凭据保存为 UTF-8 JSON 文件。"""
@@ -192,19 +205,31 @@ def _jwt_exp_info(token: str) -> dict[str, Any]:
     }
 
 
+def _extract_error_code(payload: Any) -> int | str | None:
+    if not isinstance(payload, dict):
+        return None
+    code = payload.get("code")
+    if code in (None, ""):
+        data = payload.get("data")
+        if isinstance(data, dict):
+            code = data.get("code")
+    if code in (None, ""):
+        return None
+    return code
+
+
 def _safe_response_error(payload: Any) -> str:
     if not isinstance(payload, dict):
         return "登录接口返回异常"
-    data = payload.get("data")
-    for key in ("message", "msg", "error", "code"):
-        value = payload.get(key)
-        if value:
-            return str(value)
-    if isinstance(data, dict):
-        for key in ("message", "msg", "error", "code"):
-            value = data.get(key)
+    data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
+    for source in (payload, data):
+        for key in ("message", "msg", "error", "errorMessage"):
+            value = source.get(key)
             if value:
                 return str(value)
+    code = _extract_error_code(payload)
+    if code not in (None, ""):
+        return f"登录失败，错误码：{code}"
     return "登录失败，请检查账号密码或风控验证"
 
 
@@ -370,6 +395,116 @@ JS_GET_CAPTURED = """
 })
 """
 
+
+# 当 Web Crypto 钩子未在本次会话期间被触发（例如 OOPZ 把 RSA 私钥缓存在 IndexedDB
+# 里、reload 后没有再次走 importKey/generateKey），需要兜底扫一遍浏览器存储。
+# 与 script/credential_tool.py 中的 JS_SCAN_STORAGE 保持等价能力。
+JS_SCAN_STORAGE_FOR_KEY = """
+async () => {
+    const found = [];
+
+    function tryExtractFromValue(value) {
+        if (!value) return null;
+        if (typeof value === 'string') {
+            const m = value.match(
+                /-----BEGIN[\\s\\S]*?PRIVATE KEY-----[\\s\\S]*?-----END[\\s\\S]*?PRIVATE KEY-----/
+            );
+            if (m) return m[0].replace(/\\\\n/g, '\\n');
+        }
+        if (typeof value === 'object') {
+            if (value.kty === 'RSA' && value.d) {
+                return {jwk: value};
+            }
+            for (const v of Object.values(value)) {
+                const sub = tryExtractFromValue(v);
+                if (sub) return sub;
+            }
+        }
+        return null;
+    }
+
+    async function jwkToPem(jwk) {
+        try {
+            const key = await crypto.subtle.importKey(
+                'jwk', jwk,
+                {name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256'},
+                true, ['sign']
+            );
+            const ab = await crypto.subtle.exportKey('pkcs8', key);
+            const bytes = new Uint8Array(ab);
+            let bin = '';
+            for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+            const b64 = btoa(bin);
+            const lines = b64.match(/.{1,64}/g) || [];
+            return '-----BEGIN PRIVATE KEY-----\\n' + lines.join('\\n') + '\\n-----END PRIVATE KEY-----';
+        } catch (e) {
+            return null;
+        }
+    }
+
+    async function consider(extracted) {
+        if (!extracted) return;
+        if (typeof extracted === 'string') {
+            found.push(extracted);
+        } else if (extracted.jwk) {
+            const pem = await jwkToPem(extracted.jwk);
+            if (pem) found.push(pem);
+        }
+    }
+
+    // ---- IndexedDB ----
+    let databases = [];
+    try { databases = await indexedDB.databases(); } catch (e) {}
+    for (const dbInfo of databases) {
+        if (!dbInfo.name) continue;
+        try {
+            const db = await new Promise((resolve) => {
+                const req = indexedDB.open(dbInfo.name);
+                req.onsuccess = () => resolve(req.result);
+                req.onerror = () => resolve(null);
+                req.onblocked = () => resolve(null);
+            });
+            if (!db) continue;
+            for (const store of Array.from(db.objectStoreNames)) {
+                try {
+                    const tx = db.transaction(store, 'readonly');
+                    const os = tx.objectStore(store);
+                    const items = await new Promise((resolve) => {
+                        const req = os.getAll();
+                        req.onsuccess = () => resolve(req.result || []);
+                        req.onerror = () => resolve([]);
+                    });
+                    for (const item of items) {
+                        await consider(tryExtractFromValue(item));
+                        if (found.length) break;
+                    }
+                } catch (e) {}
+                if (found.length) break;
+            }
+            db.close();
+        } catch (e) {}
+        if (found.length) break;
+    }
+
+    // ---- localStorage / sessionStorage ----
+    if (!found.length) {
+        for (const storage of [localStorage, sessionStorage]) {
+            for (let i = 0; i < storage.length; i++) {
+                const key = storage.key(i);
+                const raw = storage.getItem(key) || '';
+                let parsed = null;
+                try { parsed = JSON.parse(raw); } catch (e) { parsed = raw; }
+                await consider(tryExtractFromValue(parsed));
+                if (found.length) break;
+            }
+            if (found.length) break;
+        }
+    }
+
+    return found[0] || null;
+}
+"""
+
 JS_CLEAR_STORAGE = """
 async () => {
     const deleted = [];
@@ -407,6 +542,20 @@ async def _poll_private_key(page: Any, credentials: dict[str, Any], seconds: flo
         await asyncio.sleep(0.5)
 
 
+async def _scan_storage_for_key(page: Any, credentials: dict[str, Any]) -> None:
+    """Web Crypto 钩子未触发时，扫一遍 IndexedDB / localStorage 兜底。"""
+    if credentials.get("private_key_pem"):
+        return
+    try:
+        pem = await page.evaluate(JS_SCAN_STORAGE_FOR_KEY)
+    except Exception:
+        logger.debug("扫描 OOPZ 浏览器存储以提取私钥失败", exc_info=True)
+        return
+    if pem:
+        credentials["private_key_pem"] = pem
+        logger.info("OOPZ 登录私钥经存储扫描兜底捕获成功")
+
+
 async def _clear_cached_keys_and_retry(page: Any, credentials: dict[str, Any]) -> None:
     try:
         deleted = await page.evaluate(JS_CLEAR_STORAGE)
@@ -414,6 +563,7 @@ async def _clear_cached_keys_and_retry(page: Any, credentials: dict[str, Any]) -
         await page.reload(wait_until="domcontentloaded")
         await page.wait_for_timeout(5000)
         await _poll_private_key(page, credentials, 8)
+        await _scan_storage_for_key(page, credentials)
     except Exception:
         logger.debug("清理浏览器本地状态重试失败", exc_info=True)
 
@@ -476,7 +626,7 @@ async def login_with_password(
         "app_version": None,
     }
     login_done = asyncio.Event()
-    login_error: dict[str, str] = {}
+    login_error: dict[str, Any] = {}
 
     def mark_done_when_ready() -> None:
         if _credentials_complete(credentials):
@@ -491,6 +641,8 @@ async def login_with_password(
             payload = None
         if not isinstance(payload, dict) or not payload.get("status"):
             login_error["message"] = _safe_response_error(payload)
+            login_error["code"] = _extract_error_code(payload)
+            login_error["payload"] = payload
             login_done.set()
             return
         data = payload.get("data") or {}
@@ -584,9 +736,15 @@ async def login_with_password(
                     raise OopzPasswordLoginError("等待 OOPZ 登录响应超时") from exc
 
                 if login_error.get("message"):
-                    raise OopzPasswordLoginError(login_error["message"])
+                    raise OopzPasswordLoginError(
+                        login_error["message"],
+                        code=login_error.get("code"),
+                        payload=login_error.get("payload"),
+                    )
 
                 await _poll_private_key(page, credentials, 10)
+                if not credentials.get("private_key_pem"):
+                    await _scan_storage_for_key(page, credentials)
                 if not credentials.get("private_key_pem"):
                     await _clear_cached_keys_and_retry(page, credentials)
             finally:

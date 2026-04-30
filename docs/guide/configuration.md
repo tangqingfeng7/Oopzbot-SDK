@@ -3,8 +3,6 @@
 SDK 的所有能力都从 `OopzConfig` 开始。
 
 ```python
-import os
-
 from oopz_sdk import OopzConfig, RetryConfig, HeartbeatConfig, ProxyConfig
 
 config = OopzConfig.from_env(
@@ -52,15 +50,12 @@ python -m oopz_sdk.cli.password_login --phone $env:OOPZ_LOGIN_PHONE --headful --
 
 ```python
 import asyncio
-import os
 
 from oopz_sdk import OopzConfig
 
 
 async def main():
-    config = await OopzConfig.from_password_env(
-        headless=os.environ.get("OOPZ_LOGIN_HEADFUL") != "1",
-    )
+    config = await OopzConfig.from_password_env()
     print(config.person_uid)
 
 

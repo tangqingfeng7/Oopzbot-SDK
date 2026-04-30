@@ -32,25 +32,38 @@ oopz-login --phone "$OOPZ_LOGIN_PHONE" --print-env bash
 oopz-login --phone $env:OOPZ_LOGIN_PHONE --headful --print-env powershell
 ```
 
-## 代码中使用
+## 使用提取后的环境变量
+
+复制命令行输出的环境变量后，可以直接从这些底层凭据创建配置：
+
+```python
+from oopz_sdk import OopzConfig
+
+
+config = OopzConfig.from_env()
+print(config.person_uid)
+```
+
+这段代码默认读取 `OOPZ_DEVICE_ID`、`OOPZ_PERSON_UID`、`OOPZ_JWT_TOKEN` 和 `OOPZ_PRIVATE_KEY`。
+
+## 代码中直接登录
+
+如果不想先运行命令行工具，也可以在代码中直接读取账号密码环境变量并登录：
 
 ```python
 import asyncio
-import os
 
 from oopz_sdk import OopzConfig
 
 
 async def main() -> None:
-    config = await OopzConfig.from_password_env(
-        headless=os.environ.get("OOPZ_LOGIN_HEADFUL") != "1",
-    )
+    config = await OopzConfig.from_password_env()
     print(config.person_uid)
 
 
 asyncio.run(main())
 ```
 
-这段代码默认读取 `OOPZ_LOGIN_PHONE` 和 `OOPZ_LOGIN_PASSWORD`。需要人工验证时设置 `OOPZ_LOGIN_HEADFUL=1`。
+这段代码默认读取 `OOPZ_LOGIN_PHONE` 和 `OOPZ_LOGIN_PASSWORD`。需要人工验证时设置 `OOPZ_LOGIN_HEADFUL=1`（也接受 `true` / `yes` / `on`），也可以在调用时显式传 `headless=False`。
 
 不要把输出的真实 token、私钥或任何保存了这些内容的文件提交到仓库。

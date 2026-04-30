@@ -7,13 +7,9 @@
 从环境变量读取 OOPZ 账号密码，自动登录并返回 `OopzConfig`。这是 quickstart 推荐的开发期登录方式。
 
 ```python
-import os
-
 from oopz_sdk import OopzConfig
 
-config = await OopzConfig.from_password_env(
-    headless=os.environ.get("OOPZ_LOGIN_HEADFUL") != "1",
-)
+config = await OopzConfig.from_password_env()
 ```
 
 默认读取：
@@ -22,8 +18,9 @@ config = await OopzConfig.from_password_env(
 | --- | --- |
 | `OOPZ_LOGIN_PHONE` | OOPZ 登录账号或手机号。 |
 | `OOPZ_LOGIN_PASSWORD` | OOPZ 登录密码。 |
+| `OOPZ_LOGIN_HEADFUL` | 设为 `1` / `true` / `yes` / `on` 时显示浏览器窗口，便于处理人工验证。 |
 
-可以通过 `phone_env` / `password_env` 改用其他环境变量名。其他参数会传给 `login_with_password()`；如果需要覆盖最终配置，传入 `config_overrides={...}`。
+可以通过 `phone_env` / `password_env` / `headful_env` 改用其他环境变量名，或者直接传 `headless=False` 显式覆盖。其他参数会传给 `login_with_password()`；如果需要覆盖最终配置，传入 `config_overrides={...}`。
 
 ## `OopzConfig.from_env(...)`
 
@@ -106,6 +103,26 @@ credentials = login_with_password_sync(
 | `from_env(prefix="OOPZ_")` | 从环境变量创建凭据对象。 |
 | `from_mapping(data)` | 从字典创建凭据对象。 |
 | `masked()` | 返回脱敏摘要，适合日志展示。 |
+
+## `OopzPasswordLoginError`
+
+账号密码登录或凭据提取失败时抛出。继承自 `OopzAuthError`，可以从 `oopz_sdk` 或 `oopz_sdk.exceptions` 导入：
+
+```python
+from oopz_sdk import OopzConfig, OopzPasswordLoginError
+
+try:
+    config = await OopzConfig.from_password_env()
+except OopzPasswordLoginError as e:
+    print("登录失败:", e)
+    if e.code is not None:
+        print("错误码:", e.code)
+```
+
+| 属性 | 类型 | 说明 |
+| --- | --- | --- |
+| `code` | `int \| str \| None` | 登录接口返回的业务错误码（如 `4001`），无则为 `None`。 |
+| `payload` | `object \| None` | 登录接口返回的原始 payload，便于排查时打印。 |
 
 ## 命令行
 

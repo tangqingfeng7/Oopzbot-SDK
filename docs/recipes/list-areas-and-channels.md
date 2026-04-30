@@ -37,18 +37,12 @@ asyncio.run(main())
 
 ```python
 import asyncio
-import os
 
 from oopz_sdk import OopzBot, OopzConfig
 from oopz_sdk.events import EventContext
 from oopz_sdk.models import Message
 
-bot = OopzBot(OopzConfig(
-    device_id=os.environ["OOPZ_DEVICE_ID"],
-    person_uid=os.environ["OOPZ_PERSON_UID"],
-    jwt_token=os.environ["OOPZ_JWT_TOKEN"],
-    private_key=os.environ["OOPZ_PRIVATE_KEY"],
-))
+bot = OopzBot(OopzConfig.from_env())
 
 
 @bot.on_message
