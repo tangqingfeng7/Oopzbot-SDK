@@ -3,6 +3,7 @@ from __future__ import annotations
 import time
 from typing import Any
 
+from oopz_sdk.config.constants import EVENT_PRIVATE_MESSAGE_DELETE
 from oopz_sdk.models.event import Event, MessageDeleteEvent, MessageEvent
 
 from .message import to_v11_message
@@ -117,13 +118,47 @@ def _message_event(event: MessageEvent, *, self_id: str | int, ids: IdStore) -> 
     }
 
 
-# todo _delete_event
 def _delete_event(event: MessageDeleteEvent, *, self_id: str | int, ids: IdStore) -> JsonDict:
     self_ob_id = ids.createId(make_self_source(str(self_id))).number
     user_ob_id = ids.createId(make_user_source(event.person)).number
+
+    event_type = int(getattr(event, "event_type", 0) or 0)
+    event_name = str(getattr(event, "event_name", "") or "")
+
+    is_private = (
+        event_type == EVENT_PRIVATE_MESSAGE_DELETE
+        or event_name in {"message.private.delete", "recall.private", "private_message_delete"}
+        or (not getattr(event, "area", "") and bool(getattr(event, "channel", "")))
+    )
+
+    if is_private:
+        message_ob_id = ids.createId(
+            make_message_source(
+                target=event.person,
+                message_id=event.message_id,
+            )
+        ).number
+
+        return {
+            "time": int(time.time()),
+            "self_id": self_ob_id,
+            "post_type": "notice",
+            "notice_type": "friend_recall",
+            "user_id": user_ob_id,
+            "message_id": message_ob_id,
+            "original_message_id": event.message_id,
+            "extra": {
+                "oopz_user_id": event.person,
+                "oopz_target_id": event.person,
+                "oopz_message_id": event.message_id,
+                "oopz_channel_id": event.channel,
+            },
+        }
+
     group_ob_id = ids.createId(
         make_group_source(area=event.area, channel=event.channel or event.area)
     ).number
+
     message_ob_id = ids.createId(
         make_message_source(
             area=event.area,
@@ -141,6 +176,7 @@ def _delete_event(event: MessageDeleteEvent, *, self_id: str | int, ids: IdStore
         "user_id": user_ob_id,
         "operator_id": user_ob_id,
         "message_id": message_ob_id,
+        "original_message_id": event.message_id,
         "extra": {
             "oopz_area_id": event.area,
             "oopz_channel_id": event.channel,
