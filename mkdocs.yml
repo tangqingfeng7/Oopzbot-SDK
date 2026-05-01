@@ -48,6 +48,7 @@ nav:
           - 消息与 ID 映射: adapters/onebot/message-id.md
       - 平台适配:
           - 接入Astrbot: adapters/platform/astrbot.md
+          - 接入HoshinoBot: adapters/platform/hoshinobot.md
   - API 参考:
       - Service 总览: reference/services.md
       - Message Service: reference/message-service.md
