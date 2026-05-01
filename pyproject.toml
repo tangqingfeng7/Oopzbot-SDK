@@ -38,6 +38,9 @@ Homepage = "https://github.com/tangqingfeng7/Oopzbot-SDK"
 Repository = "https://github.com/tangqingfeng7/Oopzbot-SDK"
 Issues = "https://github.com/tangqingfeng7/Oopzbot-SDK/issues"
 
+[project.scripts]
+oopz-login = "oopz_sdk.cli.password_login:main"
+
 [project.optional-dependencies]
 dev = [
   "build>=1.2,<2",

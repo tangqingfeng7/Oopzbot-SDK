@@ -7,13 +7,15 @@
 `OopzConfig` 保存 SDK 运行所需的配置，包括凭证、API 地址、WebSocket 地址、代理、重试、心跳和语音等。
 
 ```python
+import os
+
 from oopz_sdk import OopzConfig
 
 config = OopzConfig(
-    device_id="设备 ID",
-    person_uid="账号 UID",
-    jwt_token="JWT Token",
-    private_key="-----BEGIN RSA PRIVATE KEY-----\n...\n-----END RSA PRIVATE KEY-----",
+    device_id=os.environ["OOPZ_DEVICE_ID"],
+    person_uid=os.environ["OOPZ_PERSON_UID"],
+    jwt_token=os.environ["OOPZ_JWT_TOKEN"],
+    private_key=os.environ["OOPZ_PRIVATE_KEY"],
 )
 ```
 

@@ -7,7 +7,15 @@ _logger.addHandler(logging.NullHandler())
 _logger.propagate = False
 
 from .logger import setup_logging
-from .auth import Signer
+from .auth import (
+    OopzLoginCredentials,
+    OopzPasswordLoginError,
+    Signer,
+    load_credentials_json,
+    login_with_password,
+    login_with_password_sync,
+    save_credentials_json,
+)
 from .client import OopzRESTClient
 from .config import (
     DEFAULT_HEADERS,
@@ -97,12 +105,18 @@ __all__ = [
     "OopzTransportError",
     "OopzWSClient",
     "OperationResult",
+    "OopzLoginCredentials",
+    "OopzPasswordLoginError",
     "ProxyConfig",
     "RetryConfig",
     "Signer",
     "Voice",
     "VoiceChannelMembersResult",
     "__version__",
+    "load_credentials_json",
+    "login_with_password",
+    "login_with_password_sync",
+    "save_credentials_json",
     "setup_logging",
     "OneBotV11Config",
     "OneBotV12Config",

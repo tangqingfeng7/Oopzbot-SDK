@@ -13,6 +13,9 @@ smoke/test_private_key.pem
 .idea/
 *.log
 .oopz_capture_credentials/
+.oopz_login_profile/
+.oopz_sdk_login_profile/
+oopz_credentials.json
 config.py
 private_key.py
 data/credentials.txt

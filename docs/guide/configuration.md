@@ -5,11 +5,7 @@ SDK 的所有能力都从 `OopzConfig` 开始。
 ```python
 from oopz_sdk import OopzConfig, RetryConfig, HeartbeatConfig, ProxyConfig
 
-config = OopzConfig(
-    device_id="设备 ID",
-    person_uid="机器人账号 UID",
-    jwt_token="JWT Token",
-    private_key="-----BEGIN RSA PRIVATE KEY-----\n...\n-----END RSA PRIVATE KEY-----",
+config = OopzConfig.from_env(
     retry=RetryConfig(interval=0.35, timeout=(10, 30), max_attempts=3),
     heartbeat=HeartbeatConfig(interval=10.0, reconnect_interval=2.0),
     proxy=ProxyConfig(http="http://127.0.0.1:7890", https="http://127.0.0.1:7890"),
@@ -24,6 +20,47 @@ config = OopzConfig(
 | `person_uid`  | `str`                    | 当前登录账号 UID，通常也是机器人 UID。不能为空。 |
 | `jwt_token`   | `str`                    | 登录态 JWT。不能为空。                |
 | `private_key` | `str \| bytes \| key object` | RSA 私钥，用于签名请求。不能为空。           |
+
+## 通过账号密码自动提取凭证
+
+SDK 内置了一个基于 OOPZ Web 登录页的提取工具，会自动登录并从登录接口、请求头、WebSocket 鉴权消息和 Web Crypto 私钥钩子中提取 `device_id`、`person_uid`、`jwt_token` 和 `private_key`。
+
+首次使用前需要安装 Chromium：
+
+```bash
+python -m playwright install chromium
+```
+
+命令行方式：
+
+```powershell
+$env:OOPZ_LOGIN_PHONE = "你的 OOPZ 登录账号"
+python -m oopz_sdk.cli.password_login --phone $env:OOPZ_LOGIN_PHONE --print-env powershell
+```
+
+如果登录过程需要人工验证，可以显示浏览器窗口：
+
+```powershell
+python -m oopz_sdk.cli.password_login --phone $env:OOPZ_LOGIN_PHONE --headful --print-env powershell
+```
+
+命令会安全询问密码，并在成功后输出可设置 `OOPZ_DEVICE_ID`、`OOPZ_PERSON_UID`、`OOPZ_JWT_TOKEN`、`OOPZ_PRIVATE_KEY` 的环境变量命令。把这些命令只复制到本地 shell 执行，不要提交到仓库。
+
+在代码中直接登录并创建配置：
+
+```python
+import asyncio
+
+from oopz_sdk import OopzConfig
+
+
+async def main():
+    config = await OopzConfig.from_password_env()
+    print(config.person_uid)
+
+
+asyncio.run(main())
+```
 
 以下设置一般不需要修改，除非你有特殊需求，例如使用代理或调整重试策略。
 

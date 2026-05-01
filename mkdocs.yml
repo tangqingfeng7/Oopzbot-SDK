@@ -33,6 +33,7 @@ nav:
   - 常见任务:
       - 示例总览: recipes/index.md
       - 回复机器人: recipes/reply-ping.md
+      - 账号密码登录提取凭据: recipes/password-login.md
       - 发送图片: recipes/send-image.md
       - 撤回消息: recipes/recall-message.md
       - 列出 area 和 channel: recipes/list-areas-and-channels.md
@@ -50,6 +51,7 @@ nav:
           - 接入Astrbot: adapters/platform/astrbot.md
           - 接入HoshinoBot: adapters/platform/hoshinobot.md
   - API 参考:
+      - 认证与凭据: reference/auth.md
       - Service 总览: reference/services.md
       - Message Service: reference/message-service.md
       - Area Service: reference/area-service.md

@@ -18,12 +18,7 @@ from oopz_sdk import OopzBot, OopzConfig
 from oopz_sdk.events import EventContext
 from oopz_sdk.models import Message
 
-bot = OopzBot(OopzConfig(
-    device_id="你的设备 ID",
-    person_uid="机器人账号 UID",
-    jwt_token="登录态 JWT",
-    private_key="-----BEGIN RSA PRIVATE KEY-----\n...\n-----END RSA PRIVATE KEY-----",
-))
+bot = OopzBot(OopzConfig.from_env())
 
 
 @bot.on_message
