@@ -16,8 +16,7 @@ def install_onebot(bot: OopzBot) -> None:
     - OneBot Server 仍然只负责 HTTP/WS/webhook/reverse WS 连接层。
     """
     install_onebot_v11(bot)
-    # todo v12 的实现还未经测试
-    # install_onebot_v12(bot)
+    install_onebot_v12(bot)
 
 
 def install_onebot_v11(bot: OopzBot) -> Any | None:
