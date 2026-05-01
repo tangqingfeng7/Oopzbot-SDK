@@ -46,7 +46,6 @@ nav:
           - OneBot v11: adapters/onebot/v11.md
           - OneBot v12: adapters/onebot/v12.md
           - 消息与 ID 映射: adapters/onebot/message-id.md
-          - 实现说明与限制: adapters/onebot/implementation-notes.md
   - API 参考:
       - Service 总览: reference/services.md
       - Message Service: reference/message-service.md
