@@ -97,7 +97,7 @@ class OneBotV12Adapter:
             "get_guild_list": self.get_guild_list,
             "set_guild_name": self.set_guild_name,
             "get_guild_member_info": self.get_guild_member_info,
-            "get_guild_member_list": self.not_implemented("get_guild_member_list"),
+            # "get_guild_member_list": self.not_implemented("get_guild_member_list"),
             "leave_guild": self.not_implemented("leave_guild"),
 
             "get_channel_info": self.get_channel_info,
@@ -105,7 +105,7 @@ class OneBotV12Adapter:
             "set_channel_name": self.set_channel_name,
             "get_channel_member_info": self.get_channel_member_info,
             "get_channel_member_list": self.get_channel_member_list,
-            "leave_channel": self.not_implemented("leave_channel"),
+            # "leave_channel": self.not_implemented("leave_channel"),
 
             "cleanup_message_mapping": self.cleanup_message_mapping,
         }
@@ -286,8 +286,8 @@ class OneBotV12Adapter:
 
         if detail_type == "group":
             raise NotImplementedError(
-                "Oopz 是 area/channel 双层结构，不建议直接映射 OneBot group。"
-                "请使用 detail_type='channel'，guild_id=area，channel_id=channel。"
+                "detail_type='group' is not supported by this adapter; "
+                "use detail_type='channel' with guild_id=area and channel_id=channel"
             )
 
         raise ValueError(f"unsupported detail_type: {detail_type!r}")
@@ -355,6 +355,7 @@ class OneBotV12Adapter:
             "user_id": self.self_id,
             "user_name": getattr(profile, "name", ""),
             "user_displayname": "",
+            "platform": self.platform,
             "extra": self.model_to_profile_extra(profile),
         }
 
@@ -489,9 +490,8 @@ class OneBotV12Adapter:
         return {
             "user_id": user_id,
             "user_name": user_name.name,
-            "extra": {
-                "user_displayname": nickname_dict.get(user_id),
-            },
+            "user_displayname": nickname_dict.get(user_id),
+            "extra": self.model_to_profile_extra(user_name),
         }
 
     # ------------------------------------------------------------------
@@ -499,8 +499,7 @@ class OneBotV12Adapter:
     # ------------------------------------------------------------------
 
     async def get_channel_info(self, params: Mapping[str, Any]) -> JsonDict:
-        # OneBot v12 需要 guild 字段，但是 Oopz 实际查询不需要。
-        # guild_id = require_str(params, "guild_id")
+        _ = require_str(params, "guild_id")
         channel_id = require_str(params, "channel_id")
 
         model: models.ChannelSetting = await self.oopz_bot.channels.get_channel_setting_info(
@@ -604,7 +603,10 @@ class OneBotV12Adapter:
             uids=[user_id],
         )
 
-        return self._model_to_userinfo_dict(user_id, model, nickname_dict)
+        data = self._model_to_userinfo_dict(user_id, model, nickname_dict)
+        data["guild_id"] = guild_id
+        data["channel_id"] = channel_id
+        return data
 
     async def get_channel_member_list(self, params: Mapping[str, Any]) -> list[JsonDict]:
         guild_id = require_str(params, "guild_id")

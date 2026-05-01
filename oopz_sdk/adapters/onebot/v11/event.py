@@ -30,8 +30,8 @@ def to_v11_event(event: Any, *, self_id: str | int, ids: IdStore) -> JsonDict:
         return {
             "time": int(time.time()),
             "self_id": self_ob_id,
-            "post_type": "notice",
-            "notice_type": "oopz_event",
+            "post_type": "meta_event",
+            "notice_type": "oopz",
             "sub_type": event.event_name,
             "oopz_event_name": event.event_name,
             "oopz_event_type": event.event_type,
@@ -79,8 +79,12 @@ def _message_event(event: MessageEvent, *, self_id: str | int, ids: IdStore) -> 
                 "user_id": user_ob_id,
                 "nickname": getattr(msg, "display_name", ""),
             },
-            "oopz_user_id": msg.sender_id,
             "original_message_id": msg.message_id,
+            "extra": {
+                "oopz_user_id": msg.sender_id,
+                "oopz_target_id": msg.target,
+                "oopz_message_id": msg.message_id,
+            },
         }
 
     group_ob_id = ids.createId(
@@ -103,13 +107,17 @@ def _message_event(event: MessageEvent, *, self_id: str | int, ids: IdStore) -> 
             "user_id": user_ob_id,
             "nickname": getattr(msg, "display_name", ""),
         },
-        "oopz_area_id": msg.area,
-        "oopz_channel_id": msg.channel,
-        "oopz_user_id": msg.sender_id,
         "original_message_id": msg.message_id,
+        "extra": {
+            "oopz_area_id": msg.area,
+            "oopz_channel_id": msg.channel,
+            "oopz_user_id": msg.sender_id,
+            "oopz_message_id": msg.message_id,
+        },
     }
 
 
+# todo _delete_event
 def _delete_event(event: MessageDeleteEvent, *, self_id: str | int, ids: IdStore) -> JsonDict:
     self_ob_id = ids.createId(make_self_source(str(self_id))).number
     user_ob_id = ids.createId(make_user_source(event.person)).number
@@ -133,8 +141,10 @@ def _delete_event(event: MessageDeleteEvent, *, self_id: str | int, ids: IdStore
         "user_id": user_ob_id,
         "operator_id": user_ob_id,
         "message_id": message_ob_id,
-        "oopz_area_id": event.area,
-        "oopz_channel_id": event.channel,
-        "oopz_user_id": event.person,
-        "original_message_id": event.message_id,
+        "extra": {
+            "oopz_area_id": event.area,
+            "oopz_channel_id": event.channel,
+            "oopz_user_id": event.person,
+            "oopz_message_id": event.message_id,
+        },
     }

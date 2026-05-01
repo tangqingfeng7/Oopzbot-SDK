@@ -34,7 +34,7 @@ logger = logging.getLogger(__name__)
 EventSink = Callable[[JsonDict], Awaitable[None] | None]
 
 if TYPE_CHECKING:
-    from oopz_sdk import OopzBot
+    from oopz_sdk import OopzBot, models
 
 ActionHandler = Callable[[Mapping[str, Any]], Awaitable[Any]]
 
@@ -52,12 +52,12 @@ class OneBotV11Adapter:
     protocol = "onebot.v11"
 
     def __init__(
-        self,
-        oopz_bot: OopzBot,
-        self_id: str,
-        *,
-        platform: str = "oopz",
-        db_path: str | Path | None = None,
+            self,
+            oopz_bot: OopzBot,
+            self_id: str,
+            *,
+            platform: str = "oopz",
+            db_path: str | Path | None = None,
     ) -> None:
         self.oopz_bot = oopz_bot
         self.platform = platform
@@ -164,11 +164,11 @@ class OneBotV11Adapter:
         return await self.call_action(action, params, echo=echo)
 
     async def call_action(
-        self,
-        action: str,
-        params: Mapping[str, Any] | None = None,
-        *,
-        echo: Any = None,
+            self,
+            action: str,
+            params: Mapping[str, Any] | None = None,
+            *,
+            echo: Any = None,
     ) -> ActionResponse:
         params = params or {}
 
@@ -207,11 +207,9 @@ class OneBotV11Adapter:
         events = list(self._event_queue)
         return events[-limit:] if limit > 0 else events
 
-
     async def cleanup_message_mapping(self, params: Mapping[str, Any]) -> JsonDict:
         seconds = int(params.get("older_than_seconds") or 7 * 24 * 3600)
         return {"deleted": self.store.cleanup(seconds)}
-
 
     def connect_event(self) -> JsonDict:
         return {
@@ -236,8 +234,19 @@ class OneBotV11Adapter:
 
     async def send_private_msg(self, params: Mapping[str, Any]) -> JsonDict:
         user_id = require_int(params, "user_id")
+        message = params.get("message") or ""
+
+        if truthy(params.get("auto_escape")) and isinstance(message, str):
+            send_parts = V11SendParts(
+                parts=[message],
+                mention_list=[],
+                is_mention_all=False,
+            )
+        else:
+            send_parts = from_v11_message(message)
+
         target = self._resolve_user_id(user_id)
-        send_parts = self._resolve_send_parts(from_v11_message(params.get("message") or ""))
+        send_parts = self._resolve_send_parts(send_parts)
 
         result = await self.oopz_bot.messages.send_private_message(
             *send_parts.parts,
@@ -249,6 +258,7 @@ class OneBotV11Adapter:
         message_id = self.ids.createId(
             make_message_source(target=target, message_id=result.message_id)
         ).number
+
         self._save_sent_mapping(
             message_id,
             result.message_id,
@@ -257,6 +267,7 @@ class OneBotV11Adapter:
             user_id=target,
             timestamp=result.timestamp,
         )
+
         return {"message_id": message_id}
 
     async def send_group_msg(self, params: Mapping[str, Any]) -> JsonDict:
@@ -271,10 +282,21 @@ class OneBotV11Adapter:
         if not area or not channel:
             raise ValueError("unknown group_id; provide oopz_area_id and oopz_channel_id")
 
-        # 如果调用方通过扩展字段提供了真实 channel，也把它注册成这个 group_id 的 source。
         self.ids.createId(make_group_source(area=area, channel=channel))
 
-        send_parts = self._resolve_send_parts(from_v11_message(params.get("message") or ""))
+        message = params.get("message") or ""
+
+        if truthy(params.get("auto_escape")) and isinstance(message, str):
+            send_parts = V11SendParts(
+                parts=[message],
+                mention_list=[],
+                is_mention_all=False,
+            )
+        else:
+            send_parts = from_v11_message(message)
+
+        send_parts = self._resolve_send_parts(send_parts)
+
         result = await self.oopz_bot.messages.send_message(
             *send_parts.parts,
             area=area,
@@ -286,6 +308,7 @@ class OneBotV11Adapter:
         message_id = self.ids.createId(
             make_message_source(area=area, channel=channel, message_id=result.message_id)
         ).number
+
         self._save_sent_mapping(
             message_id,
             result.message_id,
@@ -294,6 +317,7 @@ class OneBotV11Adapter:
             channel=channel,
             timestamp=result.timestamp,
         )
+
         return {"message_id": message_id}
 
     async def delete_msg(self, params: Mapping[str, Any]) -> None:
@@ -358,7 +382,9 @@ class OneBotV11Adapter:
             "nickname": getattr(info, "name", ""),
             "sex": "unknown",
             "age": 0,
-            "oopz_user_id": uid,
+            "extra": {
+                "oopz_user_id": uid,
+            }
         }
 
     async def get_friend_list(self, params: Mapping[str, Any] | None = None) -> list[JsonDict]:
@@ -371,7 +397,9 @@ class OneBotV11Adapter:
                     "user_id": user_id,
                     "nickname": friend.name,
                     "remark": "",
-                    "oopz_user_id": friend.uid,
+                    "extra": {
+                        "oopz_user_id": friend.uid,
+                    }
                 }
             )
         return result
@@ -379,13 +407,21 @@ class OneBotV11Adapter:
     async def get_group_info(self, params: Mapping[str, Any]) -> JsonDict:
         group_id = require_int(params, "group_id")
         area, channel = self._resolve_group_id(group_id)
+        name = channel
+        try:
+            setting = await self.oopz_bot.channels.get_channel_setting_info(channel=channel)
+            name = getattr(setting, "name", "") or channel
+        except Exception:
+            pass
         return {
             "group_id": group_id,
-            "group_name": channel,
+            "group_name": name,
             "member_count": 0,
             "max_member_count": 0,
-            "oopz_area_id": area,
-            "oopz_channel_id": channel,
+            "extra": {
+                "oopz_area_id": area,
+                "oopz_channel_id": channel,
+            }
         }
 
     async def get_group_list(self, params: Mapping[str, Any] | None = None) -> list[JsonDict]:
@@ -411,8 +447,10 @@ class OneBotV11Adapter:
                             "group_name": getattr(channel_obj, "name", "") or channel_id,
                             "member_count": 0,
                             "max_member_count": 0,
-                            "oopz_area_id": area_id,
-                            "oopz_channel_id": channel_id,
+                            "extra": {
+                                "oopz_area_id": area_id,
+                                "oopz_channel_id": channel_id,
+                            }
                         }
                     )
 
@@ -420,23 +458,61 @@ class OneBotV11Adapter:
 
     async def get_group_member_info(self, params: Mapping[str, Any]) -> JsonDict:
         """
-        https://github.com/botuniverse/onebot-11/blob/d4456ee706f9ada9c2dfde56a2bcfc69752600e4/api/public.md#get_group_member_info-%E8%8E%B7%E5%8F%96%E7%BE%A4%E6%88%90%E5%91%98%E4%BF%A1%E6%81%AF
+        获取群成员信息。
+
+        OneBot v11 的 group member 是 QQ 群成员模型；
+        Oopz 没有完全等价的「频道成员名片 / 群头衔 / 入群时间」概念，
+        所以这里返回 v11 标准字段，并把 Oopz 原始字段作为扩展字段保留。
         """
         group_id = require_int(params, "group_id")
         user_id = require_int(params, "user_id")
+
         area, channel = self._resolve_group_id(group_id)
         uid = self._resolve_user_id(user_id)
 
         info = await self.oopz_bot.person.get_person_info(uid)
+
+        nickname = getattr(info, "name", "") or uid
+        level = getattr(info, "memberLevel", 0) or 0
+
+        # Oopz 当前没有直接等价于 OneBot v11 的 group card。
+        # mark_name 更像用户备注/标记名，不一定是群名片，所以默认不给 card 硬塞 nickname。
+        card = getattr(info, "mark_name", "") or ""
+
         return {
+            # OneBot v11 标准字段
             "group_id": group_id,
             "user_id": user_id,
-            "nickname": getattr(info, "name", ""),
-            "card": "",
-            "oopz_area_id": area,
-            "oopz_channel_id": channel,
-            "oopz_user_id": uid,
+            "nickname": nickname,
+            "card": card,
+            "sex": "unknown",
+            "age": 0,
+            "area": "",
+            "join_time": 0,
+            "last_sent_time": 0,
+            "level": str(level),
+            "role": "member",
+            "unfriendly": False,
+            "title": "",
+            "title_expire_time": 0,
+            "card_changeable": False,
+            "shut_up_timestamp": 0,
+
+            # Oopz 扩展字段，方便调试和高级用户使用
+            "oopz_extra": {
+                "oopz_area_id": area,
+                "oopz_channel_id": channel,
+                "oopz_user_id": uid,
+                "online": getattr(info, "online", False),
+                "avatar": getattr(info, "avatar", ""),
+                "status": getattr(info, "status", ""),
+                "person_role": getattr(info, "person_role", ""),
+                "person_type": getattr(info, "person_type", ""),
+            },
         }
+
+    async def get_group_member_list(self, params: Mapping[str, Any]) -> list[JsonDict]:
+        pass
 
     def _resolve_user_id(self, user_id: int | str) -> str:
         record = self.ids.try_resolve_id(user_id)
@@ -498,36 +574,59 @@ class OneBotV11Adapter:
 
         return []
 
+    def _get_payload_extra(self, payload: Mapping[str, Any]) -> Mapping[str, Any]:
+        extra = payload.get("extra")
+        if isinstance(extra, Mapping):
+            return extra
+
+        oopz_extra = payload.get("oopz_extra")
+        if isinstance(oopz_extra, Mapping):
+            return oopz_extra
+
+        return {}
+
     def _save_message_event_mapping(self, payload: Mapping[str, Any]) -> None:
-        if payload.get("post_type") != "message" and payload.get("post_type") != "notice":
+        if payload.get("post_type") not in {"message", "notice"}:
             return
 
         mid = payload.get("message_id")
         original = str(payload.get("original_message_id") or "")
+
+        extra = self._get_payload_extra(payload)
+
+        if not original:
+            original = str(extra.get("oopz_message_id") or "")
+
         if not mid or not original:
             return
+
+        area = str(payload.get("oopz_area_id") or extra.get("oopz_area_id") or "")
+        channel = str(payload.get("oopz_channel_id") or extra.get("oopz_channel_id") or "")
+        target = str(payload.get("oopz_target_id") or payload.get("oopz_user_id")
+                     or extra.get("oopz_target_id") or extra.get("oopz_user_id") or "")
+        user_id = str(payload.get("oopz_user_id") or extra.get("oopz_user_id") or "")
 
         self._save_sent_mapping(
             int(mid),
             original,
             detail_type=str(payload.get("message_type") or payload.get("notice_type") or "group"),
-            area=str(payload.get("oopz_area_id") or ""),
-            channel=str(payload.get("oopz_channel_id") or ""),
-            target=str(payload.get("oopz_user_id") or ""),
-            user_id=str(payload.get("oopz_user_id") or ""),
+            area=area,
+            channel=channel,
+            target=target,
+            user_id=user_id,
         )
 
     def _save_sent_mapping(
-        self,
-        message_id: int | str,
-        oopz_message_id: str,
-        *,
-        detail_type: str,
-        area: str = "",
-        channel: str = "",
-        target: str = "",
-        user_id: str = "",
-        timestamp: str = "",
+            self,
+            message_id: int | str,
+            oopz_message_id: str,
+            *,
+            detail_type: str,
+            area: str = "",
+            channel: str = "",
+            target: str = "",
+            user_id: str = "",
+            timestamp: str = "",
     ) -> None:
         self.store.save(
             MessageRecord(
@@ -542,3 +641,7 @@ class OneBotV11Adapter:
                 raw={},
             )
         )
+
+
+def truthy(value: Any) -> bool:
+    return value is True or str(value).lower() in {"true", "1", "yes"}
