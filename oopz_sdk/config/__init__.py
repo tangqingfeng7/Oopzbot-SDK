@@ -12,7 +12,6 @@ from .constants import (
 )
 
 from .settings import (
-    AutoRecallConfig,
     HeartbeatConfig,
     OneBotV11Config,
     OneBotV12Config,
