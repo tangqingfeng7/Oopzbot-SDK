@@ -226,9 +226,9 @@ class OneBotV11Adapter:
 
     async def send_msg(self, params: Mapping[str, Any]) -> JsonDict:
         message_type = str(params.get("message_type") or "")
-        if message_type == "private" or params.get("user_id"):
+        if message_type == "private":
             return await self.send_private_msg(params)
-        if message_type == "group" or params.get("group_id"):
+        if message_type == "group":
             return await self.send_group_msg(params)
         raise ValueError("message_type, user_id or group_id is required")
 

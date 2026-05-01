@@ -62,8 +62,8 @@ def from_v11_message(message: str | list[Mapping[str, Any]]) -> V11SendParts:
                 parts.append(Mention(qq))
         elif seg_type == "image":
             file = str(data.get("file") or data.get("url") or "")
-            if file.startswith("file://"):
-                parts.append(Image.from_file(file.removeprefix("file://")))
+            if file.startswith("file:///"):
+                parts.append(Image.from_file(file.removeprefix("file:///")))
             elif file:
                 parts.append(Image(file_key=file, url=str(data.get("url") or "")))
         else:
