@@ -156,7 +156,9 @@ class OopzConfig:
     ignore_self_messages: bool = True   # 如果设置为False, 会导致bot接收到自己处理的消息, 可能导致死循环
 
     onebot_v11: OneBotV11Config = field(default_factory=OneBotV11Config)
-    onebot_v12: OneBotV12Config = field(default_factory=OneBotV12Config)
+
+    # todo onebot v12还未经测试, 暂时禁用
+    # onebot_v12: OneBotV12Config = field(default_factory=OneBotV12Config)
 
     def __post_init__(self) -> None:
         self.device_id = self._require_non_empty(self.device_id, "device_id")
