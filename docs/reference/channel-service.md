@@ -68,6 +68,7 @@ result = await client.channels.create_channel(
     channel_type=ChannelType.TEXT,
 )
 
+print(result.channel_id)
 print(result.name)
 print(result.channel_type)
 ```
@@ -79,7 +80,7 @@ print(result.channel_type)
     | `area` | `str` | 是 | - | 域 ID，不能为空。 |
     | `name` | `str` | 是 | - | 频道名称，不能为空。 |
     | `group_id` | `str` | 否 | `""` | 频道分组 ID；不传时自动使用第一个频道分组。 |
-    | `channel_type` | `ChannelType \| str` | 否 | `ChannelType.TEXT` | 频道类型。支持 `TEXT` 和 `VOICE`。 |
+    | `channel_type` | `ChannelType \| str` | 否 | `ChannelType.TEXT` | 频道类型。支持 `TEXT`、`VOICE`；`AUDIO` 是历史协议里的语音别名，建议使用 `VOICE`。 |
 
 === "返回值"
 
@@ -90,6 +91,7 @@ print(result.channel_type)
     | 字段 | 类型 | 默认值 | 说明 |
     | --- | --- | --- | --- |
     | `area` | `str` | `""` | 所属域 ID。 |
+    | `channel_id` | `str` | `""` | 新创建频道的 ID。底层接口可能返回 `id` / `channel` / `channelId`，SDK 会归一到该字段。 |
     | `group_id` | `str` | `""` | 所属频道分组 ID。 |
     | `max_member` | `int` | `100` | 最大成员数。 |
     | `name` | `str` | `""` | 频道名称。 |
@@ -103,6 +105,7 @@ print(result.channel_type)
     ```python
     ChannelType.TEXT
     ChannelType.VOICE
+    ChannelType.AUDIO  # 历史别名，等价于语音频道
     ```
 
     也可以传字符串：
@@ -110,6 +113,7 @@ print(result.channel_type)
     ```python
     "TEXT"
     "VOICE"
+    "AUDIO"  # 历史别名，等价于语音频道
     ```
 
     如果字符串不属于允许值，SDK 会抛出 `ValueError`。
@@ -141,21 +145,21 @@ print(result.ok)
     | --- | --- | --- | --- | --- |
     | `area` | `str` | 是 | - | 域 ID，不能为空。 |
     | `channel_id` | `str` | 是 | - | 频道 ID，不能为空。 |
-    | `name` | `str | None` | 否 | `None` | 频道名称。 |
-    | `text_gap_second` | `int | None` | 否 | `None` | 发言间隔秒数。 |
-    | `voice_quality` | `str | None` | 否 | `None` | 语音质量。 |
-    | `voice_delay` | `str | None` | 否 | `None` | 语音延迟模式。 |
-    | `max_member` | `int | None` | 否 | `None` | 最大成员数。 |
-    | `voice_control_enabled` | `bool | None` | 否 | `None` | 是否启用语音权限控制。 |
-    | `text_control_enabled` | `bool | None` | 否 | `None` | 是否启用文字权限控制。 |
-    | `access_control_enabled` | `bool | None` | 否 | `None` | 是否启用访问控制。 |
-    | `secret` | `bool | None` | 否 | `None` | 是否为私密频道。需要同accessible_roles和accessible_members配合使用。 |
-    | `has_password` | `bool | None` | 否 | `None` | 是否设置频道密码。 |
-    | `password` | `str | None` | 否 | `None` | 频道密码。传 `password` 时必须同时设置 `has_password=True`。 |
-    | `text_roles` | `list[int] | None` | 否 | `None` | 可发送文字消息的身份组 ID 列表。 |
-    | `voice_roles` | `list[int] | None` | 否 | `None` | 可进入语音的身份组 ID 列表。 |
-    | `accessible_roles` | `list[int] | None` | 否 | `None` | 可访问该频道的身份组 ID 列表，仅私密频道可设置。 |
-    | `accessible_members` | `list[str] | None` | 否 | `None` | 可访问该频道的成员 UID 列表，仅私密频道可设置。 |
+    | `name` | `str \| None` | 否 | `None` | 频道名称。 |
+    | `text_gap_second` | `int \| None` | 否 | `None` | 发言间隔秒数。 |
+    | `voice_quality` | `str \| None` | 否 | `None` | 语音质量。 |
+    | `voice_delay` | `str \| None` | 否 | `None` | 语音延迟模式。 |
+    | `max_member` | `int \| None` | 否 | `None` | 最大成员数。 |
+    | `voice_control_enabled` | `bool \| None` | 否 | `None` | 是否启用语音权限控制。 |
+    | `text_control_enabled` | `bool \| None` | 否 | `None` | 是否启用文字权限控制。 |
+    | `access_control_enabled` | `bool \| None` | 否 | `None` | 是否启用访问控制。 |
+    | `secret` | `bool \| None` | 否 | `None` | 是否为私密频道。需要同accessible_roles和accessible_members配合使用。 |
+    | `has_password` | `bool \| None` | 否 | `None` | 是否设置频道密码。 |
+    | `password` | `str \| None` | 否 | `None` | 频道密码。传 `password` 时必须同时设置 `has_password=True`。 |
+    | `text_roles` | `list[int] \| None` | 否 | `None` | 可发送文字消息的身份组 ID 列表。 |
+    | `voice_roles` | `list[int] \| None` | 否 | `None` | 可进入语音的身份组 ID 列表。 |
+    | `accessible_roles` | `list[int] \| None` | 否 | `None` | 可访问该频道的身份组 ID 列表，仅私密频道可设置。 |
+    | `accessible_members` | `list[str] \| None` | 否 | `None` | 可访问该频道的成员 UID 列表，仅私密频道可设置。 |
 
 === "返回值"
 
@@ -308,6 +312,11 @@ print(sign.rtc_token)
     | `voice_delay` | `str` | `"LOW"` | 语音延迟。 |
     | `voice_quality` | `str` | `"64k"` | 语音质量。 |
 
+    `ChannelSign` 还提供两个 property：
+
+    - `sign.rtc_channel_name` —— 等价于 `sign.room_id`。
+    - `sign.rtc_token` —— `supplier_sign` 优先，回退到 `agora_sign`。
+
 === "说明"
 
     一般业务使用更高层的 `bot.voice.join()` 更方便。
@@ -337,7 +346,7 @@ print(result.ok)
     | --- | --- | --- | --- | --- |
     | `channel` | `str` | 是 | - | 语音频道 ID，不能为空。 |
     | `area` | `str` | 是 | - | 域 ID，不能为空。 |
-    | `target` | `str | None` | 否 | `None` | 要移出语音频道的用户 UID；不传时默认使用当前机器人 UID。 |
+    | `target` | `str \| None` | 否 | `None` | 要移出语音频道的用户 UID；不传时默认使用当前机器人 UID。 |
 
 === "返回值"
 

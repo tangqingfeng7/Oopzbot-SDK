@@ -31,6 +31,16 @@ pip install -e .
 
 推荐通过环境变量传入，不要硬编码到代码里。
 
+从源码调试时，可以使用仓库里的凭证获取工具辅助获取这些字段：
+
+```powershell
+python .\script\credential_tool.py --save
+```
+
+工具会打开 Oopz 网页端，请在浏览器里登录账号。登录成功后，它会尝试从请求头、WebSocket 鉴权消息和浏览器存储中捕获 `person_uid`、`device_id`、`jwt_token` 和 `private_key`。
+
+首次运行时如果缺少 Playwright，工具会尝试自动安装 `playwright` 和 Chromium。使用 `--save` 时，工具会把完整凭证摘要写入 `data/credentials.txt`，并生成 `private_key.py`；如果项目根目录已有 `config.py`，还会同步更新其中的 `device_id`、`person_uid` 和 `jwt_token`。这些文件都包含真实登录凭证，只能保留在本地，不要提交到仓库。
+
 ## 3. 创建 `bot.py`
 
 ```python
@@ -51,14 +61,13 @@ bot = OopzBot(config)
 
 
 @bot.on_ready
-async def on_ready(event, ctx):
+async def on_ready(ctx):
     print("[READY] connected")
 
 
 @bot.on_message
-async def on_message(event, ctx):
-    message = event.message
-    if not message:
+async def on_message(message, ctx):
+    if message is None:
         return
 
     if message.text.strip() == "ping":
@@ -66,7 +75,7 @@ async def on_message(event, ctx):
 
 
 @bot.on_error
-async def on_error(error, ctx):
+async def on_error(ctx, error):
     print("[ERROR]", repr(error))
 
 
@@ -98,7 +107,7 @@ Linux / macOS：
 export OOPZ_DEVICE_ID="你的设备 ID"
 export OOPZ_PERSON_UID="你的账号 UID"
 export OOPZ_JWT_TOKEN="你的 JWT"
-export OOPZ_PRIVATE_KEY="-----BEGIN RSA PRIVATE KEY-----\n...\n-----END RSA PRIVATE KEY-----"
+export OOPZ_PRIVATE_KEY=$'-----BEGIN RSA PRIVATE KEY-----\n...\n-----END RSA PRIVATE KEY-----'
 python bot.py
 ```
 

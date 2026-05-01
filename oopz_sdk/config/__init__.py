@@ -25,7 +25,6 @@ __all__ = [
     "ATTACHMENT_TYPE_AUDIO",
     "ATTACHMENT_TYPE_FILE",
     "ATTACHMENT_TYPE_IMAGE",
-    "AutoRecallConfig",
     "DEFAULT_HEADERS",
     "EVENT_AUTH",
     "EVENT_CHAT_MESSAGE",

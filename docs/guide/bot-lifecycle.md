@@ -19,7 +19,7 @@ async def main() -> None:
     bot = OopzBot(OopzConfig(...))
 
     @bot.on_ready
-    async def ready(event, ctx):
+    async def ready(ctx):
         print("bot ready")
 
     try:
@@ -52,17 +52,19 @@ asyncio.run(main())
 
 ```python
 @bot.on_message
-async def on_message(event, ctx):
+async def on_message(message, ctx):
     ...
 
 @bot.on_private_message
-async def on_private(event, ctx):
+async def on_private(message, ctx):
     ...
 
 @bot.on("channel.update")
-async def on_channel_update(event, ctx):
+async def on_channel_update(ctx, event):
     ...
 ```
+
+> 不同事件的回调签名不同，详见 [事件系统](events.md#事件回调函数)。
 
 也可以在构造时传入函数：
 
@@ -80,11 +82,11 @@ bot = OopzBot(config, on_message=handle_message, on_error=handle_error)
 
 ## EventContext
 
-事件回调第二个参数通常是 `ctx`。在消息事件中可以使用：
+消息事件的回调签名是 `(message, ctx)`：
 
 ```python
 @bot.on_message
-async def on_message(event, ctx):
+async def on_message(message, ctx):
     await ctx.reply("回复当前消息")
     await ctx.send("发送到当前频道")
     await ctx.recall()
@@ -100,15 +102,15 @@ async def on_message(event, ctx):
 
 ```python
 @bot.on_error
-async def on_error(error, ctx):
+async def on_error(ctx, error):
     print("handler error:", error)
 
 @bot.on_close
-async def on_close(close_info, ctx):
-    print(close_info.code, close_info.reason)
+async def on_close(ctx, close_info):
+    print(close_info["code"], close_info["reason"])
 
 @bot.on_reconnect
-async def on_reconnect(event, ctx):
+async def on_reconnect(ctx):
     print("reconnecting")
 ```
 

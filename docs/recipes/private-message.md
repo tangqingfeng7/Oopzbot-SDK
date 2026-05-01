@@ -22,7 +22,7 @@ bot = OopzBot(config)
 @bot.on_message
 async def on_message(message, ctx):
     if message.text.strip() == "ping":
-        bot.messages.send_private_message(
+        await bot.messages.send_private_message(
             "pong",
             target=message.sender_id,
         )

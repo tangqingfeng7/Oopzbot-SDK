@@ -47,7 +47,7 @@ jobs:
           python-version: "3.12"
 
       - name: 安装打包依赖
-        run: python -m pip install "build>=1.2,<2" "twine>=6,<7"
+        run: python -m pip install --upgrade "build>=1.2,<2" "twine>=6.2,<8" "packaging>=24.2"
 
       - name: 构建 sdist 和 wheel
         run: python -m build
@@ -68,6 +68,11 @@ jobs:
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
 
     steps:
+      - name: 安装 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
       - name: 下载构建产物
         uses: actions/download-artifact@v4
         with:
@@ -75,7 +80,7 @@ jobs:
           path: dist
 
       - name: 安装 Twine
-        run: python -m pip install "twine>=6,<7"
+        run: python -m pip install --upgrade "twine>=6.2,<8" "packaging>=24.2"
 
       - name: 上传到 PyPI
         env:

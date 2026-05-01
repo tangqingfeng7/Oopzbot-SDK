@@ -30,7 +30,7 @@ print(user.uid, user.name)
 
     | 参数 | 类型 | 必填 | 默认值 | 说明 |
     | --- | --- | --- | --- | --- |
-    | `uid` | `str | None` | 否 | `None` | 用户 UID。不传时使用当前配置中的 `person_uid`。 |
+    | `uid` | `str \| None` | 否 | `None` | 用户 UID。不传时使用当前配置中的 `person_uid`。 |
 
 === "返回值"
 
@@ -118,7 +118,7 @@ print(profile.name)
 print(profile.ip_address)
 ```
 
-recommendArea=== "参数"
+=== "参数"
 
     | 参数 | 类型 | 必填 | 说明 |
     | --- | --- | --- | --- |
@@ -274,6 +274,112 @@ print(level.next_level_distance)
     | `next_level_distance` | `int` | `0` | 距离下一等级还需要的积分 |
     | `pay_points` | `int` | `0` | 付费积分 |
     | `sign_in_points` | `int` | `0` | 签到积分 |
+
+---
+
+## `get_friendship()`
+
+获取当前用户的好友列表。
+
+```python
+friends = await bot.person.get_friendship()
+
+for friend in friends:
+    print(friend.uid, friend.name, friend.online)
+```
+
+=== "参数"
+
+    无参数。
+
+=== "返回值"
+
+    返回：`list[Friendship]`。
+
+    对应模型：`oopz_sdk.models.Friendship`
+
+    | 字段 | 类型 | 默认值 | 说明 |
+    | --- | --- | --- | --- |
+    | `uid` | `str` | `""` | 好友 UID。 |
+    | `name` | `str` | `""` | 好友昵称。 |
+    | `online` | `bool` | `False` | 是否在线。 |
+
+=== "异常"
+
+    | 场景 | 异常 |
+    | --- | --- |
+    | 接口返回不是列表 | `OopzApiError` |
+
+---
+
+## `get_friendship_requests()`
+
+获取当前用户的好友请求列表（别人加你为好友的请求）。
+
+```python
+requests = await bot.person.get_friendship_requests()
+
+for req in requests:
+    print(req.friend_request_id, req.uid, req.create_time)
+```
+
+=== "参数"
+
+    无参数。
+
+=== "返回值"
+
+    返回：`list[FriendshipRequest]`。
+
+    对应模型：`oopz_sdk.models.FriendshipRequest`
+
+    | 字段 | 类型 | 默认值 | API 字段 | 说明 |
+    | --- | --- | --- | --- | --- |
+    | `friend_request_id` | `int` | `0` | `friendRequestId` | 好友请求 ID。 |
+    | `uid` | `str` | `""` | `uid` | 发起请求方 UID。 |
+    | `create_time` | `str` | `""` | `createTime` | 请求创建时间。 |
+
+=== "异常"
+
+    | 场景 | 异常 |
+    | --- | --- |
+    | 接口返回格式错误 | `OopzApiError` |
+
+---
+
+## `post_friendship_response(target, friend_request_id, agree)`
+
+接受或拒绝某个好友请求。
+
+```python
+requests = await bot.person.get_friendship_requests()
+
+for req in requests:
+    await bot.person.post_friendship_response(
+        target=req.uid,
+        friend_request_id=req.friend_request_id,
+        agree=True,
+    )
+```
+
+=== "参数"
+
+    | 参数 | 类型 | 必填 | 说明 |
+    | --- | --- | --- | --- |
+    | `target` | `str` | 是 | 发起好友请求的用户 UID。 |
+    | `friend_request_id` | `int` | 是 | 好友请求 ID（来自 `get_friendship_requests()`）。 |
+    | `agree` | `bool` | 是 | `True` 表示同意，`False` 表示拒绝。 |
+
+=== "返回值"
+
+    返回：`OperationResult`。
+
+    对应模型：`oopz_sdk.models.OperationResult`
+
+    | 字段 | 类型 | 默认值 | 说明 |
+    | --- | --- | --- | --- |
+    | `ok` | `bool` | `True` | 操作是否成功。 |
+    | `message` | `str` | `""` | 操作消息或错误信息。 |
 
 ---
 

@@ -5,7 +5,7 @@ OneBot v11 / v12 适配能力。
 
 本项目由社区开发与维护，旨在为机器人开发、自动化集成和协议适配提供更方便的 Python 接口。
 
-需要注意的是，项目目前仅支持 **Python 3.10** 以上版本
+需要注意的是，项目要求 **Python 3.10 及以上**版本。
 
 项目还处于早期开发阶段，欢迎社区参与测试、反馈和贡献。
 
@@ -16,7 +16,7 @@ OneBot v11 / v12 适配能力。
 | 第一次使用，想跑通一个机器人                 | [5 分钟上手](guide/quickstart.md)                           |
 | 只想安装 SDK                       | [安装](guide/installation.md)                             |
 | 不知道 `area`、`channel`、`ctx` 是什么 | [核心概念](guide/concepts.md)                               |
-| 配置凭证、代理、重试、自动撤回                | [配置方法](guide/configuration.md)                          |
+| 配置凭证、代理、重试、心跳                   | [配置方法](guide/configuration.md)                          |
 | 监听消息、撤回、频道变化等事件                | [事件系统](guide/events.md)                                 |
 | 发送文本、图片、私信、Segment             | [消息发送](guide/messaging.md)                              |
 | 查询已加入域和频道 ID                   | [列出 area 和 channel](recipes/list-areas-and-channels.md) |
@@ -75,10 +75,12 @@ asyncio.run(main())
 
 `OopzBot` 负责组合配置、HTTP Service、WebSocket 连接、事件分发以及上下文能力，并且提供了装饰器和函数式的事件注册，是面向开发者的主要入口。
 
-| 对象           | 说明                                                          |
-|--------------|-------------------------------------------------------------|
-| `OopzBot`    | 高层 Bot 入口，负责启动连接、监听事件、分发回调、发送消息和调用各类 service。               |
-| `OopzConfig` | SDK 配置对象，保存凭证、API 地址、WebSocket 地址、代理、重试、心跳、语音和 OneBot 相关配置。 |
+| 对象                | 说明                                                                    |
+|-------------------|-----------------------------------------------------------------------|
+| `OopzBot`         | 高层 Bot 入口，负责启动连接、监听事件、分发回调、发送消息和调用各类 service。                         |
+| `OopzConfig`      | SDK 配置对象，保存凭证、API 地址、WebSocket 地址、代理、重试、心跳、语音和 OneBot 相关配置。 |
+| `OopzRESTClient`  | 底层 REST 客户端，包装 HTTP transport、签名和所有 service。仅做接口调用、不需要 WebSocket 时使用。 |
+| `OopzWSClient`    | 底层 WebSocket 客户端，仅做事件接收、不需要 REST 调用时使用。                               |
 
 对于大多数机器人开发场景，只需要直接使用 `OopzBot` 和 `OopzConfig`。
 

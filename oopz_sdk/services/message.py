@@ -107,7 +107,6 @@ class Message(BaseService):
             is_mention_all: bool = False,
             style_tags: Optional[list] = None,
             reference_message_id: Optional[str] = None,
-            auto_recall: Optional[bool] = None,
             animated: bool = False,
             display_name: str = "",
             duration: int = 0,
@@ -115,12 +114,6 @@ class Message(BaseService):
     ) -> models.MessageSendResult:
         """
         频道消息发送。
-
-        自动撤回的三态语义（`auto_recall`）：
-        - `None`（默认，不传）：跟随全局 `OopzConfig.auto_recall_enabled`。全局开则按
-          `auto_recall_delay` 自动安排撤回；全局关则不撤回。
-        - `True`：强制撤回这一条，使用 `auto_recall_delay` 作为延迟（即便全局关）。
-        - `False`：强制**不**撤回这一条（即便全局开）。用于混合场景下保留个别公告 / 日报消息。
         """
         if area.strip() == "":
             raise ValueError("area is required for send_message()")
@@ -155,14 +148,7 @@ class Message(BaseService):
 
         resp = await self._request_data("POST", url_path, body=body)
 
-        model = models.MessageSendResult.from_api(resp)
-
-        should_recall = (
-            auto_recall if auto_recall is not None else self._config.auto_recall_enabled
-        )
-        if model.message_id and should_recall:
-            await self._schedule_auto_recall(model.message_id, area, channel)
-        return model
+        return models.MessageSendResult.from_api(resp)
 
     async def send_private_message(
             self,
@@ -220,27 +206,6 @@ class Message(BaseService):
 
         model = models.MessageSendResult.from_api(resp)
         return model
-
-    async def _schedule_auto_recall(self, message_id: str, area: str, channel: str) -> None:
-        delay = self._config.auto_recall_delay
-        if delay <= 0:
-            return
-        try:
-            loop = asyncio.get_running_loop()
-            loop.create_task(self._do_auto_recall(message_id, area, channel, delay))
-        except Exception as exc:
-            logger.error("failed to schedule auto recall: %s", exc)
-
-    async def _do_auto_recall(
-            self, message_id: str, area: str, channel: str, delay: float
-    ) -> None:
-        try:
-            await asyncio.sleep(delay)
-            result = await self.recall_message(message_id, area=area, channel=channel)
-            if not result.ok:
-                logger.warning("auto recall failed: %s, area: %s, channel: %s", message_id, area, channel)
-        except Exception as e:
-            logger.error("auto recall exception: %s", e)
 
     async def _resolve_segments(self, segments: list[Segment]) -> list[Segment]:
         resolved: list[Segment] = []
@@ -376,7 +341,7 @@ class Message(BaseService):
             preview_file_key=getattr(upload_result, "preview_file_key", ""),
         )
 
-    async def top_message(self, message_id: str, channel: str, area: str, top_message: bool = True) -> models.OperationResult:
+    async def top_message(self, message_id: str, area: str, channel: str,  top_message: bool = True) -> models.OperationResult:
         """置顶或取消置顶消息。"""
         if message_id.strip() == "":
             raise ValueError("message_id is required for top_message")

@@ -3,7 +3,7 @@
 SDK 的所有能力都从 `OopzConfig` 开始。
 
 ```python
-from oopz_sdk import OopzConfig, RetryConfig, HeartbeatConfig, ProxyConfig, AutoRecallConfig
+from oopz_sdk import OopzConfig, RetryConfig, HeartbeatConfig, ProxyConfig
 
 config = OopzConfig(
     device_id="设备 ID",
@@ -13,18 +13,17 @@ config = OopzConfig(
     retry=RetryConfig(interval=0.35, timeout=(10, 30), max_attempts=3),
     heartbeat=HeartbeatConfig(interval=10.0, reconnect_interval=2.0),
     proxy=ProxyConfig(http="http://127.0.0.1:7890", https="http://127.0.0.1:7890"),
-    auto_recall=AutoRecallConfig(enabled=False, delay=30.0),
 )
 ```
 
 ## 必填配置
 
-| 字段            | 类型    | 说明                           |
-|---------------|-------|------------------------------|
-| `device_id`   | `str` | 设备 ID。不能为空。                  |
-| `person_uid`  | `str` | 当前登录账号 UID，通常也是机器人 UID。不能为空。 |
-| `jwt_token`   | `str` | 登录态 JWT。不能为空。                |
-| `private_key` | `str  | bytes                        | key object` | RSA 私钥，用于签名请求。不能为空。 |
+| 字段            | 类型                       | 说明                           |
+|---------------|--------------------------|------------------------------|
+| `device_id`   | `str`                    | 设备 ID。不能为空。                  |
+| `person_uid`  | `str`                    | 当前登录账号 UID，通常也是机器人 UID。不能为空。 |
+| `jwt_token`   | `str`                    | 登录态 JWT。不能为空。                |
+| `private_key` | `str \| bytes \| key object` | RSA 私钥，用于签名请求。不能为空。           |
 
 以下设置一般不需要修改，除非你有特殊需求，例如使用代理或调整重试策略。
 
@@ -80,11 +79,10 @@ config = OopzConfig(
 
 ## 消息配置
 
-| 字段                       | 默认值                             | 说明                       |
-|--------------------------|---------------------------------|--------------------------|
-| `ignore_self_messages`   | `True`                          | 忽略自己发出的消息，避免机器人回复自己导致循环。 |
-| `use_announcement_style` | `False`                         | 频道消息默认加 `IMPORTANT` 样式。  |
-| `auto_recall`            | `AutoRecallConfig(False, 30.0)` | 发送频道消息后自动撤回。             |
+| 字段                       | 默认值     | 说明                       |
+|--------------------------|---------|--------------------------|
+| `ignore_self_messages`   | `True`  | 忽略自己发出的消息，避免机器人回复自己导致循环。 |
+| `use_announcement_style` | `False` | 频道消息默认加 `IMPORTANT` 样式。  |
 
 
 ## 缓存配置

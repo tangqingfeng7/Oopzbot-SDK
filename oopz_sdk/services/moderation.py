@@ -55,8 +55,8 @@ class Moderation(BaseService):
 
     async def mute_mic(
         self,
-        uid: str,
         area: str,
+        uid: str,
         duration: VoiceMuteInterval | int | None = VoiceMuteInterval.M5,
     ) -> models.OperationResult:
         """Mute a user's voice permission in an area."""

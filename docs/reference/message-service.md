@@ -52,19 +52,18 @@ print(result.message_id)
 
     | 参数 | 类型 | 必填 | 默认值 | 说明 |
     | --- | --- | --- | --- | --- |
-    | `*texts` | `str | Segment` | 是 | - | 文本或 Segment 列表。多个参数会被合并为一条消息 |
+    | `*texts` | `str \| Segment` | 是 | - | 文本或 Segment 列表。多个参数会被合并为一条消息 |
     | `area` | `str` | 是 | - | 域 ID，不能为空 |
     | `channel` | `str` | 是 | - | 频道 ID，不能为空 |
-    | `attachments` | `list | None` | 否 | `None` | 手动附件列表；不能与 Segment 方式混用 |
-    | `mention_list` | `list | None` | 否 | `None` | 手动 mention 列表 |
+    | `attachments` | `list \| None` | 否 | `None` | 手动附件列表；不能与 Segment 方式混用 |
+    | `mention_list` | `list \| None` | 否 | `None` | 手动 mention 列表 |
     | `is_mention_all` | `bool` | 否 | `False` | 是否at全体 |
-    | `style_tags` | `list | None` | 否 | `None` | 样式标签，例如 `IMPORTANT` |
-    | `reference_message_id` | `str | None` | 否 | `None` | 被回复消息 ID |
-    | `auto_recall` | `bool | None` | 否 | `None` | 单条消息自动撤回 |
+    | `style_tags` | `list \| None` | 否 | `None` | 样式标签，例如 `IMPORTANT` |
+    | `reference_message_id` | `str \| None` | 否 | `None` | 被回复消息 ID |
     | `animated` | `bool` | 否 | `False` |  |
     | `display_name` | `str` | 否 | `""` | 展示名 |
     | `duration` | `int` | 否 | `0` | 媒体时长 |
-    | `version` | `"v1" | "v2"` | 否 | `"v2"` | 发送接口版本 |
+    | `version` | `"v1" \| "v2"` | 否 | `"v2"` | 发送接口版本 |
 
 === "返回值"
 
@@ -108,7 +107,7 @@ print(result.message_id)
 
     SDK 会直接发送文本消息。
 
-    如果传入的是 `Image` 这类 Segment，SDK 会先上传本地文件，再生成 Oopz 需要的图片占位文本和附件信息。
+    如果传入的是 `Image` 这类 Segment，SDK 会先读取并上传图片输入，再生成 Oopz 需要的图片占位文本和附件信息。图片输入支持本地路径、bytes、base64 / data URL 和 file-like 对象，详见 [Media Service](media-service.md)。
 
 ---
 
@@ -131,19 +130,18 @@ print(result.message_id)
 
     | 参数 | 类型 | 必填 | 默认值 | 说明 |
     | --- | --- | --- | --- | --- |
-    | `*texts` | `str | Segment` | 是 | - | 文本或 Segment 列表。 |
+    | `*texts` | `str \| Segment` | 是 | - | 文本或 Segment 列表。 |
     | `target` | `str` | 是 | - | 目标用户 UID，不能为空。 |
-    | `channel` | `str | None` | 否 | `None` | 私信会话 ID；不传时自动调用 `open_private_session()`。 |
-    | `attachments` | `list | None` | 否 | `None` | 手动附件列表；不能与 Segment 方式混用。 |
-    | `mention_list` | `list | None` | 否 | `None` | 手动 mention 列表。 |
+    | `channel` | `str \| None` | 否 | `None` | 私信会话 ID；不传时自动调用 `open_private_session()`。 |
+    | `attachments` | `list \| None` | 否 | `None` | 手动附件列表；不能与 Segment 方式混用。 |
+    | `mention_list` | `list \| None` | 否 | `None` | 手动 mention 列表。 |
     | `is_mention_all` | `bool` | 否 | `False` | 是否at全体。 |
-    | `style_tags` | `list | None` | 否 | `None` | 样式标签。 |
+    | `style_tags` | `list \| None` | 否 | `None` | 样式标签。 |
     | `reference_message_id` | `str \| None` | 否 | `None` | 被回复消息 ID。 |
-    | `auto_recall` | `bool | None` | 否 | `None` | 单条消息自动撤回覆盖。 |
     | `animated` | `bool` | 否 | `False` | 附件动画标记。 |
     | `display_name` | `str` | 否 | `""` | 展示名。 |
     | `duration` | `int` | 否 | `0` | 媒体时长。 |
-    | `version` | `"v1" | "v2"` | 否 | `"v2"` | 发送接口版本。 |
+    | `version` | `"v1" \| "v2"` | 否 | `"v2"` | 发送接口版本。 |
 
 === "返回值"
 
@@ -172,7 +170,7 @@ print(result.message_id)
 
 ---
 
-##  `recall_message(message_id, area, channel, timestamp=None, target="")`
+## `recall_message(message_id, area, channel, timestamp=None, target="")`
 
 撤回频道消息。
 
@@ -193,7 +191,7 @@ print(result.ok)
     | `message_id` | `str` | 是 | - | Oopz 消息 ID，不能为空。 |
     | `area` | `str` | 是 | - | 域 ID，不能为空。 |
     | `channel` | `str` | 是 | - | 频道 ID，不能为空。 |
-    | `timestamp` | `str | int | float | None` | 否 | `None` | 可选时间戳；不传时 SDK 自动生成当前微秒时间戳。 |
+    | `timestamp` | `str \| int \| float \| None` | 否 | `None` | 可选时间戳；不传时 SDK 自动生成当前微秒时间戳。 |
     | `target` | `str` | 否 | `""` | 可选目标。频道消息此处应留空。 |
 
 === "返回值"
@@ -217,7 +215,7 @@ print(result.ok)
 
 ---
 
-## `recall_private_message(message_id, channel, target, timestamp=None)`
+## `recall_private_message(message_id, channel, target, area=None, timestamp=None)`
 
 撤回私信消息。
 
@@ -240,7 +238,8 @@ print(result.ok)
     | `message_id` | `str` | 是 | - | Oopz 消息 ID，不能为空。 |
     | `channel` | `str` | 是 | - | 私信会话 ID，不能为空。 |
     | `target` | `str` | 是 | - | 目标用户 UID，不能为空。(See `open_private_session()`) |
-    | `timestamp` | `str | int | float | None` | 否 | `None` | 可选时间戳；不传时 SDK 自动生成当前微秒时间戳。 |
+    | `area` | `str \| None` | 否 | `None` | 私信目标所属域 ID。一般可不传。 |
+    | `timestamp` | `str \| int \| float \| None` | 否 | `None` | 可选时间戳；不传时 SDK 自动生成当前微秒时间戳。 |
 
 === "返回值"
 
@@ -255,14 +254,14 @@ print(result.ok)
 
 ---
 
-## `get_channel_messages(channel, area, ...)`
+## `get_channel_messages(area, channel, size=50)`
 
 获取频道历史消息。
 
 ```python
 messages = await client.messages.get_channel_messages(
-    channel=channel,
     area=area,
+    channel=channel,
 )
 
 for message in messages:
@@ -271,11 +270,11 @@ for message in messages:
 
 === "参数"
 
-    | 参数 | 类型 | 必填 | 说明 |
-    | --- | --- | --- | --- |
-    | `channel` | `str` | 是 | 频道 ID，不能为空。 |
-    | `area` | `str` | 是 | 域 ID，不能为空。 |
-    | `...` | - | 否 | 具体分页参数以当前 SDK 函数签名为准。 |
+    | 参数 | 类型 | 必填 | 默认值 | 说明 |
+    | --- | --- | --- | --- | --- |
+    | `area` | `str` | 是 | - | 域 ID，不能为空。 |
+    | `channel` | `str` | 是 | - | 频道 ID，不能为空。 |
+    | `size` | `int` | 否 | `50` | 拉取条数，必须为正整数。 |
 
 === "返回值"
 
@@ -301,8 +300,8 @@ for message in messages:
     | `top_time` | `str` | `""` | `topTime` | 置顶时间。 |
     | `duration` | `int` | `0` | `duration` | 媒体时长。 |
     | `display_name` | `str` | `""` | `displayName` | 展示名。 |
-    | `preview_image` | `MediaInfo | None` | `None` | `previewImage` | 预览图信息。 |
-    | `raw_video` | `MediaInfo | None` | `None` | `rawVideo` | 原始视频信息。 |
+    | `preview_image` | `MediaInfo \| None` | `None` | `previewImage` | 预览图信息。 |
+    | `raw_video` | `MediaInfo \| None` | `None` | `rawVideo` | 原始视频信息。 |
     | `cards` | `Any` | `None` | `cards` | 卡片数据。 |
     | `mention_list` | `list[MentionInfo]` | `[]` | `mentionList` | at列表。 |
     | `is_mention_all` | `bool` | `False` | `isMentionAll` | 是否at全体。 |
@@ -373,8 +372,8 @@ await client.messages.top_message(
 
 使用 `Image` 时 SDK 会：
 
-1. 读取图片宽高。
-2. 上传本地图片。
+1. 读取图片输入、宽高和文件大小。
+2. 上传图片数据。
 3. 生成 Oopz 图片占位文本 `![IMAGEw{width}h{height}]({file_key})`。
 4. 生成附件列表。
 5. 与send_message()的其他文本参数合并成完整消息内容。
