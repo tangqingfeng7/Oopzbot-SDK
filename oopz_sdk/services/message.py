@@ -27,7 +27,7 @@ class Message(BaseService):
         """
         message_parts = list(parts)
         manual_attachments = attachments or []
-
+        # todo 已知问题: mentionList没有处理, 但是不影响使用
         has_segment_parts = any(not isinstance(part, str) for part in message_parts)
         if has_segment_parts and manual_attachments:
             raise ValueError("Manual attachments cannot be used together with Segment-style message parts")

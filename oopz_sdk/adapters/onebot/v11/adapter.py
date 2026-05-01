@@ -100,6 +100,7 @@ class OneBotV11Adapter:
             "send_group_msg": self.send_group_msg,
             "delete_msg": self.delete_msg,
             "recall_message": self.delete_msg,
+            "get_msg": self.get_msg,
 
             # user / friend
             "get_login_info": self.get_login_info,
@@ -266,6 +267,9 @@ class OneBotV11Adapter:
             target=target,
             user_id=target,
             timestamp=result.timestamp,
+            raw={
+                "message": message,
+            }
         )
 
         return {"message_id": message_id}
@@ -301,7 +305,6 @@ class OneBotV11Adapter:
             *send_parts.parts,
             area=area,
             channel=channel,
-            mention_list=send_parts.mention_list,
             is_mention_all=send_parts.is_mention_all,
         )
 
@@ -316,6 +319,9 @@ class OneBotV11Adapter:
             area=area,
             channel=channel,
             timestamp=result.timestamp,
+            raw={
+                "message": message,
+            }
         )
 
         return {"message_id": message_id}
@@ -372,6 +378,55 @@ class OneBotV11Adapter:
         if not getattr(result, "ok", True):
             raise RuntimeError(getattr(result, "message", "recall failed"))
         return None
+
+    async def get_msg(self, params: Mapping[str, Any]) -> JsonDict:
+        message_id = require_int(params, "message_id")
+        record = self.store.get(str(message_id))
+
+        if record is None:
+            raise ValueError(f"message mapping not found: {message_id}")
+
+        raw = record.raw or {}
+
+        # 如果是从事件保存的完整 payload，优先按原 payload 还原
+        if raw.get("post_type") == "message":
+            message_type = str(raw.get("message_type") or record.detail_type or "")
+            return {
+                "time": int(raw.get("time") or record.created_at or int(time.time())),
+                "message_type": message_type,
+                "message_id": message_id,
+                "real_id": message_id,
+                "sender": raw.get("sender") or {
+                    "user_id": int(raw["user_id"]) if str(raw.get("user_id") or "").isdigit() else 0,
+                    "nickname": "",
+                },
+                "message": raw.get("message") or [],
+            }
+
+        # 自己发送的消息，raw 可能不完整，只能返回最小结构
+        message_type = "private" if record.detail_type == "private" else "group"
+
+        sender: JsonDict = {
+            "user_id": self.self_id,
+            "nickname": "",
+        }
+
+        data: JsonDict = {
+            "time": int(record.created_at or int(time.time())),
+            "message_type": message_type,
+            "message_id": message_id,
+            "real_id": message_id,
+            "sender": sender,
+            "message": raw.get("message") or [],
+        }
+
+        if message_type == "group" and record.area and record.channel:
+            group_id = self.ids.createId(
+                make_group_source(area=record.area, channel=record.channel)
+            ).number
+            data["group_id"] = group_id
+
+        return data
 
     async def get_stranger_info(self, params: Mapping[str, Any]) -> JsonDict:
         user_id = require_int(params, "user_id")
@@ -586,7 +641,7 @@ class OneBotV11Adapter:
         return {}
 
     def _save_message_event_mapping(self, payload: Mapping[str, Any]) -> None:
-        if payload.get("post_type") not in {"message", "notice"}:
+        if payload.get("post_type") not in {"message"}:
             return
 
         mid = payload.get("message_id")
@@ -614,6 +669,7 @@ class OneBotV11Adapter:
             channel=channel,
             target=target,
             user_id=user_id,
+            raw=payload,
         )
 
     def _save_sent_mapping(
@@ -627,6 +683,7 @@ class OneBotV11Adapter:
             target: str = "",
             user_id: str = "",
             timestamp: str = "",
+            raw: Mapping[str, Any] | None = None,
     ) -> None:
         self.store.save(
             MessageRecord(
@@ -638,7 +695,7 @@ class OneBotV11Adapter:
                 target=target,
                 user_id=user_id,
                 created_at=parse_oopz_timestamp(timestamp),
-                raw={},
+                raw=dict(raw or {}),
             )
         )
 

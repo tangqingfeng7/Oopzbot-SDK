@@ -14,7 +14,7 @@ CQ_RE = re.compile(r"\[CQ:(?P<type>\w+)(?P<params>(?:,[^\]]*)?)\]")
 @dataclass(slots=True)
 class V11SendParts:
     parts: list[Any]
-    mention_list: list[str]
+    mention_list: list
     is_mention_all: bool = False
 
 
