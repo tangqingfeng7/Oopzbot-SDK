@@ -145,7 +145,7 @@ class AreaMembersPage(BaseModel):
         return cls.model_validate(data)
 
 
-class ChannelSettings(BaseModel):
+class ChannelInfoSettings(BaseModel):
     disable_text_levels: list[int] | None = Field(default=None, alias="disableTextLevels")
     disable_voice_levels: list[int] | None = Field(default=None, alias="disableVoiceLevels")
     max_member: int = Field(default=0, alias="maxMember")
@@ -159,7 +159,7 @@ class ChannelSettings(BaseModel):
     voice_roles: list[int] = Field(default_factory=list, alias="voiceRoles")
 
     @classmethod
-    def from_api(cls, data: dict[str, Any] | None) -> "ChannelSettings":
+    def from_api(cls, data: dict[str, Any] | None) -> "ChannelInfoSettings":
         return cls.model_validate(data or {})
 
 
@@ -171,7 +171,7 @@ class ChannelInfo(BaseModel):
     name: str = ""
     number: int = 0
     secret: bool = False
-    settings: ChannelSettings = Field(default_factory=ChannelSettings)
+    settings: ChannelInfoSettings = Field(default_factory=ChannelInfoSettings)
     system: bool = False
     tag: str = ""
     channel_type: str = Field(default="", alias="type")

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 import oopz_sdk.services.message as message_service
 import oopz_sdk.services.voice as voice_service
@@ -11,7 +12,7 @@ from oopz_sdk.events.registry import EventRegistry
 
 from .rest import OopzRESTClient
 from .ws import CloseInfo, OopzWSClient
-from ..models import MessageEvent, Message
+from ..models import Message, MessageEvent
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +25,10 @@ class OopzBot:
     - 统一管理 REST / WS
     - 统一事件注册入口
     - 统一事件调度
+    - 维护通用 adapter 列表，但不关心具体协议细节
+
+    协议适配器，例如 OneBot v11/v12，应通过 add_adapter() 注册。
+    Bot 只负责把 Oopz 事件广播给 adapter，以及统一管理 adapter server 生命周期。
     """
 
     def __init__(
@@ -41,6 +46,7 @@ class OopzBot:
         self.registry = EventRegistry()
         self.dispatcher = EventDispatcher(self.registry)
         self.parser = EventParser()
+
         self.rest = OopzRESTClient(config, bot=self)
         self.messages: message_service.Message = self.rest.messages
         self.media = self.rest.media
@@ -49,9 +55,22 @@ class OopzBot:
         self.person = self.rest.person
         self.members = self.person
         self.moderation = self.rest.moderation
-        self.voice: voice_service.Voice = voice_service.Voice(self, config, self.rest.transport, self.rest.signer)
+        self.voice: voice_service.Voice = voice_service.Voice(
+            self,
+            config,
+            self.rest.transport,
+            self.rest.signer,
+        )
 
-        # WS 客户端只负责底层连接和回调
+        # 通用 adapter 生命周期容器。
+        # adapter: 负责协议转换 / action 处理 / event emit。
+        # adapter server: 负责 HTTP / WS / webhook / reverse WS 等连接层。
+        self.adapters: list[Any] = []
+        self._adapter_servers: list[Any] = []
+
+        self._install_configured_adapters()
+
+        # WS 客户端只负责底层连接和回调。
         self.ws = OopzWSClient(
             config=config,
             on_message=self._handle_ws_message,
@@ -61,7 +80,7 @@ class OopzBot:
             on_reconnect=self._handle_reconnect,
         )
 
-        # 函数式事件注册
+        # 函数式事件注册。
         if on_message is not None:
             self.registry.on("message", on_message)
         if on_ready is not None:
@@ -74,6 +93,48 @@ class OopzBot:
             self.registry.on("reconnect", on_reconnect)
         if on_raw_event is not None:
             self.registry.on("raw_event", on_raw_event)
+
+    # -------------------------
+    # Adapter 注册 API
+    # -------------------------
+    def add_adapter(self, adapter: Any, *, server: Any | None = None) -> Any:
+        """
+        注册协议适配器。
+
+        adapter 只需要按需实现：
+        - emit_event(event): 接收 Oopz 事件并转换/广播到目标协议。
+
+        server 只需要按需实现：
+        - start(): 启动 HTTP / WS / webhook / reverse WS 等连接层。
+        - stop(): 停止连接层。
+
+        返回 adapter 本身，方便调用方保留引用：
+            onebot = bot.add_adapter(OneBotV12Adapter(bot, ...))
+        """
+        if adapter not in self.adapters:
+            self.adapters.append(adapter)
+
+        if server is not None and server not in self._adapter_servers:
+            self._adapter_servers.append(server)
+
+        return adapter
+
+    def add_adapter_server(self, server: Any) -> Any:
+        """只注册 adapter server。通常 install 函数内部使用。"""
+        if server not in self._adapter_servers:
+            self._adapter_servers.append(server)
+        return server
+
+    def _install_configured_adapters(self) -> None:
+        """
+        根据 config 安装内置 adapter。
+
+        这里保持很薄的一层转发，避免 OopzBot 直接 import/构造 v11/v12 的
+        Adapter、Server、ServerConfig。以后新增协议时，也应优先放到 adapters/ 下。
+        """
+        from oopz_sdk.adapters.onebot.install import install_onebot
+
+        install_onebot(self)
 
     # -------------------------
     # 事件注册 API
@@ -134,16 +195,29 @@ class OopzBot:
     # -------------------------
     # 生命周期
     # -------------------------
-
     async def start(self):
         rest_started = False
+        adapter_servers_started = False
+
         try:
             await self.rest.start()
             rest_started = True
+
+            await self._start_adapter_servers()
+            adapter_servers_started = bool(self._adapter_servers)
+
             await self.ws.start()
+
         except BaseException:
+            if adapter_servers_started:
+                try:
+                    await self._stop_adapter_servers()
+                except BaseException as close_exc:
+                    logger.exception("Failed to stop adapter servers after start failure: %s", close_exc)
+
             if rest_started:
                 await self._close_rest_after_start_failure()
+
             raise
 
     async def run(self):
@@ -162,23 +236,33 @@ class OopzBot:
         except BaseException as exc:
             voice_error = exc
 
-        if stop_error is None and voice_error is None:
+        adapter_error = None
+        try:
+            await self._stop_adapter_servers()
+        except BaseException as exc:
+            adapter_error = exc
+
+        if stop_error is None and voice_error is None and adapter_error is None:
             await self.rest.close()
             return
 
         await self._close_rest_after_stop_failure()
+
         if stop_error is not None:
             raise stop_error
-        raise voice_error
+        if voice_error is not None:
+            raise voice_error
+        raise adapter_error
 
     # -------------------------
     # 高层便捷方法
     # -------------------------
-    async def send(
-        self, text: str, area: str, channel: str, **kwargs
-    ):
+    async def send(self, text: str, area: str, channel: str, **kwargs):
         return await self.messages.send_message(
-            text, area=area, channel=channel, **kwargs
+            text,
+            area=area,
+            channel=channel,
+            **kwargs,
         )
 
     async def recall(
@@ -189,7 +273,10 @@ class OopzBot:
         **kwargs,
     ):
         return await self.messages.recall_message(
-            message_id, area=area, channel=channel, **kwargs
+            message_id,
+            area=area,
+            channel=channel,
+            **kwargs,
         )
 
     async def reply(
@@ -200,9 +287,7 @@ class OopzBot:
         reference_message_id: str = "",
         **kwargs,
     ):
-        """
-        对某条消息进行回复
-        """
+        """对某条消息进行回复。"""
         return await self.messages.send_message(
             text,
             area=area,
@@ -218,7 +303,7 @@ class OopzBot:
         return EventContext(
             bot=self,
             config=self.config,
-            event=event
+            event=event,
         )
 
     async def _close_rest_after_start_failure(self) -> None:
@@ -243,6 +328,8 @@ class OopzBot:
 
             if isinstance(event, MessageEvent) and self._should_ignore_self_message(event.message):
                 return
+
+            await self._emit_adapter_event(event)
 
             await self.dispatcher.dispatch("raw_event", event, ctx)
             await self.dispatcher.dispatch(event.event_name, event, ctx)
@@ -278,8 +365,41 @@ class OopzBot:
 
     def _should_ignore_self_message(self, message: Message) -> bool:
         """
-        判断是否应该忽略自己发送的消息。如果设置不忽略消息, 会导致在 on_message 中收到自己发送的消息引发死循环。
+        判断是否应该忽略自己发送的消息。
+        如果设置不忽略消息，会导致在 on_message 中收到自己发送的消息并可能引发死循环。
         """
         if not self.config.ignore_self_messages:
             return False
         return message.sender_id == self.config.person_uid
+
+    async def _emit_adapter_event(self, event: Any) -> None:
+        """把 Oopz 事件广播给所有已注册 adapter。"""
+        for adapter in list(self.adapters):
+            emit_event = getattr(adapter, "emit_event", None)
+            if emit_event is None:
+                continue
+            await emit_event(event)
+
+    async def _start_adapter_servers(self) -> None:
+        for server in list(self._adapter_servers):
+            start = getattr(server, "start", None)
+            if start is None:
+                continue
+            await start()
+
+    async def _stop_adapter_servers(self) -> None:
+        first_error = None
+
+        for server in reversed(list(self._adapter_servers)):
+            stop = getattr(server, "stop", None)
+            if stop is None:
+                continue
+            try:
+                await stop()
+            except BaseException as exc:
+                if first_error is None:
+                    first_error = exc
+                logger.exception("Failed to stop adapter server: %s", exc)
+
+        if first_error is not None:
+            raise first_error

@@ -116,3 +116,13 @@ class Person(BaseService):
             "target": target,
         })
         return models.OperationResult.from_api(data)
+
+    async def get_person_remark_name(self, uid: str) -> models.UserRemarkNamesResponse:
+        """获取bot自己给别人的备注名。"""
+        if not uid:
+            raise ValueError("uid is required for get_person_remark_name()")
+
+        url_path = "/person/v1/remarkName/getUserRemarkNames"
+        data = await self._request_data("GET", url_path, params={"uid": uid})
+
+        return models.UserRemarkNamesResponse.from_api(data)

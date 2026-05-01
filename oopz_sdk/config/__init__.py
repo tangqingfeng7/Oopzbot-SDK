@@ -10,7 +10,15 @@ from .constants import (
     STYLE_TAG_IMPORTANT,
     STYLE_TAGS,
 )
-from .settings import HeartbeatConfig, OopzConfig, ProxyConfig, RetryConfig
+
+from .settings import (
+    HeartbeatConfig,
+    OneBotV11Config,
+    OneBotV12Config,
+    OopzConfig,
+    ProxyConfig,
+    RetryConfig,
+)
 
 __all__ = [
     "ATTACHMENT_TYPE_AUDIO",
@@ -27,4 +35,6 @@ __all__ = [
     "RetryConfig",
     "STYLE_TAG_IMPORTANT",
     "STYLE_TAGS",
+    "OneBotV11Config",
+    "OneBotV12Config",
 ]
