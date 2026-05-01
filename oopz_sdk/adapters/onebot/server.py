@@ -242,7 +242,11 @@ class OneBotServer:
             raise RuntimeError("ClientSession is not initialized")
 
         logger.info("connecting OneBot %s reverse WebSocket: %s", self.config.version, url)
-        async with self._session.ws_connect(url, headers=self._auth_headers(), heartbeat=30) as ws:
+        async with self._session.ws_connect(
+                url,
+                headers=self._reverse_ws_headers(),
+                heartbeat=30,
+        ) as ws:
             logger.info("OneBot %s reverse WebSocket connected: %s", self.config.version, url)
 
             async def reverse_sink(event: JsonDict) -> None:
@@ -340,6 +344,34 @@ class OneBotServer:
                 "onebot_version": str(self.config.version).removeprefix("v"),
             },
         }
+
+    def _reverse_ws_headers(self) -> dict[str, str]:
+        if str(self.config.version).lower() == "v11":
+            return self._v11_reverse_ws_headers()
+
+        return self._v12_reverse_ws_headers()
+
+    def _v11_reverse_ws_headers(self) -> dict[str, str]:
+        self_id = getattr(self.adapter, "self_id", "")
+
+        headers: dict[str, str] = {
+            "X-Client-Role": "Universal",
+            "X-Self-ID": str(self_id),
+            "User-Agent": "CQHttp/4.15.0",
+        }
+
+        if self.config.access_token:
+            headers["Authorization"] = f"Token {self.config.access_token}"
+
+        return headers
+
+    def _v12_reverse_ws_headers(self) -> dict[str, str]:
+        headers: dict[str, str] = {}
+
+        if self.config.access_token:
+            headers["Authorization"] = f"Bearer {self.config.access_token}"
+
+        return headers
 
     async def _read_json(self, request: web.Request) -> Any:
         if not request.can_read_body:
