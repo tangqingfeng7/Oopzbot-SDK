@@ -146,8 +146,8 @@ def _delete_event(event: MessageDeleteEvent, *, self_id: str | int, ids: IdStore
             "notice_type": "friend_recall",
             "user_id": user_ob_id,
             "message_id": message_ob_id,
-            "original_message_id": event.message_id,
             "extra": {
+                "original_message_id": event.message_id,
                 "oopz_user_id": event.person,
                 "oopz_target_id": event.person,
                 "oopz_message_id": event.message_id,
@@ -176,8 +176,8 @@ def _delete_event(event: MessageDeleteEvent, *, self_id: str | int, ids: IdStore
         "user_id": user_ob_id,
         "operator_id": user_ob_id,
         "message_id": message_ob_id,
-        "original_message_id": event.message_id,
         "extra": {
+            "original_message_id": event.message_id,
             "oopz_area_id": event.area,
             "oopz_channel_id": event.channel,
             "oopz_user_id": event.person,

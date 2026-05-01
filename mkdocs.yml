@@ -4,6 +4,15 @@ repo_url: https://github.com/tangqingfeng7/Oopzbot-SDK
 theme:
   name: material
   language: zh
+  palette:
+    - scheme: default # Light mode
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - scheme: slate # Dark mode
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
   features:
     - navigation.tabs
     - navigation.sections
@@ -29,7 +38,15 @@ nav:
       - 列出 area 和 channel: recipes/list-areas-and-channels.md
       - 发送私信: recipes/private-message.md
   - 适配器:
-      - OneBot v12 适配: adapters/onebot-v12.md
+      - 适配器总览: adapters/index.md
+      - OneBot:
+          - 概览: adapters/onebot/index.md
+          - 快速开始: adapters/onebot/quickstart.md
+          - 连接: adapters/onebot/server.md
+          - OneBot v11: adapters/onebot/v11.md
+          - OneBot v12: adapters/onebot/v12.md
+          - 消息与 ID 映射: adapters/onebot/message-id.md
+          - 实现说明与限制: adapters/onebot/implementation-notes.md
   - API 参考:
       - Service 总览: reference/services.md
       - Message Service: reference/message-service.md

@@ -1,7 +1,7 @@
 # Oopz SDK 文档
 
 `oopz-sdk` 是一个面向 Oopz 平台的异步 Python SDK，封装 HTTP API、文件上传、WebSocket 事件订阅、消息模型、事件模型、语音推流以及
-OneBot v12 适配能力。
+OneBot v11 / v12 适配能力。
 
 本项目由社区开发与维护，旨在为机器人开发、自动化集成和协议适配提供更方便的 Python 接口。
 
@@ -20,7 +20,7 @@ OneBot v12 适配能力。
 | 监听消息、撤回、频道变化等事件                | [事件系统](guide/events.md)                                 |
 | 发送文本、图片、私信、Segment             | [消息发送](guide/messaging.md)                              |
 | 查询已加入域和频道 ID                   | [列出 area 和 channel](recipes/list-areas-and-channels.md) |
-| 接入 OneBot v12 / NoneBot2       | [OneBot v12 适配](adapters/onebot-v12.md)                 |
+| 接入 OneBot v11 / v12、NoneBot2 / AstrBot       | [OneBot 适配](adapters/onebot/index.md)                 |
 | 查询 service API                 | [Service 总览](reference/services.md)                     |
 
 ## 最小机器人示例
@@ -65,7 +65,7 @@ asyncio.run(main())
 - **快速开始**：按安装、配置、核心概念、最小机器人顺序学习。
 - **基础用法**：消息、事件、生命周期、媒体、语音等常用能力。
 - **常见任务**：按任务组织的完整示例，例如回复消息、发图、列频道。
-- **适配器**：OneBot v12 / NoneBot2 相关说明。
+- **适配器**：OneBot v11 / v12、NoneBot2 / AstrBot 等生态接入说明。
 - **API 参考**：按 service 和模型查询参数、返回值和注意事项。
 - **开发**：文档站点构建、贡献和维护说明。
 

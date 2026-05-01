@@ -3,6 +3,7 @@ from __future__ import annotations
 import time
 from typing import Any
 
+from oopz_sdk.config.constants import EVENT_PRIVATE_MESSAGE_DELETE
 from oopz_sdk.models.event import Event, MessageDeleteEvent, MessageEvent, ChannelCreateEvent, ChannelDeleteEvent, \
     HeartbeatEvent
 
@@ -102,24 +103,42 @@ def _message_delete_event(
     self_info: OneBotSelf,
     store: MessageStore,
 ) -> JsonDict:
+
+    if event.event_type == EVENT_PRIVATE_MESSAGE_DELETE:
+        ob_message_id = make_ob_message_id(
+            oopz_message_id=event.message_id,
+            detail_type="private",
+            channel=event.channel,
+            target=event.person,
+            user_id=event.person,
+        )
+
+        return {
+            "id": _event_id(event),
+            "self": self_info,
+            "time": time.time(),
+            "type": "notice",
+            "detail_type": "message_delete",
+            "sub_type": "private",
+            "message_id": ob_message_id,
+            "original_message_id": event.message_id,
+            "user_id": event.person,
+            "original_event_name": event.event_name,
+            "original_event_type": event.event_type,
+            "extra": {
+                "oopz_user_id": event.person,
+                "oopz_target_id": event.person,
+                "oopz_message_id": event.message_id,
+                "oopz_channel_id": event.channel,
+            },
+        }
+
     ob_message_id = make_ob_message_id(
         oopz_message_id=event.message_id,
         detail_type="channel",
         area=event.area,
         channel=event.channel,
         user_id=event.person,
-    )
-
-    store.save(
-        MessageRecord(
-            ob_message_id=ob_message_id,
-            oopz_message_id=event.message_id,
-            detail_type="channel",
-            area=event.area,
-            channel=event.channel,
-            user_id=event.person,
-            raw=event.raw,
-        )
     )
 
     return {
@@ -136,6 +155,12 @@ def _message_delete_event(
         "channel_id": event.channel,
         "original_event_name": event.event_name,
         "original_event_type": event.event_type,
+        "extra": {
+            "oopz_area_id": event.area,
+            "oopz_channel_id": event.channel,
+            "oopz_user_id": event.person,
+            "oopz_message_id": event.message_id,
+        },
     }
 
 def _create_channel_event(

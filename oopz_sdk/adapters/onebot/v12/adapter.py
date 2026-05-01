@@ -98,7 +98,7 @@ class OneBotV12Adapter:
             "set_guild_name": self.set_guild_name,
             "get_guild_member_info": self.get_guild_member_info,
             # "get_guild_member_list": self.not_implemented("get_guild_member_list"),
-            "leave_guild": self.not_implemented("leave_guild"),
+            # "leave_guild": self.not_implemented("leave_guild"),
 
             "get_channel_info": self.get_channel_info,
             "get_channel_list": self.get_channel_list,
