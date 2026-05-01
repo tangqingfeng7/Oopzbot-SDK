@@ -10,7 +10,7 @@
 [![Package](https://img.shields.io/badge/package-oopz--sdk-yellow.svg)](https://pypi.org/project/oopz-sdk/)
 [![Async](https://img.shields.io/badge/asyncio-ready-purple.svg)](https://docs.python.org/3/library/asyncio.html)
 [![Typing](https://img.shields.io/badge/typing-pydantic%20v2-orange.svg)](https://docs.pydantic.dev/)
-![OneBot v12](https://img.shields.io/badge/OneBot%20v12-adapting-blueviolet?style=flat-square)
+![OneBot](https://img.shields.io/badge/OneBot-v11/v12-blueviolet?style=flat-square)
 
 **异步优先 · 事件驱动 · 类型友好 · 消息 / 媒体 / 语音**
 
@@ -38,7 +38,7 @@
 - **事件驱动**：支持消息、私信、撤回、编辑、频道变化、语音进出、身份组变化等事件。
 - **消息与媒体**：支持文本、图片、私信、引用回复、消息段解析和文件上传。
 - **Service 分层**：提供消息、媒体、域、频道、用户、管理、语音等能力入口。
-- **生态适配**：OneBot v12 适配正在进行中~
+- **生态适配**：OneBot v11和v12 适配正在不断完善~
 
 ## 📦 安装
 
