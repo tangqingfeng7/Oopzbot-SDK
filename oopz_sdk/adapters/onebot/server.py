@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 class OneBotAdapterProtocol(Protocol):
     platform: str
-    self_id: str
+    self_id: str | int
 
     def add_event_sink(self, sink: EventSink) -> None: ...
 
@@ -29,9 +29,9 @@ class OneBotAdapterProtocol(Protocol):
         params: Mapping[str, Any] | None = None,
         *,
         echo: Any = None,
-    ) -> JsonDict: ...
+    ) -> Mapping[str, Any]: ...
 
-    async def call_action_payload(self, payload: Mapping[str, Any]) -> JsonDict: ...
+    async def call_action_payload(self, payload: Mapping[str, Any]) -> Mapping[str, Any]: ...
 
 
 @dataclass(slots=True)
