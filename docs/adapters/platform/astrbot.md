@@ -1,6 +1,6 @@
 # 接入 AstrBot
 
-Oopz SDK 内置 OneBot 适配能力，可以将 Oopz 的消息、私信、撤回等事件转换为 OneBot 事件，并通过 HTTP / WebSocket / 反向 WebSocket 与 AstrBot 连接。
+Oopz SDK 内置 OneBot 适配能力，可以将 Oopz 的消息、私信、撤回等事件转换为 OneBot 事件，并通过 HTTP / WebSocket / 反向 WebSocket 与 [AstrBot](https://github.com/AstrBotDevs/AstrBot) 连接。
 
 > 推荐优先使用 **OneBot v11 + 反向 WebSocket** 连接 AstrBot。  
 > 这是 AstrBot / NapCat / aiocqhttp 生态中最常见、兼容性最好的连接方式。
