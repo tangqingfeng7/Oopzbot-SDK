@@ -6,7 +6,7 @@ import logging
 import time
 from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable, Mapping, Protocol
-
+from aiohttp import ClientConnectorError, WSServerHandshakeError
 from aiohttp import ClientSession, WSMsgType, web
 
 JsonDict = dict[str, Any]
@@ -227,13 +227,58 @@ class OneBotServer:
         return await self.adapter.call_action_payload(payload)
 
     async def _reverse_ws_loop(self, url: str) -> None:
+        failures = 0
+
         while self._started:
             try:
                 await self._connect_reverse_ws(url)
+                failures = 0
+
             except asyncio.CancelledError:
                 raise
+
+            except ClientConnectorError as exc:
+                failures += 1
+
+                if failures == 1:
+                    logger.warning(
+                        "OneBot %s reverse WebSocket is not reachable: %s (%s). "
+                        "Will retry in %ss.",
+                        self.config.version,
+                        url,
+                        exc.os_error or exc,
+                        self.config.ws_reverse_reconnect_interval,
+                    )
+                else:
+                    logger.debug(
+                        "OneBot %s reverse WebSocket still unreachable: %s (%s). "
+                        "retry=%s",
+                        self.config.version,
+                        url,
+                        exc.os_error or exc,
+                        failures,
+                    )
+
+            except WSServerHandshakeError as exc:
+                failures += 1
+                logger.warning(
+                    "OneBot %s reverse WebSocket handshake failed: %s "
+                    "status=%s message=%s. Will retry in %ss.",
+                    self.config.version,
+                    url,
+                    exc.status,
+                    exc.message,
+                    self.config.ws_reverse_reconnect_interval,
+                )
+
             except Exception:
-                logger.exception("OneBot %s reverse WebSocket failed: %s", self.config.version, url)
+                failures += 1
+                logger.exception(
+                    "OneBot %s reverse WebSocket unexpected error: %s",
+                    self.config.version,
+                    url,
+                )
+
             if self._started:
                 await asyncio.sleep(self.config.ws_reverse_reconnect_interval)
 
