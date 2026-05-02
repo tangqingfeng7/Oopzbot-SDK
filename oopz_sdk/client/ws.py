@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from typing import Awaitable, Callable, Optional
 
 from oopz_sdk.config.settings import HeartbeatConfig, OopzConfig
-from oopz_sdk.config.constants import EVENT_AUTH, EVENT_HEARTBEAT
+from oopz_sdk.config.constants import EVENT_AUTH, EVENT_HEARTBEAT, EVENT_SUBSCRIBE_AREA_EVENTS
 from oopz_sdk.transport.ws import WebSocketClosedError, WebSocketTransport
 
 logger = logging.getLogger(__name__)
@@ -214,3 +214,31 @@ class OopzWSClient:
             raise
         except Exception as exc:
             raise _WebSocketCallbackError(callback_name, exc) from exc
+
+    async def send_subscribe_area_events(
+        self,
+        areas: list[str],
+        *,
+        uid: str = "",
+        event_type: int = 1,
+    ) -> None:
+        """订阅指定域的 WebSocket 事件。"""
+        uid = uid if uid else self.config.person_uid
+        clean_areas = [area for area in areas if str(area).strip()]
+        if not clean_areas:
+            return
+
+        await self.transport.send_json(
+            {
+                "time": str(int(time.time() * 1000)),
+                "body": json.dumps(
+                    {
+                        "areas": clean_areas,
+                        "type": event_type,
+                        "uid": uid,
+                    },
+                    ensure_ascii=False,
+                ),
+                "event": EVENT_SUBSCRIBE_AREA_EVENTS,
+            }
+        )

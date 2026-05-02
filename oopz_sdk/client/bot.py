@@ -342,6 +342,7 @@ class OopzBot:
             raise
 
     async def _handle_open(self) -> None:
+        await self._subscribe_joined_area_events_on_startup()
         ctx = self._make_context()
         await self.dispatcher.dispatch("ready", None, ctx)
 
@@ -403,3 +404,27 @@ class OopzBot:
 
         if first_error is not None:
             raise first_error
+
+    async def _subscribe_joined_area_events_on_startup(self) -> None:
+        if not getattr(self.config, "auto_subscribe_joined_areas", False):
+            return
+
+        try:
+            joined_areas = await self.areas.get_joined_areas()
+            area_ids = [area.area_id for area in joined_areas if area.area_id]
+
+            if not area_ids:
+                logger.info("No joined areas found, skip area event subscription")
+                return
+
+            await self.ws.send_subscribe_area_events(
+                area_ids
+            )
+
+            logger.info(
+                "Subscribed area events for %d joined area(s)",
+                len(area_ids),
+            )
+
+        except Exception as exc:
+            logger.error("Failed to subscribe joined area events: %s", exc)

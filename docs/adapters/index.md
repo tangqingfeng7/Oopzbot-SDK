@@ -12,4 +12,3 @@
 | [OneBot v11](onebot/v11.md) | v11 事件、action、CQ 码、数字 ID 映射。 |
 | [OneBot v12](onebot/v12.md) | v12 事件、action、消息段和字符串 message_id 映射。 |
 | [消息与 ID 映射](onebot/message-id.md) | Oopz 原始 ID 与 OneBot ID 的关系。 |
-| [实现说明与限制](onebot/implementation-notes.md) | 当前实现检查结论、限制和后续维护建议。 |

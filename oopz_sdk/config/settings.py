@@ -149,6 +149,8 @@ class OopzConfig:
 
     ignore_self_messages: bool = True   # 如果设置为False, 会导致bot接收到自己处理的消息, 可能导致死循环
 
+    auto_subscribe_joined_areas: bool = False # 加入后自动请求账号加入的所有域, 然后向websocket注册加入的域, 接受来自域的事件
+
     onebot_v11: OneBotV11Config = field(default_factory=OneBotV11Config)
 
     # todo onebot v12还未经测试, 暂时禁用
