@@ -113,6 +113,14 @@ class OneBotV11Config:
 
     send_connect_event: bool = True
 
+    # 因为目前的实现将area+channel作为group进行处理, 所以有些对群组的危险操作会影响整个域
+    # 是否启用群组禁言被当做整个域禁言的action
+    enable_area_scoped_group_ban: bool = False
+    # 是否启用群组离开被当做整个域离开的action
+    enable_set_group_leave_as_area_leave: bool = False
+    # 是否启用群组踢人被当做整个域移除的action
+    enable_set_group_kick_as_area_remove: bool = False
+
 
 @dataclass
 class OopzConfig:

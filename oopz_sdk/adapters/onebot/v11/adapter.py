@@ -63,8 +63,8 @@ class OneBotV11Adapter:
             platform: str = "oopz",
             db_path: str | Path | None = None,
             enable_area_scoped_group_ban: bool = False,
-            allow_set_group_leave_as_area_leave: bool = False,
-            allow_set_group_kick_as_area_remove: bool = False,
+            enable_set_group_leave_as_area_leave: bool = False,
+            enable_set_group_kick_as_area_remove: bool = False,
     ) -> None:
         self.oopz_bot = oopz_bot
         self.platform = platform
@@ -83,8 +83,8 @@ class OneBotV11Adapter:
         self._event_queue: deque[JsonDict] = deque(maxlen=1000)
 
         self.enable_area_scoped_group_ban = enable_area_scoped_group_ban
-        self.allow_set_group_leave_as_area_leave = allow_set_group_leave_as_area_leave
-        self.allow_set_group_kick_as_area_remove = allow_set_group_kick_as_area_remove
+        self.enable_set_group_leave_as_area_leave = enable_set_group_leave_as_area_leave
+        self.enable_set_group_kick_as_area_remove = enable_set_group_kick_as_area_remove
         self._actions: dict[str, ActionHandler] = self._build_actions()
 
     # ------------------------------------------------------------------
@@ -132,10 +132,10 @@ class OneBotV11Adapter:
         if self.enable_area_scoped_group_ban:
             actions["set_group_ban"] = self.set_group_ban
 
-        if self.allow_set_group_leave_as_area_leave:
+        if self.enable_set_group_leave_as_area_leave:
             actions["set_group_leave"] = self.set_group_leave
 
-        if self.allow_set_group_kick_as_area_remove:
+        if self.enable_set_group_kick_as_area_remove:
             actions["set_group_kick"] = self.set_group_kick
         return actions
 
