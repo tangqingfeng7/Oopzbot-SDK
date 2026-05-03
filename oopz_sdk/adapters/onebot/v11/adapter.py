@@ -64,7 +64,7 @@ class OneBotV11Adapter:
             db_path: str | Path | None = None,
             enable_area_scoped_group_ban: bool = False,
             enable_set_group_leave_as_area_leave: bool = False,
-            enable_set_group_kick_as_area_remove: bool = False,
+            enable_set_group_kick_as_area_kick: bool = False,
     ) -> None:
         self.oopz_bot = oopz_bot
         self.platform = platform
@@ -84,7 +84,7 @@ class OneBotV11Adapter:
 
         self.enable_area_scoped_group_ban = enable_area_scoped_group_ban
         self.enable_set_group_leave_as_area_leave = enable_set_group_leave_as_area_leave
-        self.enable_set_group_kick_as_area_remove = enable_set_group_kick_as_area_remove
+        self.enable_set_group_kick_as_area_kick = enable_set_group_kick_as_area_kick
         self._actions: dict[str, ActionHandler] = self._build_actions()
 
     # ------------------------------------------------------------------
@@ -135,7 +135,7 @@ class OneBotV11Adapter:
         if self.enable_set_group_leave_as_area_leave:
             actions["set_group_leave"] = self.set_group_leave
 
-        if self.enable_set_group_kick_as_area_remove:
+        if self.enable_set_group_kick_as_area_kick:
             actions["set_group_kick"] = self.set_group_kick
         return actions
 

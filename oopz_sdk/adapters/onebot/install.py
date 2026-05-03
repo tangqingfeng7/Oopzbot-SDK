@@ -37,7 +37,7 @@ def install_onebot_v11(bot: OopzBot) -> Any | None:
         db_path=getattr(config, "db_path", None),
         enable_area_scoped_group_ban=getattr(config, "enable_area_scoped_group_ban", False),
         enable_set_group_leave_as_area_leave=getattr(config, "enable_set_group_leave_as_area_leave", False),
-        enable_set_group_kick_as_area_remove=getattr(config, "enable_set_group_kick_as_area_remove", False),
+        enable_set_group_kick_as_area_kick=getattr(config, "enable_set_group_kick_as_area_kick", False),
     )
 
     server = None

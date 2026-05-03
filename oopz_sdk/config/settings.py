@@ -119,7 +119,7 @@ class OneBotV11Config:
     # 是否启用群组离开被当做整个域离开的action
     enable_set_group_leave_as_area_leave: bool = False
     # 是否启用群组踢人被当做整个域移除的action
-    enable_set_group_kick_as_area_remove: bool = False
+    enable_set_group_kick_as_area_kick: bool = False
 
 
 @dataclass
