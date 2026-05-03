@@ -26,6 +26,7 @@ from oopz_sdk.config.constants import (
     EVENT_USER_LEAVE_VOICE_CHANNEL,
     EVENT_USER_LOGIN_STATE_CHANGED,
     EVENT_USER_UPDATE,
+    EVENT_FRIEND_REQUEST, EVENT_FRIEND_DELETE,
 )
 from oopz_sdk.exceptions.parse import OopzParseError
 from oopz_sdk.models.event import (
@@ -45,6 +46,7 @@ from oopz_sdk.models.event import (
     UserLoginStateEvent,
     UserUpdateEvent,
     VoiceChannelPresenceEvent,
+    FriendRequestEvent, FriendDeleteEvent,
 )
 from oopz_sdk.models.message import Message
 
@@ -73,6 +75,8 @@ class EventParser:
     EVENT_SPECS: dict[int, EventSpec] = {
         # 系统
         EVENT_SERVER_ID: EventSpec("server_id", ServerIdEvent),
+        EVENT_FRIEND_REQUEST: EventSpec("friend.request", FriendRequestEvent),
+        EVENT_FRIEND_DELETE: EventSpec("friend.delete", FriendDeleteEvent),
         EVENT_AUTH: EventSpec("auth", AuthEvent),
         EVENT_HEARTBEAT: EventSpec("heartbeat", HeartbeatEvent),
 

@@ -35,6 +35,7 @@ def install_onebot_v11(bot: OopzBot) -> Any | None:
         platform=getattr(config, "platform", "oopz"),
         self_id=getattr(config, "self_id", "") or bot.config.person_uid,
         db_path=getattr(config, "db_path", None),
+        enable_area_scoped_group_ban=getattr(config, "enable_area_scoped_group_ban", False),
     )
 
     server = None

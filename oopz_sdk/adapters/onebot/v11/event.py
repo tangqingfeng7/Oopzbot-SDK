@@ -4,7 +4,7 @@ import time
 from typing import Any
 
 from oopz_sdk.config.constants import EVENT_PRIVATE_MESSAGE_DELETE
-from oopz_sdk.models.event import Event, MessageDeleteEvent, MessageEvent
+from oopz_sdk.models.event import Event, MessageDeleteEvent, MessageEvent, FriendRequestEvent
 
 from .message import to_v11_message
 from .types import (
@@ -24,6 +24,9 @@ def to_v11_event(event: Any, *, self_id: str | int, ids: IdStore) -> JsonDict:
 
     if isinstance(event, MessageDeleteEvent):
         return _delete_event(event, self_id=self_id, ids=ids)
+
+    if isinstance(event, FriendRequestEvent):
+        return _friend_request_event(event, self_id=self_id, ids=ids)
 
     self_ob_id = ids.createId(make_self_source(str(self_id))).number
 
@@ -184,3 +187,23 @@ def _delete_event(event: MessageDeleteEvent, *, self_id: str | int, ids: IdStore
             "oopz_message_id": event.message_id,
         },
     }
+
+def _friend_request_event(event: FriendRequestEvent, *, self_id: str | int, ids: IdStore) -> JsonDict:
+    self_ob_id = ids.createId(make_self_source(str(self_id))).number
+    user_ob_id = ids.createId(make_user_source(event.person)).number
+    return {
+    "time": int(time.time()),
+    "self_id": self_ob_id,
+    "post_type": "request",
+    "request_type": "friend",
+    "user_id": user_ob_id,
+    "comment": event.name or "",
+    "flag": f"oopz_friend_request:{event.friend_request_id}:{event.person}",
+    "extra": {
+        "oopz_friend_request_id": event.friend_request_id,
+        "oopz_user_id": event.person,
+        "oopz_name": event.name,
+        "oopz_type": event.type,
+        "oopz_avatar": event.avatar,
+    },
+}

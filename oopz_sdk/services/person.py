@@ -126,3 +126,14 @@ class Person(BaseService):
         data = await self._request_data("GET", url_path, params={"uid": uid})
 
         return models.UserRemarkNamesResponse.from_api(data)
+
+    async def set_user_remark_name(self, uid: str, remark_name: str) -> models.OperationResult:
+        """设置bot自己给别人的备注名。"""
+        if not uid:
+            raise ValueError("uid is required for set_user_remark_name()")
+        if remark_name.strip() == "":
+            raise ValueError("remark_name is required for set_user_remark_name()")
+
+        url_path = "/person/v1/remarkName/setUserRemarkName"
+        data = await self._request_data("POST", url_path, body={"remarkUid": uid, "remarkName": remark_name})
+        return models.OperationResult.from_api(data)
