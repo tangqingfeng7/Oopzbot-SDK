@@ -114,11 +114,11 @@ class OneBotV11Config:
     http_post_timeout: float = 0.0
 
     # OneBot v11 反向 WebSocket。
-    # ws_reverse_url 表示 Universal 连接；api/event 为空时可以回退使用它。
+    # ws_reverse_url 表示 Universal 连接
     ws_reverse_url: str = ""
+    # ws_reverse_api_url / ws_reverse_event_url 表示 API / Event 分离连接。
     ws_reverse_api_url: str = ""
     ws_reverse_event_url: str = ""
-    ws_reverse_use_universal_client: bool = False
     ws_reverse_reconnect_interval: float = 3.0
 
     send_connect_event: bool = True
