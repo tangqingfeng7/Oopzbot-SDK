@@ -383,6 +383,74 @@ for req in requests:
 
 ---
 
+## `get_person_remark_name(uid)`
+
+获取bot自己给别人的备注名。
+
+```python
+
+response = await bot.person.get_person_remark_name(uid)
+for user_remark_name in response:
+    print(user_remark_name.uid, user_remark_name.remark_name)
+
+```
+
+=== "参数"
+
+    | 参数 | 类型 | 必填 | 说明 |
+    | --- | --- | --- | --- |
+    | `uid` | `str` | 是 | 用户 UID，不能为空。 |
+
+=== "返回值"
+
+    返回：`UserRemarkNamesResponse`。
+
+    对应模型：`oopz_sdk.models.UserRemarkNamesResponse`
+
+    | 字段 | 类型 | 默认值 | 说明 |
+    | --- | --- | --- | --- |
+    | `user_remark_names` | `list[UserRemarkName] ` | 用户设置的备注名列表 |
+    
+    `UserRemarkName` 字段：
+    
+    | 字段 | 类型 | 默认值 | 说明 |
+    | --- | --- | --- | --- |
+    | `uid` | `str` | `""` | 用户 UID。 |
+    | `remark_name` | `str` | `""` | 备注名。 |
+---
+
+
+## `set_user_remark_name(uid, remark_name="")`
+
+获取bot自己给别人的备注名。
+
+```python
+
+await bot.person.set_user_remark_name(uid, "新的备注名")
+
+```
+
+=== "参数"
+
+    | 参数 | 类型 | 必填 | 说明 |
+    | --- | --- | --- | --- |
+    | `uid` | `str` | 是 | 用户 UID，不能为空。 |
+    | `remark_name` | `str` | 否 | 修改的备注名, 为空为清除备注名 |
+
+=== "返回值"
+
+    返回：`OperationResult`。
+
+    对应模型：`oopz_sdk.models.OperationResult`
+
+    | 字段 | 类型 | 默认值 | 说明 |
+    | --- | --- | --- | --- |
+    | `ok` | `bool` | `True` | 操作是否成功。 |
+    | `message` | `str` | `""` | 操作消息或错误信息。 |
+
+    
+---
+
 ## 常见任务：获取当前用户
 
 ```python

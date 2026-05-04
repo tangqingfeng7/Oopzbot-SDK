@@ -264,6 +264,18 @@ class AreaService(BaseService):
 
         return {str(uid): str(nick) for uid, nick in nicknames.items()}
 
+    async def leave_area(self, area: str) -> models.OperationResult:
+        """离开指定域。"""
+        if area.strip() == "":
+            raise ValueError("area is required for leave_area")
+
+        data = await self._request_data(
+            "DELETE",
+            "/client/v1/area/v1/quit",
+            body={"area": area},
+        )
+        return models.OperationResult.from_api(data)
+
     # async def search_area_members(
     #         self,
     #         area: str,

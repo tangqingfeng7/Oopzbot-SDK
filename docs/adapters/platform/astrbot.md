@@ -30,39 +30,6 @@ Oopz
 - **OneBot Server**：负责 HTTP / WebSocket / 反向 WebSocket 通信。
 - **AstrBot**：负责对话、LLM、插件、指令等上层逻辑。
 
-## 当前支持情况
-
-### OneBot v11
-
-
-已支持的常用能力包括：
-
-| 能力 | OneBot v11 Action / Event |
-| --- | --- |
-| 获取状态 | `get_status` |
-| 获取版本 | `get_version_info` / `get_version` |
-| 获取支持的 Action | `get_supported_actions` / `.get_supported_actions` |
-| 发送消息 | `send_msg` |
-| 发送私聊消息 | `send_private_msg` |
-| 发送群消息 | `send_group_msg` |
-| 撤回消息 | `delete_msg` / `recall_message` |
-| 获取消息 | `get_msg` |
-| 获取登录信息 | `get_login_info` |
-| 获取好友列表 | `get_friend_list` |
-| 获取群列表 | `get_group_list` |
-| 获取群信息 | `get_group_info` |
-| 获取群成员信息 | `get_group_member_info` |
-
-事件侧会将 Oopz 的消息事件转换为 OneBot v11 事件，例如：
-
-| Oopz 事件 | OneBot v11 事件 |
-| --- | --- |
-| 频道消息 | `message.group` |
-| 私聊消息 | `message.private` |
-| 频道消息撤回 | `notice.group_recall` |
-| 私聊消息撤回 | `notice.friend_recall` |
-| 连接事件 | `meta_event.lifecycle.connect` |
-
 
 ## 在 AstrBot 中配置
 
@@ -115,10 +82,7 @@ config = OopzConfig(
         enabled=True,
 
         # 推荐使用反向 WebSocket 连接 AstrBot
-        ws_reverse_urls=[
-            "ws://127.0.0.1:6199/ws",
-        ],
-
+        ws_reverse_url="ws://127.0.0.1:6199/ws",
         # 如果 AstrBot 侧配置了 token，这里也要填一样的
         access_token="",
 
@@ -155,7 +119,7 @@ my-secret-token
 ```python
 onebot_v11=OneBotV11Config(
     enabled=True,
-    ws_reverse_urls=["ws://127.0.0.1:6199/ws"],
+    ws_reverse_url="ws://127.0.0.1:6199/ws",
     access_token="my-secret-token",
     enable_http=False,
     enable_ws=False,
@@ -165,9 +129,10 @@ onebot_v11=OneBotV11Config(
 当前 SDK 在 OneBot v11 反向 WebSocket 连接时会发送：
 
 ```http
-Authorization: Token <access_token>
+Authorization: Bearer <access_token> # access_token 非空时
 X-Self-ID: <self_id>
 X-Client-Role: Universal
+User-Agent: CQHttp/4.15.0
 ```
 
 如果 AstrBot 一直提示鉴权失败，优先检查：
@@ -204,65 +169,9 @@ onebot_v11=OneBotV11Config(
 此时 OneBot v11 WebSocket 地址为：
 
 ```text
-ws://127.0.0.1:6700/onebot/v11
+ws://127.0.0.1:6700/
 ```
 
-如果 AstrBot 需要带平台和 self_id 的路径，也可以连接：
-
-```text
-ws://127.0.0.1:6700/{platform}/{self_id}/onebot/v11
-```
-
-例如：
-
-```text
-ws://127.0.0.1:6700/oopz/123456/onebot/v11
-```
-
-## HTTP Action 调用
-
-如果启用了 HTTP：
-
-```python
-onebot_v11=OneBotV11Config(
-    enabled=True,
-    host="127.0.0.1",
-    port=6700,
-    enable_http=True,
-    enable_ws=False,
-)
-```
-
-那么可以通过 HTTP 调用 OneBot Action：
-
-```bash
-curl -X POST http://127.0.0.1:6700/onebot/v11/get_status \
-  -H "Content-Type: application/json" \
-  -d '{}'
-```
-
-发送群消息示例：
-
-```bash
-curl -X POST http://127.0.0.1:6700/onebot/v11/send_group_msg \
-  -H "Content-Type: application/json" \
-  -d '{
-    "group_id": 123456,
-    "message": "hello from oopz sdk"
-  }'
-```
-
-也可以使用 OneBot payload 格式：
-
-```bash
-curl -X POST http://127.0.0.1:6700/onebot/v11 \
-  -H "Content-Type: application/json" \
-  -d '{
-    "action": "get_status",
-    "params": {},
-    "echo": "test"
-  }'
-```
 
 ## 映射数据库配置
 
@@ -304,7 +213,7 @@ group_id
 onebot_v11=OneBotV11Config(
     enabled=True,
     db_path="./data/oopz_onebot_v11.sqlite3",
-    ws_reverse_urls=["ws://127.0.0.1:6199/ws"],
+    ws_reverse_url="ws://127.0.0.1:6199/ws",
 )
 ```
 

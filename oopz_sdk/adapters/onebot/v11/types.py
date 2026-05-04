@@ -6,6 +6,7 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping
+from oopz_sdk.utils.payload import coerce_bool
 
 JsonDict = dict[str, Any]
 ActionResponse = dict[str, Any]
@@ -51,6 +52,16 @@ def require_int(data: Mapping[str, Any], key: str) -> int:
     except (TypeError, ValueError):
         raise ValueError(f"{key} must be an integer") from None
 
+
+def parse_bool(value: Any, *, default: bool = False) -> bool:
+    return coerce_bool(value, default=default)
+
+
+def require_bool(data: Mapping[str, Any], key: str) -> bool:
+    value = data.get(key)
+    if value is None:
+        raise ValueError(f"{key} is required")
+    return parse_bool(value)
 
 @dataclass(slots=True, frozen=True)
 class OneBotId:
@@ -175,9 +186,9 @@ class IdStore:
             return None
 
     def _new_unique_number(self, conn: sqlite3.Connection) -> int:
-        # onebots 是随机数字；这里限制在 JS 安全整数内，避免 Web/JS 客户端丢精度。
+        # onebots 是随机数字；这里限制在onebot 文档所提供的32位中
         for _ in range(100):
-            number = random.randint(10_000_000, 100_000_000_000)
+            number = random.randint(10_000_000, 2_147_483_647)
             row = conn.execute(
                 "SELECT 1 FROM onebot_v11_id_map WHERE number = ?",
                 (number,),

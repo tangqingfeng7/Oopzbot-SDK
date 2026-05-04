@@ -102,16 +102,34 @@ class OneBotV11Config:
     port: int = 6700
 
     access_token: str = ""
+    secret: str = ""
 
     enable_http: bool = True
     enable_ws: bool = True
+    enable_http_post: bool = True
+    enable_ws_reverse: bool = True
 
-    webhook_urls: list[str] = field(default_factory=list)
+    # OneBot v11 HTTP POST 事件上报地址
+    http_post_urls: list[str] = field(default_factory=list)
+    http_post_timeout: float = 0.0
 
-    ws_reverse_urls: list[str] = field(default_factory=list)
+    # OneBot v11 反向 WebSocket。
+    # ws_reverse_url 表示 Universal 连接；api/event 为空时可以回退使用它。
+    ws_reverse_url: str = ""
+    ws_reverse_api_url: str = ""
+    ws_reverse_event_url: str = ""
+    ws_reverse_use_universal_client: bool = False
     ws_reverse_reconnect_interval: float = 3.0
 
     send_connect_event: bool = True
+
+    # 因为目前的实现将area+channel作为group进行处理, 所以有些对群组的危险操作会影响整个域
+    # 是否启用群组禁言被当做整个域禁言的action
+    enable_area_scoped_group_ban: bool = False
+    # 是否启用群组离开被当做整个域离开的action
+    enable_set_group_leave_as_area_leave: bool = False
+    # 是否启用群组踢人被当做整个域移除的action
+    enable_set_group_kick_as_area_kick: bool = False
 
 
 @dataclass

@@ -8,7 +8,7 @@ from typing import Any, Awaitable, Callable, Mapping
 from typing import TYPE_CHECKING
 
 from oopz_sdk.models.event import HeartbeatEvent, ServerIdEvent
-
+from ..utils import model_to_userinfo_dict, model_to_profile_extra
 from .event import to_onebot_event
 from .message import from_onebot_message
 from .types import (
@@ -356,7 +356,7 @@ class OneBotV12Adapter:
             "user_name": getattr(profile, "name", ""),
             "user_displayname": "",
             "platform": self.platform,
-            "extra": self.model_to_profile_extra(profile),
+            "extra": model_to_profile_extra(profile),
         }
 
     async def get_user_info(self, params: Mapping[str, Any]) -> JsonDict:
@@ -379,7 +379,7 @@ class OneBotV12Adapter:
             "user_name": getattr(profile, "name", ""),
             "user_displayname": "",
             "user_remark": nickname,
-            "extra": self.model_to_profile_extra(profile),
+            "extra": model_to_profile_extra(profile),
         }
 
     async def get_friend_list(self, params: Mapping[str, Any]) -> list[JsonDict]:
@@ -491,7 +491,7 @@ class OneBotV12Adapter:
             "user_id": user_id,
             "user_name": user_name.name,
             "user_displayname": nickname_dict.get(user_id),
-            "extra": self.model_to_profile_extra(user_name),
+            "extra": model_to_profile_extra(user_name),
         }
 
     # ------------------------------------------------------------------
@@ -603,7 +603,7 @@ class OneBotV12Adapter:
             uids=[user_id],
         )
 
-        data = self._model_to_userinfo_dict(user_id, model, nickname_dict)
+        data = model_to_userinfo_dict(user_id, model, nickname_dict)
         data["guild_id"] = guild_id
         data["channel_id"] = channel_id
         return data
@@ -622,7 +622,7 @@ class OneBotV12Adapter:
                 user_infos: list[models.UserInfo] = await self.oopz_bot.person.get_person_infos_batch(uids)
                 nickname_dict = await self.oopz_bot.areas.get_user_area_nicknames(area=guild_id, uids=uids)
                 return [
-                    self._model_to_userinfo_dict(info.uid, info, nickname_dict) for info in user_infos
+                    model_to_userinfo_dict(info.uid, info, nickname_dict) for info in user_infos
                 ]
         return []
 
@@ -630,125 +630,6 @@ class OneBotV12Adapter:
     # 内部工具
     # ------------------------------------------------------------------
 
-    @staticmethod
-    def _model_to_userinfo_dict(
-        user_id: str,
-        model: models.UserInfo,
-        nickname_dict: Mapping[str, str],
-    ) -> dict[str, Any]:
-        return {
-            "user_id": getattr(model, "uid", "") or user_id,
-            "user_name": getattr(model, "name", ""),
-            "user_displayname": nickname_dict.get(user_id, ""),
-            "extra": {
-                "avatar": getattr(model, "avatar", ""),
-                "avatar_frame": getattr(model, "avatar_frame", ""),
-                "avatar_frame_animation": getattr(model, "avatar_frame_animation", ""),
-                "avatar_frame_expire_time": getattr(model, "avatar_frame_expire_time", 0),
-
-                "badges": getattr(model, "badges", None),
-                "introduction": getattr(model, "introduction", ""),
-                "mark": getattr(model, "mark", ""),
-                "mark_expire_time": getattr(model, "mark_expire_time", 0),
-                "mark_name": getattr(model, "mark_name", ""),
-
-                "online": getattr(model, "online", False),
-
-                "pid": getattr(model, "pid", ""),
-                "status": getattr(model, "status", ""),
-                "user_common_id": getattr(model, "user_common_id", ""),
-
-                "member_level": getattr(model, "memberLevel", 0),
-                "person_role": getattr(model, "person_role", ""),
-                "person_type": getattr(model, "person_type", ""),
-            },
-        }
-
-    @staticmethod
-    def model_to_profile_extra(profile: models.Profile) -> dict[str, Any]:
-        return {
-            "area_avatar": getattr(profile, "area_avatar", ""),
-            "area_max_num": getattr(profile, "area_max_num", 0),
-            "area_name": getattr(profile, "area_name", ""),
-
-            "avatar": getattr(profile, "avatar", ""),
-            "avatar_frame": getattr(profile, "avatar_frame", ""),
-            "avatar_frame_animation": getattr(profile, "avatar_frame_animation", ""),
-            "avatar_frame_expire_time": getattr(profile, "avatar_frame_expire_time", 0),
-
-            "badges": getattr(profile, "badges", []),
-
-            "banner": getattr(profile, "banner", ""),
-            "card_decoration": getattr(profile, "card_decoration", ""),
-            "card_decoration_expire_time": getattr(profile, "card_decoration_expire_time", 0),
-
-            "community_personal_rec": getattr(profile, "community_personal_rec", False),
-            "default_avatar": getattr(profile, "default_avatar", False),
-            "default_name": getattr(profile, "default_name", False),
-
-            "disabled_end_time": getattr(profile, "disabled_end_time", 0),
-            "disabled_start_time": getattr(profile, "disabled_start_time", 0),
-
-            "display_playing_state": getattr(profile, "display_playing_state", None),
-            "display_type": getattr(profile, "display_type", ""),
-
-            "fans_count": getattr(profile, "fans_count", 0),
-            "fixed_private_message": getattr(profile, "fixed_private_message", False),
-            "follow_count": getattr(profile, "follow_count", 0),
-            "follow_private": getattr(profile, "follow_private", False),
-
-            "greeting": getattr(profile, "greeting", ""),
-            "introduction": getattr(profile, "introduction", ""),
-            "ip_address": getattr(profile, "ip_address", ""),
-            "is_abroad": getattr(profile, "is_abroad", False),
-
-            "like_count": getattr(profile, "like_count", 0),
-
-            "mark": getattr(profile, "mark", ""),
-            "mark_expire_time": getattr(profile, "mark_expire_time", 0),
-            "mark_name": getattr(profile, "mark_name", ""),
-
-            "mobile_banner": getattr(profile, "mobile_banner", ""),
-            "music_state": getattr(profile, "music_state", ""),
-            "mute": getattr(profile, "mute", None),
-            "mutual_follow_count": getattr(profile, "mutual_follow_count", 0),
-
-            "name": getattr(profile, "name", ""),
-            "online": getattr(profile, "online", False),
-
-            "person_role": getattr(profile, "person_role", ""),
-            "person_type": getattr(profile, "person_type", ""),
-            "person_vip_end_time": getattr(profile, "person_vip_end_time", 0),
-            "person_vip_start_time": getattr(profile, "person_vip_start_time", 0),
-
-            "phone": getattr(profile, "phone", ""),
-            "pid": getattr(profile, "pid", ""),
-            "pid_level_name": getattr(profile, "pid_level_name", ""),
-            "pid_tag_black": getattr(profile, "pid_tag_black", ""),
-            "pid_tag_white": getattr(profile, "pid_tag_white", ""),
-
-            "playing_game_image": getattr(profile, "playing_game_image", ""),
-            "playing_state": getattr(profile, "playing_state", ""),
-            "playing_time": getattr(profile, "playing_time", 0),
-
-            "pwd_set_time": getattr(profile, "pwd_set_time", 0),
-            "recommend_area": getattr(profile, "recommend_area", ""),
-            "song_state": getattr(profile, "song_state", ""),
-
-            "status": getattr(profile, "status", ""),
-            "stealth": getattr(profile, "stealth", False),
-
-            "uid": getattr(profile, "uid", ""),
-            "use_booster": getattr(profile, "use_booster", False),
-            "user_common_id": getattr(profile, "user_common_id", ""),
-            "user_level": getattr(profile, "user_level", 0),
-
-            "vip_id": getattr(profile, "vip_id", ""),
-            "voice_disable": getattr(profile, "voice_disable", 0),
-
-            "wx_nickname": getattr(profile, "wx_nickname", ""),
-            "wx_union_id": getattr(profile, "wx_union_id", ""),
-        }
 
     def _save_sent_message(
         self,

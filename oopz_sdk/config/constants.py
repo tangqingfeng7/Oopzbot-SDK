@@ -24,6 +24,9 @@ DEFAULT_HEADERS: dict[str, str] = {
 
 EVENT_SERVER_ID = 1
 
+EVENT_FRIEND_REQUEST = 2 # 收到好友请求
+EVENT_FRIEND_DELETE = 4 # 被删除好友事件
+
 EVENT_PRIVATE_MESSAGE_DELETE = 6 # 私聊消息撤回事件
 EVENT_PRIVATE_MESSAGE = 7 # 私聊消息事件
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import math
 import time
 from collections import deque
 from pathlib import Path
@@ -27,7 +28,10 @@ from .types import (
     parse_oopz_timestamp,
     parse_user_source,
     require_int,
+    require_bool,
+    parse_bool,
 )
+from ..utils import model_to_userinfo_extra, model_to_profile_extra
 
 logger = logging.getLogger(__name__)
 
@@ -54,14 +58,17 @@ class OneBotV11Adapter:
     def __init__(
             self,
             oopz_bot: OopzBot,
-            self_id: str,
+            self_oopz_id: str,
             *,
             platform: str = "oopz",
             db_path: str | Path | None = None,
+            enable_area_scoped_group_ban: bool = False,
+            enable_set_group_leave_as_area_leave: bool = False,
+            enable_set_group_kick_as_area_kick: bool = False,
     ) -> None:
         self.oopz_bot = oopz_bot
         self.platform = platform
-        self.self_oopz_id = str(self_id)
+        self.self_oopz_id = str(self_oopz_id)
 
         if db_path is None:
             base = Path.cwd() / ".oopz_sdk"
@@ -75,6 +82,9 @@ class OneBotV11Adapter:
         self._event_sinks: list[EventSink] = []
         self._event_queue: deque[JsonDict] = deque(maxlen=1000)
 
+        self.enable_area_scoped_group_ban = enable_area_scoped_group_ban
+        self.enable_set_group_leave_as_area_leave = enable_set_group_leave_as_area_leave
+        self.enable_set_group_kick_as_area_kick = enable_set_group_kick_as_area_kick
         self._actions: dict[str, ActionHandler] = self._build_actions()
 
     # ------------------------------------------------------------------
@@ -82,10 +92,7 @@ class OneBotV11Adapter:
     # ------------------------------------------------------------------
 
     def _build_actions(self) -> dict[str, ActionHandler]:
-        """
-        OneBot v11 action -> handler 映射。
-        """
-        return {
+        actions: dict[str, ActionHandler] = {
             # meta / internal
             "get_supported_actions": self.get_supported_actions,
             ".get_supported_actions": self.get_supported_actions,
@@ -93,6 +100,8 @@ class OneBotV11Adapter:
             "get_status": self.get_status,
             "get_version_info": self.get_version_info,
             "get_version": self.get_version_info,
+            "can_send_image": self.can_send_image,
+            "can_send_record": self.can_send_record,
 
             # message
             "send_msg": self.send_msg,
@@ -106,23 +115,28 @@ class OneBotV11Adapter:
             "get_login_info": self.get_login_info,
             "get_stranger_info": self.get_stranger_info,
             "get_friend_list": self.get_friend_list,
+            "set_friend_add_request": self.set_friend_add_request,
 
             # group compatibility
             "get_group_info": self.get_group_info,
-            "get_guild_info": self.get_group_info,
             "get_group_list": self.get_group_list,
-            "get_guild_list": self.get_group_list,
             "get_group_member_info": self.get_group_member_info,
+            "set_group_name": self.set_group_name,
 
             # maintenance
             "cleanup_message_mapping": self.cleanup_message_mapping,
         }
 
-    def not_implemented(self, name: str) -> ActionHandler:
-        async def handler(params: Mapping[str, Any]) -> Any:
-            raise NotImplementedError(f"{name} is not implemented yet")
+        if self.enable_area_scoped_group_ban:
+            actions["set_group_ban"] = self.set_group_ban
 
-        return handler
+        if self.enable_set_group_leave_as_area_leave:
+            actions["set_group_leave"] = self.set_group_leave
+
+        if self.enable_set_group_kick_as_area_kick:
+            actions["set_group_kick"] = self.set_group_kick
+        return actions
+
 
     async def emit_event(self, event: Any) -> JsonDict:
         if isinstance(event, HeartbeatEvent) or isinstance(event, ServerIdEvent):
@@ -203,6 +217,12 @@ class OneBotV11Adapter:
             "protocol_version": "v11",
         }
 
+    async def can_send_image(self, params: Mapping[str, Any]) -> JsonDict:
+        return {"yes": True}
+
+    async def can_send_record(self, params: Mapping[str, Any]) -> JsonDict:
+        return {"yes": False}
+
     async def get_latest_events(self, params: Mapping[str, Any]) -> list[JsonDict]:
         limit = int(params.get("limit") or 0)
         events = list(self._event_queue)
@@ -212,18 +232,14 @@ class OneBotV11Adapter:
         seconds = int(params.get("older_than_seconds") or 7 * 24 * 3600)
         return {"deleted": self.store.cleanup(seconds)}
 
-    def connect_event(self) -> JsonDict:
-        return {
-            "time": int(time.time()),
-            "self_id": self.self_id,
-            "post_type": "meta_event",
-            "meta_event_type": "lifecycle",
-            "sub_type": "connect",
-        }
 
     async def get_login_info(self, params: Mapping[str, Any] | None = None) -> JsonDict:
-        profile = await self.oopz_bot.person.get_self_detail()
-        return {"user_id": self.self_id, "nickname": getattr(profile, "name", "")}
+        profile: models.Profile = await self.oopz_bot.person.get_self_detail()
+        return {
+            "user_id": self.self_id,
+            "nickname": profile.name,
+            "extra": model_to_profile_extra(profile)
+        }
 
     async def send_msg(self, params: Mapping[str, Any]) -> JsonDict:
         message_type = str(params.get("message_type") or "")
@@ -428,18 +444,17 @@ class OneBotV11Adapter:
 
         return data
 
+
     async def get_stranger_info(self, params: Mapping[str, Any]) -> JsonDict:
         user_id = require_int(params, "user_id")
         uid = self._resolve_user_id(user_id)
-        info = await self.oopz_bot.person.get_person_info(uid)
+        info: models.UserInfo = await self.oopz_bot.person.get_person_info(uid)
         return {
             "user_id": user_id,
-            "nickname": getattr(info, "name", ""),
+            "nickname": info.name,
             "sex": "unknown",
             "age": 0,
-            "extra": {
-                "oopz_user_id": uid,
-            }
+            "extra": model_to_userinfo_extra(info)
         }
 
     async def get_friend_list(self, params: Mapping[str, Any] | None = None) -> list[JsonDict]:
@@ -526,48 +541,121 @@ class OneBotV11Adapter:
         uid = self._resolve_user_id(user_id)
 
         info = await self.oopz_bot.person.get_person_info(uid)
-
-        nickname = getattr(info, "name", "") or uid
-        level = getattr(info, "memberLevel", 0) or 0
-
+        aud: models.AreaUserDetail = await self.oopz_bot.areas.get_area_user_detail()
         # Oopz 当前没有直接等价于 OneBot v11 的 group card。
         # mark_name 更像用户备注/标记名，不一定是群名片，所以默认不给 card 硬塞 nickname。
         card = getattr(info, "mark_name", "") or ""
 
-        return {
+        response = {
             # OneBot v11 标准字段
             "group_id": group_id,
             "user_id": user_id,
-            "nickname": nickname,
+            "nickname": info.name,
             "card": card,
             "sex": "unknown",
             "age": 0,
             "area": "",
             "join_time": 0,
             "last_sent_time": 0,
-            "level": str(level),
+            "level": str(info.memberLevel),
             "role": "member",
             "unfriendly": False,
             "title": "",
             "title_expire_time": 0,
             "card_changeable": False,
-            "shut_up_timestamp": 0,
+            "shut_up_timestamp": aud.disable_text_to // 1000,
 
-            # Oopz 扩展字段，方便调试和高级用户使用
-            "oopz_extra": {
-                "oopz_area_id": area,
-                "oopz_channel_id": channel,
-                "oopz_user_id": uid,
-                "online": getattr(info, "online", False),
-                "avatar": getattr(info, "avatar", ""),
-                "status": getattr(info, "status", ""),
-                "person_role": getattr(info, "person_role", ""),
-                "person_type": getattr(info, "person_type", ""),
-            },
+            # 扩展字段，方便调试和高级用户使用
+            "extra": model_to_userinfo_extra(info),
         }
+        return response
+
+    async def set_group_kick(self, params: Mapping[str, Any]) -> JsonDict:
+        group_id = require_int(params, "group_id")
+        user_id = require_int(params, "user_id")
+        reject_add_request = params.get("reject_add_request", False)
+
+        area, channel = self._resolve_group_id(group_id)
+        uid = self._resolve_user_id(user_id)
+
+        if parse_bool(reject_add_request):
+            await self.oopz_bot.moderation.block_user_in_area(area, uid)
+            return {}
+        await self.oopz_bot.moderation.remove_from_area(area, uid)
+        return {}
+
+    async def set_group_ban(self, params: Mapping[str, Any]) -> JsonDict:
+        group_id = require_int(params, "group_id")
+        user_id = require_int(params, "user_id")
+        # OneBot v11 的 ban duration 单位是秒，Oopz 的 mute_user / mute_mic duration 单位是分钟，所以这里转换一下。
+        duration_seconds = int(params.get("duration", 0) or 0)
+
+        area, channel = self._resolve_group_id(group_id)
+        uid = self._resolve_user_id(user_id)
+
+        if duration_seconds > 0:
+            duration_minutes = max(1, math.ceil(duration_seconds / 60))
+            await self.oopz_bot.moderation.mute_user(area, uid, duration_minutes)
+        else:
+            await self.oopz_bot.moderation.unmute_user(area, uid)
+        return {}
+
+    async def set_group_name(self, params: Mapping[str, Any]) -> JsonDict:
+        group_id = require_int(params, "group_id")
+        group_name = str(params.get("group_name", "")).strip()
+
+        if group_name == "":
+            return {}
+
+        area, channel = self._resolve_group_id(group_id)
+
+        await self.oopz_bot.channels.update_channel(area, channel, name=group_name)
+        return {}
+
+    async def set_group_leave(self, params: Mapping[str, Any]) -> JsonDict:
+        group_id = require_int(params, "group_id")
+        # 暂时不接受is_dismiss参数
+
+        area, channel = self._resolve_group_id(group_id)
+        await self.oopz_bot.areas.leave_area(area)
+        return {}
 
     async def get_group_member_list(self, params: Mapping[str, Any]) -> list[JsonDict]:
-        pass
+        raise NotImplementedError
+
+    async def set_friend_add_request(self, params: Mapping[str, Any]) -> JsonDict:
+        approve = require_bool(params, "approve")
+        remark = str(params.get("remark") or "")
+        flag = str(params.get("flag", "")).strip()
+
+        prefix = "oopz_friend_request:"
+        if not flag.startswith(prefix):
+            raise ValueError("invalid friend request flag")
+
+        rest = flag[len(prefix):]
+        parts = rest.split(":", 1)
+
+        if len(parts) != 2:
+            raise ValueError("invalid friend request flag")
+
+        request_id_text, uid = parts
+        uid = uid.strip()
+
+        if not uid:
+            raise ValueError("invalid friend request flag: missing uid")
+
+        try:
+            friend_request_id = int(request_id_text)
+        except ValueError as exc:
+            raise ValueError("invalid friend request flag: invalid request id") from exc
+
+        if approve:
+            await self.oopz_bot.person.post_friendship_response(uid, friend_request_id, True)
+            if remark:
+                await self.oopz_bot.person.set_user_remark_name(uid, remark)
+        else:
+            await self.oopz_bot.person.post_friendship_response(uid, friend_request_id, False)
+        return {}
 
     def _resolve_user_id(self, user_id: int | str) -> str:
         record = self.ids.try_resolve_id(user_id)
@@ -645,12 +733,11 @@ class OneBotV11Adapter:
             return
 
         mid = payload.get("message_id")
-        original = str(payload.get("original_message_id") or "")
 
         extra = self._get_payload_extra(payload)
 
-        if not original:
-            original = str(extra.get("oopz_message_id") or "")
+
+        original = str(extra.get("oopz_message_id") or "")
 
         if not mid or not original:
             return

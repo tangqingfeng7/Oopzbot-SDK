@@ -38,9 +38,12 @@ def to_v11_message(message, *, ids: IdStore | None = None) -> list[dict[str, Any
     return result
 
 
-def from_v11_message(message: str | list[Mapping[str, Any]]) -> V11SendParts:
+def from_v11_message(message: str | Mapping[str, Any] | list[Mapping[str, Any]]) -> V11SendParts:
     if isinstance(message, str):
         return _from_cq_or_text(message)
+
+    if isinstance(message, Mapping):
+        message = [message]
 
     parts: list[Any] = []
     mentions: list[str] = []

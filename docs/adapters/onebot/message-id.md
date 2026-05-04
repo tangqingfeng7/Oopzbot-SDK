@@ -29,7 +29,7 @@ message_id
 v11 使用 `IdStore` 维护数字 ID。
 
 ```text
-Oopz string source -> OneBot int64-like number
+Oopz string source -> OneBot int32-like number
 ```
 
 默认数据库：
@@ -50,7 +50,7 @@ ids.createId(123456).number  # 123456
 
 1. 先查 SQLite 是否已有映射；
 2. 如果已有，返回旧数字；
-3. 如果没有，随机生成一个 JS 安全范围内的数字并保存。
+3. 如果没有，随机生成一个 int32 内的数字并保存。
 
 ### 常见 source
 
