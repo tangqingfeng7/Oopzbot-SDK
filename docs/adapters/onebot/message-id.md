@@ -29,7 +29,7 @@ message_id
 v11 使用 `IdStore` 维护数字 ID。
 
 ```text
-Oopz string source -> OneBot int64-like number
+Oopz string source -> OneBot int32-like number
 ```
 
 默认数据库：
