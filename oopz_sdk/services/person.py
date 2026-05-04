@@ -127,7 +127,7 @@ class Person(BaseService):
 
         return models.UserRemarkNamesResponse.from_api(data)
 
-    async def set_user_remark_name(self, uid: str, remark_name: str) -> models.OperationResult:
+    async def set_user_remark_name(self, uid: str, remark_name: str = "") -> models.OperationResult:
         """设置bot自己给别人的备注名。"""
         if not uid:
             raise ValueError("uid is required for set_user_remark_name()")
