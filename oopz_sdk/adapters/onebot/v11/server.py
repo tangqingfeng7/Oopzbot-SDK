@@ -286,8 +286,9 @@ class OneBotV11Server:
     # ------------------------------------------------------------------
 
     async def broadcast_event(self, event: JsonDict) -> None:
-        await self._broadcast_forward_ws(event)
         await self._broadcast_http_post(event)
+        await self._broadcast_forward_ws(event)
+
 
     async def _broadcast_forward_ws(self, event: JsonDict) -> None:
         closed: list[web.WebSocketResponse] = []
