@@ -5,6 +5,7 @@ import hashlib
 import hmac
 import json
 import logging
+import time
 from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable, Literal, Mapping, Protocol
 
@@ -551,7 +552,7 @@ class OneBotV11Server:
 
     def _connect_event(self) -> JsonDict:
         return {
-            "time": 0,
+            "time": int(time.time()),
             "self_id": int(getattr(self.adapter, "self_id", 0) or 0),
             "post_type": "meta_event",
             "meta_event_type": "lifecycle",
