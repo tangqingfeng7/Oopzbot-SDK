@@ -119,9 +119,7 @@ class OneBotV11Adapter:
 
             # group compatibility
             "get_group_info": self.get_group_info,
-            "get_guild_info": self.get_group_info,
             "get_group_list": self.get_group_list,
-            "get_guild_list": self.get_group_list,
             "get_group_member_info": self.get_group_member_info,
             "set_group_name": self.set_group_name,
 
@@ -551,7 +549,7 @@ class OneBotV11Adapter:
         uid = self._resolve_user_id(user_id)
 
         info = await self.oopz_bot.person.get_person_info(uid)
-
+        aud: models.AreaUserDetail = await self.oopz_bot.areas.get_area_user_detail()
         # Oopz 当前没有直接等价于 OneBot v11 的 group card。
         # mark_name 更像用户备注/标记名，不一定是群名片，所以默认不给 card 硬塞 nickname。
         card = getattr(info, "mark_name", "") or ""
@@ -573,14 +571,11 @@ class OneBotV11Adapter:
             "title": "",
             "title_expire_time": 0,
             "card_changeable": False,
-            "shut_up_timestamp": 0,
+            "shut_up_timestamp": aud.disable_text_to // 1000,
 
             # 扩展字段，方便调试和高级用户使用
             "extra": model_to_userinfo_extra(info),
         }
-        response["extra"]["oopz_user_id"] = uid
-        response["extra"]["oopz_area_id"] = area
-        response["extra"]["oopz_channel_id"] = channel
         return response
 
     async def set_group_kick(self, params: Mapping[str, Any]) -> JsonDict:
@@ -746,12 +741,11 @@ class OneBotV11Adapter:
             return
 
         mid = payload.get("message_id")
-        original = str(payload.get("original_message_id") or "")
 
         extra = self._get_payload_extra(payload)
 
-        if not original:
-            original = str(extra.get("oopz_message_id") or "")
+
+        original = str(extra.get("oopz_message_id") or "")
 
         if not mid or not original:
             return

@@ -137,18 +137,17 @@ class OneBotServer:
 
     def _setup_routes(self) -> None:
         base = self._base_path()
-        scoped_base = "/{platform}/{self_id}" + base
 
         if self.config.enable_http:
             self.app.router.add_post(base + "/{action}", self._handle_http_action)
-            self.app.router.add_post(scoped_base + "/{action}", self._handle_http_action)
+            self.app.router.add_get(base + "/{action}", self._handle_http_action)
+            self.app.router.add_get(base + "/{action}/", self._handle_http_action)
+            self.app.router.add_post(base + "/{action}/", self._handle_http_action)
             self.app.router.add_post(base, self._handle_http_action_payload)
-            self.app.router.add_post(scoped_base, self._handle_http_action_payload_or_ws)
             self.app.router.add_get(base + "/status", self._handle_status)
 
         if self.config.enable_ws:
             self.app.router.add_get(base, self._handle_ws)
-            self.app.router.add_get(scoped_base, self._handle_ws)
 
     async def _handle_http_action(self, request: web.Request) -> web.Response:
         if not self._check_auth(request):
@@ -171,23 +170,15 @@ class OneBotServer:
 
         return self._json_response(await self.adapter.call_action_payload(body))
 
-    async def _handle_http_action_payload_or_ws(self, request: web.Request) -> web.StreamResponse:
-        if self._is_websocket_request(request):
-            return await self._handle_ws(request)
-        return await self._handle_http_action_payload(request)
 
     async def _handle_status(self, request: web.Request) -> web.Response:
         if not self._check_auth(request):
             return self._json_response(self._failed(1401, "unauthorized"), status=401)
         return self._json_response(await self.adapter.call_action("get_status"))
 
-    async def _handle_ws(self, request: web.Request) -> web.WebSocketResponse:
+    async def _handle_ws(self, request: web.Request) -> web.StreamResponse:
         if not self._check_auth(request):
-            ws = web.WebSocketResponse()
-            await ws.prepare(request)
-            await ws.send_json(self._failed(1401, "unauthorized"))
-            await ws.close()
-            return ws
+            return self._json_response(self._failed(1401, "unauthorized"), status=401)
 
         ws = web.WebSocketResponse(heartbeat=30)
         await ws.prepare(request)
@@ -399,6 +390,7 @@ class OneBotServer:
     def _v11_reverse_ws_headers(self) -> dict[str, str]:
         self_id = getattr(self.adapter, "self_id", "")
 
+        # todo
         headers: dict[str, str] = {
             "X-Client-Role": "Universal",
             "X-Self-ID": str(self_id),
@@ -411,7 +403,10 @@ class OneBotServer:
         return headers
 
     def _v12_reverse_ws_headers(self) -> dict[str, str]:
-        headers: dict[str, str] = {}
+        headers: dict[str, str] = {
+            "User-Agent": "OneBot/12 (oopz) oopz_sdk/0.1.0",
+            "Sec-WebSocket-Protocol": "12.oopz_sdk",
+        }
 
         if self.config.access_token:
             headers["Authorization"] = f"Bearer {self.config.access_token}"
@@ -462,3 +457,4 @@ class OneBotServer:
             status=status,
             content_type="application/json",
         )
+

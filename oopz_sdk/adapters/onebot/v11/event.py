@@ -83,7 +83,6 @@ def _message_event(event: MessageEvent, *, self_id: str | int, ids: IdStore) -> 
                 "user_id": user_ob_id,
                 "nickname": getattr(msg, "display_name", ""),
             },
-            "original_message_id": msg.message_id,
             "extra": {
                 "oopz_user_id": msg.sender_id,
                 "oopz_target_id": msg.target,
@@ -111,7 +110,6 @@ def _message_event(event: MessageEvent, *, self_id: str | int, ids: IdStore) -> 
             "user_id": user_ob_id,
             "nickname": getattr(msg, "display_name", ""),
         },
-        "original_message_id": msg.message_id,
         "extra": {
             "oopz_area_id": msg.area,
             "oopz_channel_id": msg.channel,
@@ -150,7 +148,6 @@ def _delete_event(event: MessageDeleteEvent, *, self_id: str | int, ids: IdStore
             "user_id": user_ob_id,
             "message_id": message_ob_id,
             "extra": {
-                "original_message_id": event.message_id,
                 "oopz_user_id": event.person,
                 "oopz_target_id": event.person,
                 "oopz_message_id": event.message_id,
@@ -180,7 +177,6 @@ def _delete_event(event: MessageDeleteEvent, *, self_id: str | int, ids: IdStore
         "operator_id": user_ob_id,
         "message_id": message_ob_id,
         "extra": {
-            "original_message_id": event.message_id,
             "oopz_area_id": event.area,
             "oopz_channel_id": event.channel,
             "oopz_user_id": event.person,

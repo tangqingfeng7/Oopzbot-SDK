@@ -7,6 +7,7 @@ def model_to_userinfo_extra(
         model: models.UserInfo
 ) -> dict[str, Any]:
     return {
+        "uid": getattr(model, "uid", ""),
         "avatar": getattr(model, "avatar", ""),
         "avatar_frame": getattr(model, "avatar_frame", ""),
         "avatar_frame_animation": getattr(model, "avatar_frame_animation", ""),
