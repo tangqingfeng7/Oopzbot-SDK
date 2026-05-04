@@ -56,7 +56,6 @@ def install_onebot_v11(bot: OopzBot) -> Any | None:
             ws_reverse_url=getattr(config, "ws_reverse_url", ""),
             ws_reverse_api_url=getattr(config, "ws_reverse_api_url", ""),
             ws_reverse_event_url=getattr(config, "ws_reverse_event_url", ""),
-            ws_reverse_use_universal_client=getattr(config, "ws_reverse_use_universal_client", False),
             ws_reverse_reconnect_interval=getattr(
                 config,
                 "ws_reverse_reconnect_interval",

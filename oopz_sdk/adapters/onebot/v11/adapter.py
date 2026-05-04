@@ -541,7 +541,7 @@ class OneBotV11Adapter:
         uid = self._resolve_user_id(user_id)
 
         info = await self.oopz_bot.person.get_person_info(uid)
-        aud: models.AreaUserDetail = await self.oopz_bot.areas.get_area_user_detail()
+        aud: models.AreaUserDetail = await self.oopz_bot.areas.get_area_user_detail(area, uid)
         # Oopz 当前没有直接等价于 OneBot v11 的 group card。
         # mark_name 更像用户备注/标记名，不一定是群名片，所以默认不给 card 硬塞 nickname。
         card = getattr(info, "mark_name", "") or ""

@@ -66,11 +66,12 @@ class OneBotV11ServerConfig:
     http_post_urls: list[str] = field(default_factory=list)
     http_post_timeout: float = 0.0
 
-    # 反向 WS。ws_reverse_url 是共用 URL；api/event 为空时回退到共用 URL。
+    # 反向 WS。
+    # ws_reverse_url 表示 Universal 单连接；
     ws_reverse_url: str = ""
+    # ws_reverse_api_url / ws_reverse_event_url 表示 API / Event 分离连接。
     ws_reverse_api_url: str = ""
     ws_reverse_event_url: str = ""
-    ws_reverse_use_universal_client: bool = False
     ws_reverse_reconnect_interval: float = 3.0
 
     send_connect_event: bool = True
@@ -399,18 +400,15 @@ class OneBotV11Server:
     def _reverse_targets(self) -> list[tuple[str, WsRole]]:
         targets: list[tuple[str, WsRole]] = []
 
-        common_url = self.config.ws_reverse_url
-        if self.config.ws_reverse_use_universal_client:
-            if common_url:
-                targets.append((common_url, "universal"))
-            return self._dedupe_targets(targets)
+        if self.config.ws_reverse_url:
+            targets.append((self.config.ws_reverse_url, "universal"))
 
-        api_url = self.config.ws_reverse_api_url or common_url
-        event_url = self.config.ws_reverse_event_url or common_url
-        if api_url:
-            targets.append((api_url, "api"))
-        if event_url:
-            targets.append((event_url, "event"))
+        if self.config.ws_reverse_api_url:
+            targets.append((self.config.ws_reverse_api_url, "api"))
+
+        if self.config.ws_reverse_event_url:
+            targets.append((self.config.ws_reverse_event_url, "event"))
+
         return self._dedupe_targets(targets)
 
     @staticmethod
