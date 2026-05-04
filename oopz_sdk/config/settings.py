@@ -102,13 +102,23 @@ class OneBotV11Config:
     port: int = 6700
 
     access_token: str = ""
+    secret: str = ""
 
     enable_http: bool = True
     enable_ws: bool = True
+    enable_http_post: bool = True
+    enable_ws_reverse: bool = True
 
-    webhook_urls: list[str] = field(default_factory=list)
+    # OneBot v11 HTTP POST 事件上报地址
+    http_post_urls: list[str] = field(default_factory=list)
+    http_post_timeout: float = 0.0
 
-    ws_reverse_urls: list[str] = field(default_factory=list)
+    # OneBot v11 反向 WebSocket。
+    # ws_reverse_url 表示 Universal 连接；api/event 为空时可以回退使用它。
+    ws_reverse_url: str = ""
+    ws_reverse_api_url: str = ""
+    ws_reverse_event_url: str = ""
+    ws_reverse_use_universal_client: bool = False
     ws_reverse_reconnect_interval: float = 3.0
 
     send_connect_event: bool = True

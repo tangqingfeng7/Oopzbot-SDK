@@ -58,7 +58,7 @@ class OneBotV11Adapter:
     def __init__(
             self,
             oopz_bot: OopzBot,
-            self_id: str,
+            self_oopz_id: str,
             *,
             platform: str = "oopz",
             db_path: str | Path | None = None,
@@ -68,7 +68,7 @@ class OneBotV11Adapter:
     ) -> None:
         self.oopz_bot = oopz_bot
         self.platform = platform
-        self.self_oopz_id = str(self_id)
+        self.self_oopz_id = str(self_oopz_id)
 
         if db_path is None:
             base = Path.cwd() / ".oopz_sdk"
@@ -232,14 +232,6 @@ class OneBotV11Adapter:
         seconds = int(params.get("older_than_seconds") or 7 * 24 * 3600)
         return {"deleted": self.store.cleanup(seconds)}
 
-    def connect_event(self) -> JsonDict:
-        return {
-            "time": int(time.time()),
-            "self_id": self.self_id,
-            "post_type": "meta_event",
-            "meta_event_type": "lifecycle",
-            "sub_type": "connect",
-        }
 
     async def get_login_info(self, params: Mapping[str, Any] | None = None) -> JsonDict:
         profile: models.Profile = await self.oopz_bot.person.get_self_detail()
