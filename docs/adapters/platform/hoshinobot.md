@@ -30,9 +30,7 @@ config = OopzConfig(
         enable_ws=False,
         enable_http=False,
         # 关键：把 OneBot v11 事件上报给 HoshinoBot
-        ws_reverse_urls=[
-            "ws://127.0.0.1:8080/ws/",
-        ],
+        ws_reverse_url="ws://127.0.0.1:8080/ws/",
 
         # 推荐固定数据库路径，避免 group_id / message_id 映射变化
         db_path="./data/onebot_v11.sqlite3",

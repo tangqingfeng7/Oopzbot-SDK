@@ -42,7 +42,6 @@ nav:
       - 适配器总览: adapters/index.md
       - OneBot:
           - 概览: adapters/onebot/index.md
-          - 快速开始: adapters/onebot/quickstart.md
           - OneBot v11: adapters/onebot/v11.md
           - OneBot v12: adapters/onebot/v12.md
           - 消息与 ID 映射: adapters/onebot/message-id.md
