@@ -2,10 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 from typing import Optional, Any, List
 
-from pymdownx.emoji1_db import emoji
 
 from oopz_sdk import models
 from oopz_sdk.exceptions import OopzApiError
