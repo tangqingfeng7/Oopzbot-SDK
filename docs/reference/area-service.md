@@ -201,6 +201,36 @@ print(result)
 
     因为这个接口的使用方式还未完全确定
 
+
+---
+
+## `leave_area(area)`
+
+退出域。
+
+```python
+result = await client.areas.leave_area(area="域 ID")
+
+print(result.ok)
+```
+
+=== "参数"
+
+    | 参数 | 类型 | 必填 | 默认值 | 说明 |
+    | --- | --- | --- | --- | --- |
+    | `area` | `str` | 是 | - | 域 ID，不能为空。 |
+
+=== "返回值"
+
+    返回：`OperationResult`。
+
+    对应模型：`oopz_sdk.models.OperationResult`
+
+    | 字段 | 类型 | 默认值 | 说明 |
+    | --- | --- | --- | --- |
+    | `ok` | `bool` | `True` | 操作是否成功。 |
+    | `message` | `str` | `""` | 操作消息或错误信息。 |
+
 ---
 
 ## `get_area_channels(area)`

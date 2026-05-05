@@ -108,6 +108,40 @@ class HeartbeatEvent(Event):
         normalized = Event.validate_common_fields(data)
         return normalized
 
+class FriendRequestEvent(Event):
+    person: str = ""
+    type: str = ""
+    name: str = ""
+    avatar: str = ""
+    friend_request_id: int = Field(default=0, alias="friendRequestId")
+    create_time: str = Field(default="", alias="createTime")
+
+    @model_validator(mode="before")
+    @classmethod
+    def validate_and_normalize(cls, data: Any) -> Any:
+        normalized = Event.validate_common_fields(data)
+        normalized["person"] = str(normalized.get("person") or "")
+        normalized["type"] = str(normalized.get("type") or "")
+        normalized["name"] = str(normalized.get("name") or "")
+        normalized["avatar"] = str(normalized.get("avatar") or "")
+        normalized["create_time"] = str(normalized.get("create_time") or "")
+        try:
+            normalized["friend_request_id"] = int(normalized.get("friendRequestId") or 0)
+        except (TypeError, ValueError):
+            normalized["friend_request_id"] = 0
+        return normalized
+
+
+class FriendDeleteEvent(Event):
+    person: str = ""
+
+    @model_validator(mode="before")
+    @classmethod
+    def validate_and_normalize(cls, data: Any) -> Any:
+        normalized = Event.validate_common_fields(data)
+        normalized["person"] = str(normalized.get("person") or "")
+        return normalized
+
 
 class AuthEvent(Event):
     code: int = 0

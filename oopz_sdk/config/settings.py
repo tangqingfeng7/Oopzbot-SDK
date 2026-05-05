@@ -32,6 +32,107 @@ class ProxyConfig:
 
 
 @dataclass
+class OneBotV12Config:
+    """
+    OneBot v12 适配配置。
+
+    enabled:
+        是否启用 OneBot v12 适配器。
+
+    auto_start_server:
+        是否在 OopzBot.start() 时自动启动 OneBot v12 server。
+        如果只是想内部调用 adapter，可以设为 False。
+
+    host / port:
+        正向 HTTP / WebSocket server 监听地址。
+
+    access_token:
+        OneBot 连接层鉴权 token。
+
+    ws_reverse_urls:
+        反向 WebSocket 地址。配置后 SDK 会主动连接这些地址。
+
+    webhook_urls:
+        HTTP webhook 地址。事件会 POST 到这些 URL。
+    """
+
+    enabled: bool = False
+    auto_start_server: bool = True
+
+    platform: str = "oopz"
+    self_id: str = ""
+
+    db_path: str | None = None
+
+    host: str = "127.0.0.1"
+    port: int = 6727
+
+    access_token: str = ""
+
+    enable_http: bool = True
+    enable_ws: bool = True
+
+    webhook_urls: list[str] = field(default_factory=list)
+
+    ws_reverse_urls: list[str] = field(default_factory=list)
+    ws_reverse_reconnect_interval: float = 3.0
+
+    send_connect_event: bool = True
+
+
+@dataclass
+class OneBotV11Config:
+    """
+    OneBot v11 适配配置。
+
+    注意：Oopz 是 area/channel 双层结构，而 v11 是 group 单层结构。
+    v11 的 group_id 默认映射为 Oopz channel_id；发送群消息时建议额外传
+    oopz_area_id/area/guild_id，或在 default_area 中配置默认 area。
+    """
+
+    enabled: bool = False
+    auto_start_server: bool = True
+
+    platform: str = "oopz"
+    self_id: str = ""
+
+    db_path: str | None = None
+
+    host: str = "127.0.0.1"
+    port: int = 6700
+
+    access_token: str = ""
+    secret: str = ""
+
+    enable_http: bool = True
+    enable_ws: bool = True
+    enable_http_post: bool = True
+    enable_ws_reverse: bool = True
+
+    # OneBot v11 HTTP POST 事件上报地址
+    http_post_urls: list[str] = field(default_factory=list)
+    http_post_timeout: float = 0.0
+
+    # OneBot v11 反向 WebSocket。
+    # ws_reverse_url 表示 Universal 连接
+    ws_reverse_url: str = ""
+    # ws_reverse_api_url / ws_reverse_event_url 表示 API / Event 分离连接。
+    ws_reverse_api_url: str = ""
+    ws_reverse_event_url: str = ""
+    ws_reverse_reconnect_interval: float = 3.0
+
+    send_connect_event: bool = True
+
+    # 因为目前的实现将area+channel作为group进行处理, 所以有些对群组的危险操作会影响整个域
+    # 是否启用群组禁言被当做整个域禁言的action
+    enable_area_scoped_group_ban: bool = False
+    # 是否启用群组离开被当做整个域离开的action
+    enable_set_group_leave_as_area_leave: bool = False
+    # 是否启用群组踢人被当做整个域移除的action
+    enable_set_group_kick_as_area_kick: bool = False
+
+
+@dataclass
 class OopzConfig:
     device_id: str
     person_uid: str
@@ -65,6 +166,13 @@ class OopzConfig:
     proxy: ProxyConfig = field(default_factory=ProxyConfig)
 
     ignore_self_messages: bool = True   # 如果设置为False, 会导致bot接收到自己处理的消息, 可能导致死循环
+
+    auto_subscribe_joined_areas: bool = False # 加入后自动请求账号加入的所有域, 然后向websocket注册加入的域, 接受来自域的事件
+
+    onebot_v11: OneBotV11Config = field(default_factory=OneBotV11Config)
+
+    # todo onebot v12还未经测试, 暂时禁用
+    # onebot_v12: OneBotV12Config = field(default_factory=OneBotV12Config)
 
     def __post_init__(self) -> None:
         self.device_id = self._require_non_empty(self.device_id, "device_id")
@@ -175,3 +283,4 @@ class OopzConfig:
 
     def get_headers(self) -> dict[str, str]:
         return {**DEFAULT_HEADERS, **self.headers}
+
