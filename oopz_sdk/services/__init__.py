@@ -45,7 +45,7 @@ class BaseService:
             path: str,
             *,
             params: Mapping[str, Any] | None = None,
-            body: Mapping[str, Any] | None = None,
+            body: Mapping[str, Any] | list | None = None,
     ) -> Any:
         return await self.transport.request_data(method, path, params=params, body=body)
 

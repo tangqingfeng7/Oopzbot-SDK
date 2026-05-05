@@ -5,6 +5,8 @@ import logging
 import os
 from typing import Optional, Any, List
 
+from pymdownx.emoji1_db import emoji
+
 from oopz_sdk import models
 from oopz_sdk.exceptions import OopzApiError
 from oopz_sdk.models.segment import Image, Segment
@@ -12,6 +14,7 @@ from oopz_sdk.services import BaseService
 from oopz_sdk.utils.image import get_image_info, guess_image_ext, get_image_info_from_bytes, guess_image_ext_from_bytes, \
     read_image_bytes
 from oopz_sdk.models import build_segments, normalize_message_parts
+from oopz_sdk.utils.reaction_emoji import normalize_reaction_emoji
 
 logger = logging.getLogger(__name__)
 
@@ -341,7 +344,12 @@ class Message(BaseService):
             preview_file_key=getattr(upload_result, "preview_file_key", ""),
         )
 
-    async def top_message(self, message_id: str, area: str, channel: str,  top_message: bool = True) -> models.OperationResult:
+    async def top_message(self,
+                          message_id: str,
+                          area: str,
+                          channel: str,
+                          top_message: bool = True
+                          ) -> models.OperationResult:
         """置顶或取消置顶消息。"""
         if message_id.strip() == "":
             raise ValueError("message_id is required for top_message")
@@ -359,3 +367,151 @@ class Message(BaseService):
         })
         return models.OperationResult.from_api(data)
 
+    async def add_reaction(self, message_id: str, area: str, channel: str, emoji: str) -> models.OperationResult:
+        """
+        给频道消息添加表情反应。
+        """
+        if area.strip() == "":
+            raise ValueError("area is required for add_reaction")
+        if channel.strip() == "":
+            raise ValueError("channel is required for add_reaction")
+        if emoji.strip() == "":
+            raise ValueError("emoji is required for add_reaction")
+        if message_id.strip() == "":
+            raise ValueError("message_id is required for add_reaction")
+
+        result = await self._request_data("POST", "/im/session/v1/gimReaction", body={
+            "anchor": "",
+            "area": area,
+            "channel": channel,
+            "emoji": normalize_reaction_emoji(emoji),
+            "messageId": message_id,
+            "target": "",
+            "type": "REPLY"
+        })
+        return models.OperationResult.from_api(result)
+
+    async def add_private_reaction(self, message_id: str, channel: str, target: str, emoji: str, area="") -> models.OperationResult:
+        """
+        给私信消息添加表情反应。
+        """
+        if target.strip() == "":
+            raise ValueError("target is required for add_reaction")
+        if channel.strip() == "":
+            raise ValueError("channel is required for add_reaction")
+        if emoji.strip() == "":
+            raise ValueError("emoji is required for add_reaction")
+        if message_id.strip() == "":
+            raise ValueError("message_id is required for add_reaction")
+
+        result = await self._request_data("POST", "/im/session/v1/imReaction", body={
+            "anchor": target,
+            "area": area,
+            "channel": channel,
+            "emoji": normalize_reaction_emoji(emoji),
+            "messageId": message_id,
+            "target": target,
+            "type": "REPLY"
+        })
+        return models.OperationResult.from_api(result)
+
+    async def get_channel_reaction_persons(self, message_id: str, channel: str, emoji: str, page: int = 1,
+                                           page_size: int = 4) -> list[str]:
+        """
+        获取该频道消息有哪些用户回应了这个emoji
+
+        :param message_id: 消息 ID
+        :param channel: 私信会话 ID
+        :param emoji: 表情 支持真实 emoji, 十进制或者十六进制emoji字符
+        :param page: 页码
+        :param page_size: 每页大小
+        """
+        if message_id.strip() == "":
+            raise ValueError("message_id is required for get_channel_reaction_persons")
+        if channel.strip() == "":
+            raise ValueError("channel is required for get_channel_reaction_persons")
+        if emoji.strip() == "":
+            raise ValueError("emoji is required for get_reaction_persons")
+        data = await self._request_data("GET", "/im/session/v2/gimReactionPersons", params={
+            "messageId": message_id,
+            "channel": channel,
+            "emoji": normalize_reaction_emoji(emoji),
+            "page": page,
+            "pageSize": page_size,
+        })
+        if not isinstance(data, list):
+            raise OopzApiError(
+                "response format error: expected list for get_channel_reaction_persons",
+                payload=data,
+            )
+        return data
+
+    async def get_private_reaction_persons(self, message_id: str, channel: str, emoji: str, page: int = 1,
+                                           page_size: int = 4) -> list[str]:
+        """
+        获取该私信消息有哪些用户回应了这个emoji
+
+        :param message_id: 消息 ID
+        :param channel: 私信会话 ID
+        :param emoji: 表情 支持代码和实际unicode字符
+        :param page: 页码
+        :param page_size: 每页大小
+        """
+        if message_id.strip() == "":
+            raise ValueError("message_id is required for get_private_reaction_persons")
+        if channel.strip() == "":
+            raise ValueError("channel is required for get_private_reaction_persons")
+        if emoji.strip() == "":
+            raise ValueError("emoji is required for get_private_reaction_persons")
+        data = await self._request_data("GET", "/im/session/v2/imReactionPersons", params={
+            "messageId": message_id,
+            "channel": channel,
+            "emoji": normalize_reaction_emoji(emoji),
+            "page": page,
+            "pageSize": page_size,
+        })
+        if not isinstance(data, list):
+            raise OopzApiError(
+                "response format error: expected list for get_private_reaction_persons",
+                payload=data,
+            )
+        return data
+
+    async def get_channel_message_reactions(self, message_id: str) -> models.MessageEmojiItem:
+        if message_id.strip() == "":
+            raise ValueError("message_id is required for get_private_message_reactions")
+
+        data = await self._request_data("POST", "/im/session/v1/gimReactions", body=[{"messageId": message_id}])
+        if len(data) != 1:
+            raise ValueError("Unexpected response format: expected list with one item for get_message_reactions")
+        return models.MessageEmojiItem.from_api(data[0])
+
+    async def get_channel_message_reactions_batch(self, message_ids: str) -> list[models.MessageEmojiItem]:
+        if len(message_ids) < 1:
+            raise ValueError("message_ids is required for get_message_reactions")
+        if len(message_ids) > 50:
+            raise ValueError("message_ids is too large for get_message_reactions")
+        id_body = [{"messageId": message_id} for message_id in message_ids]
+        data = await self._request_data("POST", "/im/session/v1/gimReactions", body=id_body)
+
+        return [models.MessageEmojiItem.from_api(d) for d in data]
+
+    async def get_private_message_reactions(self, message_id: str) -> models.MessageEmojiItem:
+        if message_id.strip() == "":
+            raise ValueError("message_id is required for get_private_message_reactions")
+
+        data = await self._request_data("POST", "/im/session/v1/imReactions", body=[{"messageId": message_id}])
+        if len(data) != 1:
+            raise ValueError(
+                "Unexpected response format: expected list with one item for get_private_message_reactions")
+        return models.MessageEmojiItem.from_api(data[0])
+
+    async def get_private_message_reactions_batch(self, message_ids: list[str]) -> list[models.MessageEmojiItem]:
+        if len(message_ids) < 1:
+            raise ValueError("message_ids is required for get_private_message_reactions")
+        if len(message_ids) > 50:
+            raise ValueError("message_ids is too large for get_private_message_reactions")
+        id_body = [{"messageId": message_id} for message_id in message_ids]
+        data = await self._request_data("POST", "/im/session/v1/imReactions", body=id_body)
+
+        return [models.MessageEmojiItem.from_api(d) for d in data]

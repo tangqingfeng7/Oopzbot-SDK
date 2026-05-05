@@ -68,7 +68,7 @@ class HttpTransport(BaseTransport):
         self,
         method: str,
         url_path: str,
-        body: dict | None = None,
+        body: dict | list | None = None,
         **kwargs,
     ) -> HttpResponse:
         await self.throttle()
@@ -182,7 +182,7 @@ class HttpTransport(BaseTransport):
             path: str,
             *,
             params: Mapping[str, Any] | None = None,
-            body: Mapping[str, Any] | None = None,
+            body: Mapping[str, Any] | list | None = None,
     ) -> Any:
         resp = await self.request(
             method,
@@ -243,7 +243,7 @@ class HttpTransport(BaseTransport):
             path: str,
             *,
             params: Mapping[str, Any] | None = None,
-            body: Mapping[str, Any] | None = None,
+            body: Mapping[str, Any] | list | None = None,
     ) -> Any:
         json_data = await self.request_json(
             method, path, params=params,

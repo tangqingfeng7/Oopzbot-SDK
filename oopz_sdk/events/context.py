@@ -86,3 +86,24 @@ class EventContext:
             channel=self.event.message.channel,
             **kwargs,
         )
+
+    async def react(self, emoji: str):
+        """
+        给当前上下文中的消息添加表情反应。
+        """
+        if not isinstance(self.event, MessageEvent):
+            raise RuntimeError("react() requires a message event context")
+        if self.event.is_private:
+            return await self.bot.messages.add_private_reaction(
+                message_id=self.event.message.message_id,
+                area=self.event.message.area,
+                channel=self.event.message.channel,
+                emoji=emoji,
+                target=self.event.message.sender_id,
+            )
+        return await self.bot.messages.add_reaction(
+            message_id=self.event.message.message_id,
+            area=self.event.message.area,
+            channel=self.event.message.channel,
+            emoji=emoji
+        )

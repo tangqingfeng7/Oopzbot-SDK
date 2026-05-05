@@ -285,3 +285,62 @@ class PrivateSession(BaseModel):
         if not isinstance(data, Mapping):
             raise OopzApiError("invalid private session payload: expected dict", payload=data)
         return cls.model_validate(data)
+
+class MessageEmoji(BaseModel):
+    emoji: str = ""
+    person_count: int = Field(default=0, alias="personCount")
+    me: bool = False
+    created_at: str = Field(default="", alias="createdAt")
+
+    @model_validator(mode="before")
+    @classmethod
+    def validate_and_normalize(cls, data: Any) -> Any:
+        if not isinstance(data, Mapping):
+            raise OopzApiError("invalid message emoji payload: expected dict", payload=data)
+
+        normalized = dict(data)
+
+        normalized["emoji"] = str(normalized.get("emoji") or "")
+
+        try:
+            normalized["personCount"] = int(normalized.get("personCount") or 0)
+        except (TypeError, ValueError):
+            normalized["personCount"] = 0
+
+        normalized["me"] = bool(normalized.get("me") or False)
+        normalized["createdAt"] = str(normalized.get("createdAt") or "")
+
+        return normalized
+
+    @classmethod
+    def from_api(cls, data: Mapping[str, Any]) -> "MessageEmoji":
+        return cls.model_validate(data)
+
+
+class MessageEmojiItem(BaseModel):
+    message_id: str = Field(default="", alias="messageId")
+    emojis: list[MessageEmoji] = Field(default_factory=list)
+
+    @model_validator(mode="before")
+    @classmethod
+    def validate_and_normalize(cls, data: Any) -> Any:
+        if not isinstance(data, Mapping):
+            raise OopzApiError("invalid message emoji item payload: expected dict", payload=data)
+
+        normalized = dict(data)
+
+        normalized["messageId"] = str(normalized.get("messageId") or "")
+
+        emojis = normalized.get("emojis")
+        if emojis is None:
+            normalized["emojis"] = []
+        elif not isinstance(emojis, list):
+            normalized["emojis"] = []
+        else:
+            normalized["emojis"] = emojis
+
+        return normalized
+
+    @classmethod
+    def from_api(cls, data: Mapping[str, Any]) -> "MessageEmojiItem":
+        return cls.model_validate(data)
