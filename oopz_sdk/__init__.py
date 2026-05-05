@@ -24,6 +24,8 @@ from .config import (
     EVENT_HEARTBEAT,
     EVENT_SERVER_ID,
     HeartbeatConfig,
+    OneBotV11Config,
+    OneBotV12Config,
     OopzConfig,
     ProxyConfig,
     RetryConfig,
@@ -115,5 +117,7 @@ __all__ = [
     "login_with_password",
     "login_with_password_sync",
     "save_credentials_json",
-    "setup_logging"
+    "setup_logging",
+    "OneBotV11Config",
+    "OneBotV12Config",
 ]

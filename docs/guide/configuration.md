@@ -21,6 +21,47 @@ config = OopzConfig.from_env(
 | `jwt_token`   | `str`                    | 登录态 JWT。不能为空。                |
 | `private_key` | `str \| bytes \| key object` | RSA 私钥，用于签名请求。不能为空。           |
 
+## 接受来自域的事件推送
+
+默认情况下, SDK是不会收到来自域的事件 (例如域的设置更改, 用户进入退出房间等) 推送的, 需要进行手动注册。
+
+您可以使用 `send_subscribe_area_events` 方法在bot启动后订阅特定域的事件：
+
+```python
+area_ids = ["6bv5677gsfdb41e882694531567a0972"]  # 替换为你想订阅的域 ID
+
+await bot.ws.send_subscribe_area_events(area_ids)
+```
+
+您也可以使用 `auto_subscribe_joined_areas` 选项在启动时自动订阅所有已加入域的事件：
+
+!!! danger "注意"
+    Oopz web端一般只会使用单个`area_ids`进行请求, 但是经过测试, 这个接口是支持批量订阅的, 但是传入多个`area_ids`造成的风险和问题目前还不清楚, 
+    请谨慎使用多个域的事件订阅和`auto_subscribe_joined_areas`功能。
+
+```python
+from oopz_sdk import OopzBot, OopzConfig
+
+config = OopzConfig(
+    device_id="...",
+    person_uid="...",
+    jwt_token="...",
+    private_key="...",
+
+    auto_subscribe_joined_areas=True,
+)
+
+bot = OopzBot(config)
+
+@bot.on_ready
+async def ready(ctx):
+    print("Bot ready, joined area events subscribed")
+
+```
+
+这个功能会在机器人启动后自动查询已加入的域，并订阅这些域的事件推送。这样当有用户进入退出房间、域设置更改等事件时，机器人就能及时收到通知。
+
+
 ## 通过账号密码自动提取凭证
 
 SDK 内置了一个基于 OOPZ Web 登录页的提取工具，会自动登录并从登录接口、请求头、WebSocket 鉴权消息和 Web Crypto 私钥钩子中提取 `device_id`、`person_uid`、`jwt_token` 和 `private_key`。
@@ -141,6 +182,6 @@ config = OopzConfig(
 | `voice_browser_executable_path` | `""`                | 自定义 Chromium 路径。    |
 | `voice_agora_sdk_url`           | Agora 官方 JS SDK URL | 浏览器后端加载的 Agora SDK。 |
 
-## OneBot v12 配置
+## OneBot 配置
 
-详见 [OneBot v12 适配](../adapters/onebot-v12.md)。
+详见 [OneBot 适配](../adapters/index.md))。

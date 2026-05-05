@@ -333,3 +333,35 @@ class FriendshipRequest(BaseModel):
     @classmethod
     def from_api(cls, data: Mapping[str, Any]) -> "FriendshipRequest":
         return cls.model_validate(data)
+
+class UserRemarkName(BaseModel):
+    uid: str = ""
+    remark_name: str = Field(default="", alias="remarkName")
+
+    @model_validator(mode="before")
+    @classmethod
+    def validate_and_normalize(cls, data: Any) -> Any:
+        if not isinstance(data, Mapping):
+            raise OopzApiError("invalid user remark payload: expected dict", payload=data)
+        normalized = dict(data)
+        normalized["remarkName"] = str(normalized.get("remarkName") or "")
+        normalized["uid"] = str(normalized.get("uid") or "")
+        return normalized
+
+
+class UserRemarkNamesResponse(BaseModel):
+    user_remark_names: list[UserRemarkName] = Field(
+        default_factory=list,
+        alias="userRemarkNames",
+    )
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_response(cls, data: Any) -> Any:
+        if not isinstance(data, dict):
+            raise OopzApiError("invalid user remark payload: expected dict", payload=data)
+        return data
+
+    @classmethod
+    def from_api(cls, data: Mapping[str, Any]) -> "UserRemarkNamesResponse":
+        return cls.model_validate(data)

@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.9.0 - 2026-05-05
+
+### 新增
+
+- OneBot 适配器：`v11` / `v12` 拆分为子包（`adapter`、`server`、`event`、`message`、`types`），结构与文档对齐；补充安装与工具方法。
+- 配置项扩展：`OopzConfig` 增加 OneBot 与反向 WebSocket（含 `universal`）等相关开关，便于与框架对接。
+- 域服务：支持批量订阅域事件。
+- 文档：适配器总览、OneBot v11/v12 专页、`message-id` 说明；新增 AstrBot、HoshinoBot 等平台接入说明。
+
+### 变更
+
+- 反向 WebSocket 的 universal 行为与配置说明已按实现调整。
+
+### 修复
+
+- `set_user_remark_name` 等行为与文档/协议不一致处已修正。
+- 频道删除等事件在仅返回 `group` 等字段时的解析问题已修复。
+- 合并分支后的 import 错误已清理。
+
 ## 0.8.0 - 2026-04-28
 
 ### 变更
