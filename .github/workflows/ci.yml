@@ -25,12 +25,12 @@ jobs:
           python-version: ${{ matrix.python-version }}
 
       - name: 安装依赖
-        run: python -m pip install -e .[dev]
+        run: python -m pip install -e ".[dev]"
 
       - name: 运行测试
         run: python -m pytest tests -q
 
-      - name: 构建 wheel
+      - name: 构建 wheel 检查
         run: python -m pip wheel . --no-deps -w dist-check
 
   package:
@@ -49,11 +49,14 @@ jobs:
       - name: 安装打包依赖
         run: python -m pip install --upgrade "build>=1.2,<2" "twine>=6.2,<8" "packaging>=24.2"
 
+      - name: 清理旧构建产物
+        run: rm -rf dist build *.egg-info
+
       - name: 构建 sdist 和 wheel
         run: python -m build
 
       - name: 校验发布产物
-        run: python -m twine check dist/*
+        run: python -m twine check --strict dist/*
 
       - name: 上传构建产物
         uses: actions/upload-artifact@v4
@@ -79,6 +82,9 @@ jobs:
           name: python-dist
           path: dist
 
+      - name: 查看待发布文件
+        run: ls -la dist
+
       - name: 安装 Twine
         run: python -m pip install --upgrade "twine>=6.2,<8" "packaging>=24.2"
 
@@ -86,4 +92,4 @@ jobs:
         env:
           TWINE_USERNAME: __token__
           TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
-        run: python -m twine upload dist/*
+        run: python -m twine upload --verbose dist/*
