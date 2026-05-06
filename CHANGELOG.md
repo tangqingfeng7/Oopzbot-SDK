@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.10.0
+
+### 新增
+- 添加 Message Reaction 相关接口。
+- 添加 `ctx.react()` 快捷方法。
+- 添加 reaction emoji 映射工具。
+- 补充 reaction 相关文档。
+
+### 修复
+- 修复 README OneBot badge 链接。
+- 修复 OneBot 配置文档链接括号错误。
+
+## 0.9.1 - 2026-05-05
+
+### 修复
+
+修复PyPI上传问题
+
 ## 0.9.0 - 2026-05-05
 
 ### 新增
