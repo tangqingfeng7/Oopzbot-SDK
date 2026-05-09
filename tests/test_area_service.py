@@ -7,11 +7,13 @@ import pytest
 
 from oopz_sdk.exceptions import OopzApiError
 from oopz_sdk.services.area import AreaService
+from oopz_sdk.state.cache import CacheStore
 
 
 class _FakeAreaService(AreaService):
     def __init__(self, response_data: Any) -> None:
         self._response_data = response_data
+        self.cache = CacheStore(None)
 
     async def _request_data(self, *args, **kwargs) -> Any:
         return self._response_data
