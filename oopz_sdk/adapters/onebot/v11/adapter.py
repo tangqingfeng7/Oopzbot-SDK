@@ -541,7 +541,7 @@ class OneBotV11Adapter:
         area, channel = self._resolve_group_id(group_id)
         uid = self._resolve_user_id(user_id)
 
-        info = await self.oopz_bot.person.get_person_info(uid)
+        info: models.Profile = await self.oopz_bot.person.get_person_detail_full(uid)
         aud: models.AreaUserDetail = await self.oopz_bot.areas.get_area_user_detail(area, uid)
         # Oopz 当前没有直接等价于 OneBot v11 的 group card。
         # mark_name 更像用户备注/标记名，不一定是群名片，所以默认不给 card 硬塞 nickname。
@@ -555,10 +555,10 @@ class OneBotV11Adapter:
             "card": card,
             "sex": "unknown",
             "age": 0,
-            "area": "",
+            "area": info.ip_address,
             "join_time": 0,
             "last_sent_time": 0,
-            "level": str(info.memberLevel),
+            "level": str(info.user_level),
             "role": "member",
             "unfriendly": False,
             "title": "",
@@ -567,7 +567,7 @@ class OneBotV11Adapter:
             "shut_up_timestamp": aud.disable_text_to // 1000,
 
             # 扩展字段，方便调试和高级用户使用
-            "extra": model_to_userinfo_extra(info),
+            "extra": model_to_profile_extra(info),
         }
         return response
 

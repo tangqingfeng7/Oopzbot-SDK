@@ -28,34 +28,18 @@ class Person(BaseService):
         if not uids:
             return []
 
-        # 对传入的uid进行处理
-        ordered_uids: list[str] = []
-        # 去重
-        seen: set[str] = set()
-
-        for uid in uids:
-            uid = str(uid or "").strip()
-            if not uid or uid in seen:
-                continue
-            seen.add(uid)
-            ordered_uids.append(uid)
-
-        if not ordered_uids:
-            return []
-
-        bypassed_uid: dict[str, models.UserInfo] = {}
+        users_by_uid: dict[str, models.UserInfo] = {}
         missing_uids: list[str] = []
 
         if not force:
-            for uid in ordered_uids:
-                cached = self.cache.get_person(uid)
+            for uid in uids:
+                cached = self.cache.get_userinfo(uid)
                 if cached is not None:
-                    bypassed_uid[uid] = cached
+                    users_by_uid[uid] = cached
                 else:
                     missing_uids.append(uid)
         else:
-            # 如果force为True, 直接请求全部
-            missing_uids = ordered_uids
+            missing_uids = uids
 
         url_path = "/client/v1/person/v1/personInfos"
         batch_size = 30
@@ -78,13 +62,13 @@ class Person(BaseService):
                 if not user.uid:
                     continue
 
-                bypassed_uid[user.uid] = user
-                self.cache.set_person(user.uid, user)
+                users_by_uid[user.uid] = user
+                self.cache.set_userinfo(user.uid, user)
 
         return [
-            bypassed_uid[uid]
-            for uid in ordered_uids
-            if uid in bypassed_uid
+            users_by_uid[uid]
+            for uid in uids
+            if uid in users_by_uid
         ]
 
     async def get_person_info(
@@ -111,14 +95,36 @@ class Person(BaseService):
 
         return users[0]
 
-    async def get_person_detail_full(self, uid: str) -> models.Profile:
-        """获取他人完整详细资料（含 VIP、IP 属地等）。"""
+    async def fetch_person_detail_full(self, uid: str) -> models.Profile:
+        """强制从接口获取他人完整详细资料，不读写 cache。"""
         if not uid:
-            raise ValueError("uid is required for get_person_detail_full()")
+            raise ValueError("uid is required for fetch_person_detail_full()")
 
         url_path = "/client/v1/person/v1/personDetail"
         data = await self._request_data("GET", url_path, params={"uid": uid})
         return models.Profile.from_api(data)
+
+    async def get_person_detail_full(
+            self,
+            uid: str,
+            *,
+            force: bool = False,
+    ) -> models.Profile:
+        """获取他人完整详细资料（含 VIP、IP 属地等）。
+
+        默认优先使用 person cache；force=True 时强制从接口刷新。
+        """
+        if not uid:
+            raise ValueError("uid is required for get_person_detail_full()")
+
+        if not force:
+            cached = self.cache.get_person_profile(uid)
+            if cached is not None:
+                return cached
+
+        profile = await self.fetch_person_detail_full(uid)
+        self.cache.set_person_profile(uid, profile)
+        return profile
 
     async def get_self_detail(
             self,

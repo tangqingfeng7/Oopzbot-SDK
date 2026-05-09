@@ -26,10 +26,9 @@ class AreaService(BaseService):
         if area.strip() == "":
             raise ValueError("area cannot be empty")
 
-        cache_key = (area, offset_start, offset_end)
 
         if not force:
-            cached = self.cache.area_members_pages.get(cache_key)
+            cached = self.cache.get_area_members_page(area, offset_start, offset_end)
             if cached is not None:
                 return cached
 
@@ -47,7 +46,7 @@ class AreaService(BaseService):
 
         page = models.AreaMembersPage.from_api(data)
 
-        self.cache.area_members_pages.set(cache_key, page)
+        self.cache.set_area_members_page(area, offset_start, offset_end, page)
 
         return page
 
@@ -219,31 +218,54 @@ class AreaService(BaseService):
         result = models.OperationResult.from_api(resp)
 
         # 当用户信息发生修改的时候清除域的缓存
-        self.cache.area_members_pages.delete_where(
-            lambda key: isinstance(key, tuple) and key[0] == area
-        )
+        self.cache.invalidate_area_members_pages(area)
         return result
 
-    async def get_user_area_nicknames(self, area: str, uids: list[str]) -> dict[str, str]:
+    async def get_user_area_nicknames(
+            self,
+            area: str,
+            uids: list[str],
+            *,
+            force: bool = False,
+    ) -> dict[str, str]:
         """批量获取用户在域内的昵称（备注）。
 
         Example:
-              {"2ce12124c07111ef9e5dc6b17c3481f1": "盐盐盐"}
+            {"2ce12124c07111ef9e5dc6b17c3481f1": "盐盐盐"}
         """
         if not area:
-            raise ValueError("area is required for getUserAreaNicknames()")
+            raise ValueError("area is required for get_user_area_nicknames()")
         if not uids:
-            raise ValueError("uids list cannot be empty for getUserAreaNicknames()")
+            raise ValueError("uids list cannot be empty for get_user_area_nicknames()")
 
-        url_path = "/area/v2/getUserAreaNicknames"
-        body = {"area": area, "uids": uids}
-        data = await self._request_data("POST", url_path, body=body)
+        result: dict[str, str] = {}
+        missing_uids: list[str] = []
+
+        if not force:
+            for uid in uids:
+                cached = self.cache.get_area_user_nickname(area, uid)
+                if cached is not None:
+                    result[uid] = cached
+                else:
+                    missing_uids.append(uid)
+        else:
+            missing_uids = uids
+
+        # 全部命中缓存
+        if not missing_uids:
+            return result
+
+        data = await self._request_data("POST", "/area/v2/getUserAreaNicknames", body={
+            "area": area,
+            "uids": missing_uids,
+        })
 
         if not isinstance(data, dict):
             raise OopzApiError(
                 "area nicknames response format error: expected dict",
                 payload=data,
             )
+
         nicknames = data.get("nicknames")
         if not isinstance(nicknames, dict):
             raise OopzApiError(
@@ -251,7 +273,14 @@ class AreaService(BaseService):
                 payload=data,
             )
 
-        return {str(uid): str(nick) for uid, nick in nicknames.items()}
+        for uid, nick in nicknames.items():
+            uid = str(uid)
+            nick = str(nick)
+
+            result[uid] = nick
+            self.cache.set_area_user_nickname(area, uid, nick)
+
+        return result
 
     async def leave_area(self, area: str) -> models.OperationResult:
         """离开指定域。"""
