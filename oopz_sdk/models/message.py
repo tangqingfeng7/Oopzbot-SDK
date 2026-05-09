@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from functools import cached_property
 from typing import Any, Mapping
-
+from enum import Enum
 from pydantic import Field, model_validator
 
 from .attachment import Attachment
@@ -14,6 +14,19 @@ from .segment import parse_message_segments, Text
 
 logger = logging.getLogger(__name__)
 
+
+class VoiceInteractionSticker(str, Enum):
+    """语音频道互动贴纸 ID。"""
+
+    POO = "6b553993cedww1ed8758525423465911" # 丢大便
+    TOMATO = "6b553993cedc11ed8758ty5423465911" # 扔番茄
+    EGG = "6b553993cedc11ed8758525401265911" # 扔鸡蛋
+    LOVE_HEART = "6b553993cedc11ed238525423465911" # 送爱心
+    BOMB = "6b553993cedc11ed8758525400565911" # 扔炸弹
+    CAKE = "6b553993cedc11ed8758525400522911" # 送蛋糕
+    THUMB = "6b553993cedc1dfg758525423465911" # 学着点
+    FIST = "6b553993cedc11ed8758525423465911" # 打一拳
+    QUESTION = "6b55399hgtdc11ed8758525423465911" # 发问号
 
 class MediaInfo(BaseModel):
     file_key: str = Field(default="", alias="fileKey")

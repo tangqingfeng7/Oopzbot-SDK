@@ -4,7 +4,6 @@ import asyncio
 import logging
 from typing import Optional, Any, List
 
-
 from oopz_sdk import models
 from oopz_sdk.exceptions import OopzApiError
 from oopz_sdk.models.segment import Image, Segment
@@ -365,7 +364,8 @@ class Message(BaseService):
         })
         return models.OperationResult.from_api(data)
 
-    async def add_channel_reaction(self, message_id: str, area: str, channel: str, emoji: str) -> models.OperationResult:
+    async def add_channel_reaction(self, message_id: str, area: str, channel: str,
+                                   emoji: str) -> models.OperationResult:
         """
         给频道消息添加表情反应。
         """
@@ -389,7 +389,8 @@ class Message(BaseService):
         })
         return models.OperationResult.from_api(result)
 
-    async def add_private_reaction(self, message_id: str, channel: str, target: str, emoji: str, area="") -> models.OperationResult:
+    async def add_private_reaction(self, message_id: str, channel: str, target: str, emoji: str,
+                                   area="") -> models.OperationResult:
         """
         给私信消息添加表情反应。
         """
@@ -513,3 +514,49 @@ class Message(BaseService):
         data = await self._request_data("POST", "/im/session/v1/imReactions", body=id_body)
 
         return [models.MessageEmojiItem.from_api(d) for d in data]
+
+
+    async def send_voice_interaction(self, area: str, channel: str, target: str,
+                                     interaction_sticker_ids: models.VoiceInteractionSticker | str | list[
+                                         models.VoiceInteractionSticker | str]) -> models.OperationResult:
+        if area.strip() == "":
+            raise ValueError("area is required for send_voice_interaction()")
+        if channel.strip() == "":
+            raise ValueError("channel is required for send_voice_interaction()")
+        if target.strip() == "":
+            raise ValueError("target is required for send_voice_interaction()")
+
+        if isinstance(interaction_sticker_ids, (str, models.VoiceInteractionSticker)):
+            interaction_sticker_ids = [interaction_sticker_ids]
+
+        if not isinstance(interaction_sticker_ids, list):
+            raise TypeError(
+                "interaction_sticker_ids must be a list[VoiceInteractionSticker | str], "
+                "VoiceInteractionSticker, or str for send_voice_interaction()"
+            )
+
+        if not all(isinstance(i, (str, models.VoiceInteractionSticker)) for i in interaction_sticker_ids):
+            raise TypeError(
+                "interaction_sticker_ids must contain only VoiceInteractionSticker or str values "
+                "for send_voice_interaction()"
+            )
+
+        sticker_ids = [
+            i.value if isinstance(i, models.VoiceInteractionSticker) else i
+            for i in interaction_sticker_ids
+        ]
+
+        if not sticker_ids:
+            raise ValueError("interaction_sticker_ids cannot be empty for send_voice_interaction()")
+
+        result = await self._request_data(
+            "POST",
+            "/client/v1/interaction/v1/send",
+            body={
+                "area": area,
+                "channel": channel,
+                "interactionStickerIds": sticker_ids,
+                "target": target,
+            },
+        )
+        return models.OperationResult.from_api(result)

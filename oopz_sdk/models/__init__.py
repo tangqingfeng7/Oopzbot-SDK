@@ -12,7 +12,7 @@ from .channel import (ChannelSetting, ChannelType,
                       CreateChannelResult, ChannelEdit, ChannelSign, VoiceChannelMembersResult)
 from .event import Event, MessageEvent
 from .person import UserInfo, Profile, UserLevelInfo, Friendship, FriendshipRequest, UserRemarkNamesResponse
-from .message import Message, MessageSendResult, PrivateSession, MessageEmojiItem
+from .message import Message, MessageSendResult, PrivateSession, MessageEmojiItem, VoiceInteractionSticker
 from .moderation import TextMuteInterval, VoiceMuteInterval
 from .segment import build_segments, normalize_message_parts
 
@@ -57,5 +57,6 @@ __all__ = [
     "FriendshipRequest",
     "UserRemarkNamesResponse",
     "MessageEmojiItem",
-    "AreaMemberInfo"
+    "AreaMemberInfo",
+    "VoiceInteractionSticker"
 ]
