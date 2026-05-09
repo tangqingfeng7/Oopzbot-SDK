@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import time
 import copy
 from collections import OrderedDict
@@ -8,6 +9,7 @@ from typing import Generic, TypeVar, Optional, Hashable
 
 T = TypeVar("T")
 
+logger = logging.getLogger(__name__)
 
 @dataclass
 class CacheEntry(Generic[T]):
@@ -37,6 +39,7 @@ class TTLCache(Generic[T]):
 
         # LRU：访问后移动到末尾
         self._store.move_to_end(key)
+        logger.debug(f"GET: key: {key}, value: {entry.value}")
         return copy.deepcopy(entry.value)
 
     def set(self, key: Hashable, value: T, *, ttl: float | None = None) -> None:
@@ -54,7 +57,7 @@ class TTLCache(Generic[T]):
             expires_at=expires_at,
         )
         self._store.move_to_end(key)
-
+        logger.debug(f"SET: key: {key}, value: {value}, expires_at: {expires_at}")
         while len(self._store) > self.max_entries:
             self._store.popitem(last=False)
 

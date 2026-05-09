@@ -221,10 +221,11 @@ class AreaService(BaseService):
         self.cache.invalidate_area_members_pages(area)
         return result
 
+
     async def get_user_area_nicknames(
             self,
             area: str,
-            uids: list[str],
+            uids: list[str] | str,
             *,
             force: bool = False,
     ) -> dict[str, str]:
@@ -235,8 +236,22 @@ class AreaService(BaseService):
         """
         if not area:
             raise ValueError("area is required for get_user_area_nicknames()")
+
+        if isinstance(uids, str):
+            uids = [uids]
+
+        if not isinstance(uids, list):
+            raise ValueError(
+                "uids must be a list[str] or str for get_user_area_nicknames()"
+            )
+
+        if not all(isinstance(uid, str) for uid in uids):
+            raise ValueError(
+                "uids must contain only str values for get_user_area_nicknames()"
+            )
+
         if not uids:
-            raise ValueError("uids list cannot be empty for get_user_area_nicknames()")
+            raise ValueError("uids cannot be empty for get_user_area_nicknames()")
 
         result: dict[str, str] = {}
         missing_uids: list[str] = []
