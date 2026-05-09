@@ -12,19 +12,9 @@ class CacheStore:
             ttl=getattr(config, "person_cache_ttl", 1800.0),
         )
 
-        self.area_users = TTLCache(
-            max_entries=getattr(config, "area_user_cache_max_entries", 20000),
-            ttl=getattr(config, "area_user_cache_ttl", 120.0),
-        )
-
         self.areas = TTLCache(
             max_entries=getattr(config, "area_cache_max_entries", 1000),
             ttl=getattr(config, "area_cache_ttl", 1800.0),
-        )
-
-        self.channels = TTLCache(
-            max_entries=getattr(config, "channel_cache_max_entries", 5000),
-            ttl=getattr(config, "channel_cache_ttl", 1800.0),
         )
 
         self.area_channels = TTLCache(

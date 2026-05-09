@@ -63,3 +63,9 @@ class TTLCache(Generic[T]):
 
     def clear(self) -> None:
         self._store.clear()
+
+    def delete_where(self, predicate) -> int:
+        keys = [key for key in self._store if predicate(key)]
+        for key in keys:
+            self._store.pop(key, None)
+        return len(keys)

@@ -1,10 +1,7 @@
 from __future__ import annotations
 
-import copy
 import inspect
 import logging
-import time
-from typing import Optional, List
 
 from oopz_sdk import models
 from oopz_sdk.exceptions import OopzApiError
@@ -17,79 +14,24 @@ logger = logging.getLogger(__name__)
 class AreaService(BaseService):
     """Area-related platform capabilities."""
 
-    def _get_area_members_cache_store(self) -> dict:
-        store = getattr(self, "_area_members_cache", None)
-        if not isinstance(store, dict):
-            store = {}
-            self._area_members_cache = store
-        return store
-
-    def _cache_disabled(self) -> bool:
-        """``cache_max_entries <= 0`` 视为完全关闭域成员缓存。
-
-        这样既避免 ``min()`` 在空 store 上的 ``ValueError``（原先 `len >= 0` 恒真
-        会直接对空字典执行 ``min``），也让 0/负数具备「关闭缓存」的自然语义。
-        """
-        try:
-            max_entries = int(getattr(self._config, "cache_max_entries", 200))
-        except (TypeError, ValueError):
-            return False
-        return max_entries <= 0
-
-    def _get_cached_area_members(
-        self,
-        cache_key: tuple[str, int, int],
-        *,
-        max_age: float,
-    ) -> Optional[dict]:
-        if self._cache_disabled():
-            return None
-        store = self._get_area_members_cache_store()
-        cached = store.get(cache_key)
-        if not isinstance(cached, dict):
-            return None
-        ts = cached.get("ts")
-        data = cached.get("data")
-        if not isinstance(ts, (int, float)) or not isinstance(data, dict):
-            return None
-        if time.time() - float(ts) > max_age:
-            return None
-        return copy.deepcopy(data)
-
-    def _set_cached_area_members(self, cache_key: tuple[str, int, int], data: dict) -> None:
-        if self._cache_disabled():
-            # 关闭缓存时，顺手清空历史残留，避免配置切换后命中脏条目
-            store = getattr(self, "_area_members_cache", None)
-            if isinstance(store, dict):
-                store.clear()
-            return
-        store = self._get_area_members_cache_store()
-        max_entries = int(getattr(self._config, "cache_max_entries", 200))
-        # while 而非 if：之前若放宽过 max_entries 又调小，可能一次性要驱逐多条
-        while store and len(store) >= max_entries:
-            oldest = min(
-                store,
-                key=lambda k: store[k].get("ts", 0) if isinstance(store[k], dict) else 0,
-            )
-            store.pop(oldest, None)
-        store[cache_key] = {"ts": time.time(), "data": copy.deepcopy(data)}
 
     async def get_area_members(
             self,
             area: str,
             offset_start: int = 0,
             offset_end: int = 49,
+            *,
+            force: bool=False,
     ) -> models.AreaMembersPage:
         if area.strip() == "":
             raise ValueError("area cannot be empty")
-        cache_key = (area, offset_start, offset_end)
-        cache_ttl = float(getattr(self._config, "area_members_cache_ttl", 15.0))
 
-        cached = self._get_cached_area_members(cache_key, max_age=cache_ttl)
-        if cached is not None:
-            cached["from_cache"] = True
-            model = models.AreaMembersPage.from_api(cached)
-            return model
+        cache_key = (area, offset_start, offset_end)
+
+        if not force:
+            cached = self.cache.area_members_pages.get(cache_key)
+            if cached is not None:
+                return cached
 
         data = await self._request_data_with_retry(
             "GET",
@@ -102,17 +44,12 @@ class AreaService(BaseService):
             retry_on_429=True,
             max_attempts=3,
         )
-        model = models.AreaMembersPage.from_api(data)
 
-        normalized = {
-            "members": copy.deepcopy(model.members),
-            "roleCount": copy.deepcopy(model.role_count),
-            "totalCount": model.total_count,
-            "payload": copy.deepcopy(model.payload),
-        }
+        page = models.AreaMembersPage.from_api(data)
 
-        self._set_cached_area_members(cache_key, normalized)
-        return model
+        self.cache.area_members_pages.set(cache_key, page)
+
+        return page
 
     async def get_all_area_members(
             self,
@@ -120,6 +57,7 @@ class AreaService(BaseService):
             *,
             page_size: int = 100,
             max_pages: int | None = None,
+            force: bool = False,
     ) -> list[models.AreaMemberInfo]:
         if area.strip() == "":
             raise ValueError("area cannot be empty")
@@ -135,21 +73,24 @@ class AreaService(BaseService):
                 area,
                 offset_start=offset_start,
                 offset_end=offset_end,
+                force=force
             )
 
             members.extend(page.members)
 
             page_count += 1
 
+
             if max_pages is not None and page_count >= max_pages:
                 break
 
-            # 如果这一页返回数量不足 page_size，说明没有下一页了
-            # if len(page.members) < page_size:
-            #     break
+            if not page.members:
+                break
 
-            # 如果 total_count 可用，也可以用 total_count 判断是否结束
             if page.total_count and len(members) >= page.total_count:
+                break
+
+            if len(page.members) < page_size:
                 break
 
             offset_start += page_size
@@ -158,7 +99,7 @@ class AreaService(BaseService):
 
     async def get_joined_areas(
         self
-    ) -> List[models.JoinedAreaInfo]:
+    ) -> list[models.JoinedAreaInfo]:
         """获取当前用户已加入（订阅）的域列表。"""
         url_path = "/userSubscribeArea/v1/list"
         data = await self._request_data("GET", url_path)
@@ -275,7 +216,13 @@ class AreaService(BaseService):
 
         body = {"area": area, "target": target_uid, "targetRoleIDs": current_ids}
         resp = await self._request_data("POST", "/area/v3/role/editUserRole", body=body)
-        return models.OperationResult.from_api(resp)
+        result = models.OperationResult.from_api(resp)
+
+        # 当用户信息发生修改的时候清除域的缓存
+        self.cache.area_members_pages.delete_where(
+            lambda key: isinstance(key, tuple) and key[0] == area
+        )
+        return result
 
     async def get_user_area_nicknames(self, area: str, uids: list[str]) -> dict[str, str]:
         """批量获取用户在域内的昵称（备注）。
