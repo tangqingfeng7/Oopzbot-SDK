@@ -74,13 +74,11 @@ for member in page.members:
 获取所有域中的成员，带短期缓存。
 
 ```python
-page = await bot.areas.get_area_members(
+members = await bot.areas.get_all_area_members(
     area="域 ID",
 )
 
-print(page.total_count)
-
-for member in page.members:
+for member in members:
     print(member.uid, member.role, member.online)
 ```
 
