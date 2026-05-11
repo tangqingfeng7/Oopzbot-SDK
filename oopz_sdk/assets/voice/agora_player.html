@@ -7,16 +7,21 @@
 <body>
 <script>
 /**
- * Oopz voice browser backend page - AudioBuffer local playback version
+ * Oopz voice browser backend page.
  *
- * 特点：
- * 1. 本地播放不再使用 Blob URL
- * 2. base64 音频先 decode 成 AudioBuffer，再交给 Agora
- * 3. 避免 object URL 生命周期问题
- * 4. 保留播放切换、防串台、资源清理等逻辑
+ * Important mapping observed from the real client:
+ * - Agora Web SDK joins with mode="live", role="host", codec="vp8".
+ * - Oopz voice API data.supplierSign is the play_urlAgora token/channel_key.
+ * - Oopz voice API data.roomId is the Agora channelName.
+ * - The Oopz API data.appId may be 0; do not use it as Agora app id.
+ * - data_stream payload uses:
+ *     uid = Oopz internal string uid, e.g. 6ad0261bc4eb41e882692531981a0972
+ *     cid = Agora numeric uid returned/used by join, e.g. 374010679
+ *     m   = mic muted flag: 0 active, 1 muted
+ *     hm  = speaker/deafen flag: 0 normal, 1 muted/deafened
  */
 
-/* -------------------- WebSocket capture for identity bridge -------------------- */
+/* -------------------- WebSocket capture for data_stream bridge -------------------- */
 
 const _wsInstances = [];
 const _OrigWS = window.WebSocket;
@@ -24,13 +29,55 @@ const _OrigWS = window.WebSocket;
 window.WebSocket = function(url, protocols) {
   const ws = protocols ? new _OrigWS(url, protocols) : new _OrigWS(url);
   _wsInstances.push(ws);
+
+  ws.addEventListener("open", () => {
+    console.log("[WS open]", url);
+  });
+
+  ws.addEventListener("close", (ev) => {
+    console.log("[WS close]", url, ev.code, ev.reason);
+  });
+
+  ws.addEventListener("error", () => {
+    console.log("[WS error]", url);
+  });
+
   return ws;
 };
+
 window.WebSocket.prototype = _OrigWS.prototype;
 window.WebSocket.CONNECTING = _OrigWS.CONNECTING;
 window.WebSocket.OPEN = _OrigWS.OPEN;
 window.WebSocket.CLOSING = _OrigWS.CLOSING;
 window.WebSocket.CLOSED = _OrigWS.CLOSED;
+
+function getAgoraSignalWs() {
+  const edgeWs = _wsInstances.find((w) =>
+    w.readyState === WebSocket.OPEN &&
+    typeof w.url === "string" &&
+    w.url.includes("edge.sd-rtn.com")
+  );
+
+  if (edgeWs) return edgeWs;
+  return _wsInstances.find((w) => w.readyState === WebSocket.OPEN) || null;
+}
+
+async function waitForAgoraSignalWs(timeoutMs = 3000) {
+  const start = performance.now();
+
+  while (performance.now() - start < timeoutMs) {
+    const ws = getAgoraSignalWs();
+    if (ws) return ws;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+
+  return null;
+}
+
+window.agoraWsUrls = () => _wsInstances.map((w) => ({
+  url: w.url,
+  readyState: w.readyState,
+}));
 
 /* -------------------- Agora SDK loader -------------------- */
 
@@ -73,7 +120,6 @@ async function decodeBase64ToAudioBuffer(base64Data) {
     bytes[i] = binary.charCodeAt(i);
   }
 
-  // 复制出独立 ArrayBuffer，避免 decodeAudioData 对底层 buffer 的潜在副作用
   const arrayBuffer = bytes.buffer.slice(
     bytes.byteOffset,
     bytes.byteOffset + bytes.byteLength
@@ -89,13 +135,11 @@ let client = null;
 let _state = "idle";
 let _playGen = 0;
 
-/**
- * 当前激活的播放实例：
- * {
- *   gen: number,
- *   track: IBufferSourceAudioTrack
- * }
- */
+let currentAgoraUid = null;
+let currentOopzUid = null;
+let currentMicMuted = false;
+let currentSpeakerMuted = false;
+
 let activePlayback = null;
 
 window.agoraReady = () => typeof AgoraRTC !== "undefined";
@@ -103,6 +147,10 @@ window.agoraState = () => _state;
 
 function setState(nextState) {
   _state = nextState;
+}
+
+function shortId() {
+  return Math.random().toString(16).slice(2, 8).padEnd(6, "0");
 }
 
 function getCurrentTrack() {
@@ -115,6 +163,117 @@ function isCurrentPlayback(playback) {
     playback.gen === activePlayback.gen &&
     playback.track === activePlayback.track;
 }
+
+/* -------------------- Voice state bridge -------------------- */
+
+function buildVoiceStatePayload(oopzUid, agoraUid, micMuted, speakerMuted) {
+  return {
+    m: micMuted ? 1 : 0,
+    uid: String(oopzUid),
+    cid: Number(agoraUid),
+    hm: speakerMuted ? 1 : 0,
+  };
+}
+
+async function sendVoiceStateRaw(oopzUid, agoraUid, micMuted, speakerMuted, repeat = 2) {
+  const ws = await waitForAgoraSignalWs(3000);
+
+  if (!ws) {
+    return { ok: false, error: "no open agora ws" };
+  }
+
+  if (!oopzUid) {
+    return { ok: false, error: "oopzUid is required" };
+  }
+
+  if (agoraUid === null || agoraUid === undefined || Number.isNaN(Number(agoraUid))) {
+    return { ok: false, error: "valid agoraUid is required" };
+  }
+
+  try {
+    const statePayload = buildVoiceStatePayload(
+      oopzUid,
+      agoraUid,
+      micMuted,
+      speakerMuted
+    );
+
+    const payload = btoa(JSON.stringify(statePayload));
+    const sendTs = Math.floor(performance.now());
+
+    for (let i = 0; i < repeat; i++) {
+      ws.send(
+        JSON.stringify({
+          _id: shortId(),
+          _type: "data_stream",
+          _message: {
+            payload,
+            syncWithAudio: false,
+            sendTs: sendTs + i * 2,
+          },
+        })
+      );
+    }
+
+    console.log("[voice state]", statePayload, "ws=", ws.url);
+
+    return {
+      ok: true,
+      ws: ws.url,
+      payload: statePayload,
+    };
+  } catch (e) {
+    return { ok: false, error: e?.message || String(e) };
+  }
+}
+
+async function sendCurrentVoiceState(repeat = 2) {
+  if (!currentOopzUid || currentAgoraUid === null || currentAgoraUid === undefined) {
+    return {
+      ok: false,
+      error: "voice identity is not ready",
+      currentOopzUid,
+      currentAgoraUid,
+    };
+  }
+
+  return await sendVoiceStateRaw(
+    currentOopzUid,
+    currentAgoraUid,
+    currentMicMuted,
+    currentSpeakerMuted,
+    repeat
+  );
+}
+
+window.agoraSetVoiceIdentity = async (oopzUid, agoraUid = currentAgoraUid) => {
+  currentOopzUid = oopzUid || currentOopzUid;
+
+  if (agoraUid !== undefined && agoraUid !== null) {
+    currentAgoraUid = Number(agoraUid);
+  }
+
+  return await sendCurrentVoiceState(2);
+};
+
+window.agoraSetVoiceState = async (micMuted, speakerMuted = currentSpeakerMuted) => {
+  currentMicMuted = !!micMuted;
+  currentSpeakerMuted = !!speakerMuted;
+  return await sendCurrentVoiceState(2);
+};
+
+// Compatibility with older Python calls.
+window.agoraSendIdentity = async (oopzUid, agoraUid = currentAgoraUid) => {
+  currentOopzUid = oopzUid || currentOopzUid;
+
+  if (agoraUid !== undefined && agoraUid !== null) {
+    currentAgoraUid = Number(agoraUid);
+  }
+
+  return await sendCurrentVoiceState(2);
+};
+
+/* -------------------- Track cleanup helpers -------------------- */
 
 async function unpublishTrackSafely(track) {
   if (!track || !client) return;
@@ -137,10 +296,10 @@ function stopProcessAudioBufferSafely(track) {
   } catch (_) {}
 }
 
-/**
- * 清理一个播放实例自身资源
- */
-async function cleanupPlaybackResources(playback, { stopProcessing = true, unpublish = true } = {}) {
+async function cleanupPlaybackResources(
+  playback,
+  { stopProcessing = true, unpublish = true } = {}
+) {
   if (!playback) return;
 
   const { track } = playback;
@@ -156,9 +315,6 @@ async function cleanupPlaybackResources(playback, { stopProcessing = true, unpub
   closeTrackSafely(track);
 }
 
-/**
- * 停止当前播放
- */
 async function stopCurrentPlayback({ bumpGen = true, nextState = "joined" } = {}) {
   const playback = activePlayback;
 
@@ -168,22 +324,16 @@ async function stopCurrentPlayback({ bumpGen = true, nextState = "joined" } = {}
 
   activePlayback = null;
 
-  if (!playback) {
-    setState(nextState);
-    return;
+  if (playback) {
+    await cleanupPlaybackResources(playback, {
+      stopProcessing: true,
+      unpublish: true,
+    });
   }
-
-  await cleanupPlaybackResources(playback, {
-    stopProcessing: true,
-    unpublish: true,
-  });
 
   setState(nextState);
 }
 
-/**
- * 自然播放结束时的清理
- */
 async function finalizeStoppedPlayback(playback) {
   if (!isCurrentPlayback(playback)) {
     return;
@@ -207,6 +357,8 @@ function bindPlaybackEvents(playback) {
   track.on("source-state-change", (st) => {
     if (!isCurrentPlayback(playback)) return;
     if (gen !== _playGen) return;
+
+    console.log("[source-state-change]", st);
 
     if (st === "playing") {
       setState("playing");
@@ -243,14 +395,36 @@ window.agoraJoin = async (appId, token, channelName, uid) => {
     }
 
     client = AgoraRTC.createClient({
-      mode: "rtc",
+      mode: "live",
       codec: "vp8",
     });
 
-    const assignedUid = await client.join(appId, channelName, token, uid || null);
+    await client.setClientRole("host");
+
+    const expectedUid = uid === null || uid === undefined ? null : Number(uid);
+
+    const assignedUid = await client.join(
+      String(appId),
+      String(channelName),
+      token || null,
+      expectedUid
+    );
+
+    currentAgoraUid = Number(assignedUid);
+
+    if (expectedUid !== null && currentAgoraUid !== expectedUid) {
+      console.warn(
+        "[Agora uid mismatch]",
+        "expected=", expectedUid,
+        "assigned=", currentAgoraUid
+      );
+    }
     setState("joined");
 
-    return { ok: true, uid: assignedUid };
+    return {
+      ok: true,
+      uid: currentAgoraUid,
+    };
   } catch (e) {
     return { ok: false, error: e?.message || String(e) };
   }
@@ -266,10 +440,46 @@ window.agoraLeave = async () => {
     client = null;
   }
 
+  currentAgoraUid = null;
   setState("idle");
 };
 
-/* -------------------- Playback -------------------- */
+/* -------------------- Playback core -------------------- */
+
+async function publishTrackAsPlayback(localTrack, gen) {
+  if (gen !== _playGen) {
+    closeTrackSafely(localTrack);
+    return { ok: false, error: "superseded" };
+  }
+
+  const playback = makePlayback(localTrack);
+  activePlayback = playback;
+  bindPlaybackEvents(playback);
+
+  localTrack.startProcessAudioBuffer({ loop: false });
+  await client.publish([localTrack]);
+
+  // After publish, refresh identity/state again. This matches the real client more closely.
+  // publish 成功后，补发一次 uid/cid + 当前 m/hm 状态。
+  // 此时 Agora signaling WS 通常已经存在。
+  await sendCurrentVoiceState(2);
+
+  if (!isCurrentPlayback(playback) || gen !== _playGen) {
+    await cleanupPlaybackResources(playback, {
+      stopProcessing: true,
+      unpublish: true,
+    });
+    return { ok: false, error: "superseded" };
+  }
+
+  setState("playing");
+
+  return {
+    ok: true,
+    duration: localTrack.duration,
+    agoraUid: currentAgoraUid,
+  };
+}
 
 window.agoraPlayAudio = async (url) => {
   const gen = ++_playGen;
@@ -277,6 +487,11 @@ window.agoraPlayAudio = async (url) => {
 
   try {
     await loadAgoraSdk();
+
+    if (!client) {
+      return { ok: false, error: "not joined" };
+    }
+
     await stopCurrentPlayback({ bumpGen: false, nextState: "joined" });
 
     localTrack = await AgoraRTC.createBufferSourceAudioTrack({
@@ -284,32 +499,10 @@ window.agoraPlayAudio = async (url) => {
       cacheOnlineFile: false,
     });
 
-    if (gen !== _playGen) {
-      closeTrackSafely(localTrack);
-      return { ok: false, error: "superseded" };
-    }
-
-    const playback = makePlayback(localTrack);
-    activePlayback = playback;
-    bindPlaybackEvents(playback);
-
-    localTrack.startProcessAudioBuffer({ loop: false });
-    await client.publish([localTrack]);
-
-    if (!isCurrentPlayback(playback) || gen !== _playGen) {
-      await cleanupPlaybackResources(playback, {
-        stopProcessing: true,
-        unpublish: true,
-      });
-      return { ok: false, error: "superseded" };
-    }
-
-    setState("playing");
-    return { ok: true, duration: localTrack.duration };
+    return await publishTrackAsPlayback(localTrack, gen);
   } catch (e) {
     if (localTrack) {
-      const fallbackPlayback = { gen, track: localTrack };
-      await cleanupPlaybackResources(fallbackPlayback, {
+      await cleanupPlaybackResources({ gen, track: localTrack }, {
         stopProcessing: true,
         unpublish: true,
       });
@@ -322,22 +515,22 @@ window.agoraPlayAudio = async (url) => {
     if (gen !== _playGen) {
       return { ok: false, error: "superseded" };
     }
-
     setState(client ? "joined" : "idle");
     return { ok: false, error: e?.message || String(e) };
   }
 };
 
-/**
- * AudioBuffer 版本：
- * base64 -> AudioBuffer -> createBufferSourceAudioTrack
- */
 window.agoraPlayLocal = async (base64Data, mimeType) => {
   const gen = ++_playGen;
   let localTrack = null;
 
   try {
     await loadAgoraSdk();
+
+    if (!client) {
+      return { ok: false, error: "not joined" };
+    }
+
     await stopCurrentPlayback({ bumpGen: false, nextState: "joined" });
 
     const audioBuffer = await decodeBase64ToAudioBuffer(base64Data);
@@ -351,32 +544,10 @@ window.agoraPlayLocal = async (base64Data, mimeType) => {
       cacheOnlineFile: false,
     });
 
-    if (gen !== _playGen) {
-      closeTrackSafely(localTrack);
-      return { ok: false, error: "superseded" };
-    }
-
-    const playback = makePlayback(localTrack);
-    activePlayback = playback;
-    bindPlaybackEvents(playback);
-
-    localTrack.startProcessAudioBuffer({ loop: false });
-    await client.publish([localTrack]);
-
-    if (!isCurrentPlayback(playback) || gen !== _playGen) {
-      await cleanupPlaybackResources(playback, {
-        stopProcessing: true,
-        unpublish: true,
-      });
-      return { ok: false, error: "superseded" };
-    }
-
-    setState("playing");
-    return { ok: true, duration: localTrack.duration };
+    return await publishTrackAsPlayback(localTrack, gen);
   } catch (e) {
     if (localTrack) {
-      const fallbackPlayback = { gen, track: localTrack };
-      await cleanupPlaybackResources(fallbackPlayback, {
+      await cleanupPlaybackResources({ gen, track: localTrack }, {
         stopProcessing: true,
         unpublish: true,
       });
@@ -397,45 +568,6 @@ window.agoraPlayLocal = async (base64Data, mimeType) => {
 
 window.agoraStopAudio = async () => {
   await stopCurrentPlayback({ bumpGen: true, nextState: "joined" });
-};
-
-/* -------------------- Identity bridge -------------------- */
-
-window.agoraSendIdentity = (oopzUid, agoraUid) => {
-  const ws = _wsInstances.find((w) => w.readyState === 1);
-  if (!ws) {
-    return { ok: false, error: "no open ws" };
-  }
-
-  try {
-    const payload = btoa(
-      JSON.stringify({
-        m: 1,
-        uid: oopzUid,
-        cid: agoraUid,
-        hm: 1,
-      })
-    );
-
-    const sendTs = Math.floor(performance.now());
-
-    for (let i = 0; i < 3; i++) {
-      ws.send(
-        JSON.stringify({
-          _type: "data_stream",
-          _message: {
-            payload,
-            syncWithAudio: false,
-            sendTs: sendTs + i,
-          },
-        })
-      );
-    }
-
-    return { ok: true };
-  } catch (e) {
-    return { ok: false, error: e?.message || String(e) };
-  }
 };
 
 /* -------------------- Playback controls -------------------- */
@@ -491,7 +623,7 @@ window.agoraSetVolume = (vol) => {
   }
 
   try {
-    track.setVolume(Math.max(0, Math.min(100, vol)));
+    track.setVolume(Math.max(0, Math.min(100, Number(vol))));
     return { ok: true };
   } catch (e) {
     return { ok: false, error: e?.message || String(e) };
@@ -507,6 +639,36 @@ window.agoraGetCurrentTime = () => {
   } catch (_) {
     return 0;
   }
+};
+
+/* -------------------- Debug status -------------------- */
+
+window.agoraGetStatus = () => {
+  const track = getCurrentTrack();
+
+  let currentTime = 0;
+  let duration = 0;
+
+  try {
+    currentTime = track ? track.getCurrentTime() : 0;
+  } catch (_) {}
+
+  try {
+    duration = track ? track.duration : 0;
+  } catch (_) {}
+
+  return {
+    state: _state,
+    hasClient: !!client,
+    currentOopzUid,
+    currentAgoraUid,
+    currentMicMuted,
+    currentSpeakerMuted,
+    hasTrack: !!track,
+    currentTime,
+    duration,
+    ws: window.agoraWsUrls(),
+  };
 };
 </script>
 </body>

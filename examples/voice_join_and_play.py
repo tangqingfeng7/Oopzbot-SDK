@@ -61,7 +61,6 @@ async def main() -> None:
         sign = await bot.voice.join(area=area_id, channel=channel_id)
         print(
             f"加入成功：rtc_channel={sign.rtc_channel_name} "
-            f"rtc_uid={bot.voice.agora_uid}"
         )
 
         demo = Path(__file__).with_name("demo.mp3")

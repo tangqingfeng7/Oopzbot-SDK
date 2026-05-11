@@ -29,9 +29,6 @@ class Voice(BaseService):
         self._current_uid: str | None = None
         self._identity_task: asyncio.Task | None = None
 
-    @property
-    def agora_uid(self) -> str:
-        return self.backend.agora_uid
 
     @property
     def current_sign(self) -> models.ChannelSign | None:
@@ -62,41 +59,6 @@ class Voice(BaseService):
         await self._stop_identity_heartbeat()
         await self.backend.close()
 
-    @staticmethod
-    def _coerce_rtc_uid(rtc_uid: str | int | None, *, default: str) -> str:
-        """把 rtc_uid 规整成后端必须的「整数形式字符串」。
-
-        ``BrowserVoiceTransport.join`` / ``send_identity`` 内部都会对 uid 做 ``int(...)``，
-        非数字字符串（例如 ``"user-abc"``）不在服务端 ``enter_channel`` 之前校验，
-        会导致 Oopz 服务端已记录加入语音频道，然后浏览器侧才因为 ``int()`` 崩溃，
-        还得走失败清理、留下脏状态。统一在这里把不合法值挡在请求之前。
-        """
-        if rtc_uid is None:
-            return default
-        # bool 是 int 的子类，但当 UID 显然是语义错误
-        if isinstance(rtc_uid, bool):
-            raise TypeError(f"rtc_uid must be an integer, got bool {rtc_uid!r}")
-        if isinstance(rtc_uid, int):
-            if rtc_uid < 0:
-                raise ValueError(f"rtc_uid must be non-negative, got {rtc_uid!r}")
-            return str(rtc_uid)
-        if isinstance(rtc_uid, str):
-            stripped = rtc_uid.strip()
-            if not stripped:
-                return default
-            try:
-                parsed = int(stripped)
-            except ValueError as exc:
-                raise ValueError(
-                    f"rtc_uid must be an integer-compatible string, got {rtc_uid!r}"
-                ) from exc
-            if parsed < 0:
-                raise ValueError(f"rtc_uid must be non-negative, got {rtc_uid!r}")
-            return str(parsed)
-        raise TypeError(
-            f"rtc_uid must be int or str of int, got {type(rtc_uid).__name__}"
-        )
-
     async def join(
         self,
         *,
@@ -106,14 +68,16 @@ class Voice(BaseService):
         from_channel: str = "",
         rtc_uid: str | int | None = None,
     ) -> models.ChannelSign:
-        uid = self._coerce_rtc_uid(rtc_uid, default=self.backend.agora_uid)
+        if rtc_uid is None:
+            rtc_uid = (await self._bot.person.get_self_detail()).pid
+        rtc_uid = str(rtc_uid)
         sign = await self._bot.channels.enter_channel(
             channel=channel,
             area=area,
             channel_type="VOICE",
             from_channel=from_channel,
             from_area=from_area,
-            pid=uid,
+            pid=rtc_uid,
         )
         if not sign.rtc_token or not sign.rtc_channel_name:
             await self._cleanup_failed_join(area, channel)
@@ -124,7 +88,8 @@ class Voice(BaseService):
                 app_id=self._config.agora_app_id,
                 token=sign.rtc_token,
                 room_id=sign.rtc_channel_name,
-                uid=uid,
+                uid=rtc_uid,
+                oopz_uid=self._config.person_uid
             )
         except Exception:
             await self._cleanup_failed_join(area, channel)
@@ -137,7 +102,7 @@ class Voice(BaseService):
         self._current_sign = sign
         self._current_area = area
         self._current_channel = channel
-        self._current_uid = uid
+        self._current_uid = rtc_uid
 
         try:
             # 首次发送身份绑定：浏览器端没有可用 WebSocket 时 agoraSendIdentity 会
