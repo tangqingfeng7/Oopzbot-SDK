@@ -89,6 +89,7 @@ class Voice(BaseService):
                 token=sign.rtc_token,
                 room_id=sign.rtc_channel_name,
                 uid=rtc_uid,
+                oopz_uid=self._config.person_uid
             )
         except Exception:
             await self._cleanup_failed_join(area, channel)
