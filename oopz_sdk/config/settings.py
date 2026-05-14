@@ -497,8 +497,8 @@ class OopzConfig:
         private_key = os.environ.get(f"{prefix}PRIVATE_KEY", "")
         app_version = os.environ.get(f"{prefix}APP_VERSION", "").strip()
 
-        phone = os.environ.get("OOPZ_LOGIN_PHONE", "").strip()
-        password = os.environ.get("OOPZ_LOGIN_PASSWORD", "")
+        phone = os.environ.get(f"{prefix}LOGIN_PHONE", "").strip()
+        password = os.environ.get(f"{prefix}LOGIN_PASSWORD", "")
 
         has_any_credential_value = any(
             str(value or "").strip()
