@@ -39,6 +39,7 @@ class OopzWSClient:
         on_close: Optional[Callable[[CloseInfo], Awaitable[None] | None]] = None,
         on_reconnect: Optional[Callable[[], Awaitable[None]]] = None,
     ):
+        config.ensure_authenticated()
         self.config = config
         self.on_message = on_message
         self.on_open = on_open

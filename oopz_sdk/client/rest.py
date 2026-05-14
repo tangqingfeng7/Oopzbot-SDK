@@ -29,6 +29,7 @@ class OopzRESTClient:
                 "如果你在 v0.5 之前用过 OopzRESTClient(bot, config) 的老签名，请改成 "
                 "OopzRESTClient(config, bot=bot)。"
             )
+        config.ensure_authenticated()
         self.config = config
         self.signer = Signer(config)
         self.transport = HttpTransport(config, self.signer)

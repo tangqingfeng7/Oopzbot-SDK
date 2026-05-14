@@ -145,9 +145,9 @@ class OneBotV11Config:
 
 @dataclass
 class OopzConfig:
-    device_id: str
-    person_uid: str
-    jwt_token: str
+    device_id: str = ""
+    person_uid: str = ""
+    jwt_token: str = ""
     private_key: Any = None
 
     base_url: str = "https://gateway.oopz.cn"
@@ -179,7 +179,7 @@ class OopzConfig:
     area_user_nickname_cache_max_entries: int = 20000
     area_user_nickname_cache_ttl: float = 300.0
 
-    area_members_page_cache_max_entries : int = 200
+    area_members_page_cache_max_entries: int = 200
     area_members_page_cache_ttl: float = 10.0
 
     headers: dict[str, str] = field(default_factory=dict)
@@ -195,15 +195,12 @@ class OopzConfig:
 
     onebot_v11: OneBotV11Config = field(default_factory=OneBotV11Config)
 
-    # todo onebot v12还未经测试, 暂时禁用
-    # onebot_v12: OneBotV12Config = field(default_factory=OneBotV12Config)
-
     def __post_init__(self) -> None:
-        self.device_id = self._require_non_empty(self.device_id, "device_id")
-        self.person_uid = self._require_non_empty(self.person_uid, "person_uid")
-        self.jwt_token = self._require_non_empty(self.jwt_token, "jwt_token")
+        self.device_id = str(self.device_id or "").strip()
+        self.person_uid = str(self.person_uid or "").strip()
+        self.jwt_token = str(self.jwt_token or "").strip()
 
-        if self._is_missing_private_key(self.private_key):
+        if self.is_authenticated() and self._is_missing_private_key(self.private_key):
             self.private_key = self._fallback_private_key()
 
     @staticmethod
@@ -228,29 +225,287 @@ class OopzConfig:
         from oopz_sdk.auth._builtin_login_bundle import get_client_signing_key
 
         logger.warning(
-            "OOPZ private_key 未提供，回退到内置 client signing key。"
-            "这只适合沿用已有登录态；如果后续鉴权失败，请重新登录。"
+            "OOPZ private_key not provided, falling back to builtin client signing key."
         )
         return get_client_signing_key()
 
     @classmethod
-    def from_env(cls, prefix: str = "OOPZ_", **overrides: Any) -> "OopzConfig":
-        """从环境变量创建配置。
+    def _has_complete_credentials(
+            cls,
+            *,
+            device_id: str,
+            person_uid: str,
+            jwt_token: str,
+            private_key: Any,
+    ) -> bool:
+        return (
+                all(str(value or "").strip() for value in (device_id, person_uid, jwt_token))
+                and not cls._is_missing_private_key(private_key)
+        )
 
-        默认读取 `OOPZ_DEVICE_ID`、`OOPZ_PERSON_UID`、`OOPZ_JWT_TOKEN`
-        和 `OOPZ_PRIVATE_KEY`。可通过关键字参数覆盖其他配置项。
-        """
-        values: dict[str, Any] = {
-            "device_id": cls._require_env(f"{prefix}DEVICE_ID"),
-            "person_uid": cls._require_env(f"{prefix}PERSON_UID"),
-            "jwt_token": cls._require_env(f"{prefix}JWT_TOKEN"),
-            "private_key": os.environ.get(f"{prefix}PRIVATE_KEY", ""),
+    def is_authenticated(self) -> bool:
+        return self._has_complete_credentials(
+            device_id=self.device_id,
+            person_uid=self.person_uid,
+            jwt_token=self.jwt_token,
+            private_key=self.private_key,
+        )
+
+    def ensure_authenticated(self) -> None:
+        if self.is_authenticated():
+            return
+        raise ValueError(
+            "OopzConfig is not authenticated. Fill device_id/person_uid/jwt_token/private_key, "
+            "or call `await config.login(...)` before creating clients."
+        )
+
+    @staticmethod
+    def _normalize_login_method(method: str) -> str:
+        normalized = str(method or "auto").strip().lower().replace("-", "_")
+        if normalized not in {"auto", "credentials", "password", "password_api", "password_browser"}:
+            raise ValueError(
+                "login.method must be one of: auto, credentials, password, "
+                "password_api, password_browser"
+            )
+        return normalized
+
+
+    @staticmethod
+    def _build_password_kwargs(
+        *,
+        headful_env: str,
+        headless: bool | None,
+        browser_data_dir: str | None,
+        chromium_executable_path: str | None,
+        timeout: float | None,
+        proxy: ProxyConfig | dict[str, Any] | str | None,
+    ) -> dict[str, Any]:
+        from oopz_sdk.auth.password_login import truthy_env
+
+        kwargs: dict[str, Any] = {
+            "headless": headless if headless is not None else not truthy_env(os.environ.get(headful_env))
         }
-        app_version = os.environ.get(f"{prefix}APP_VERSION", "").strip()
-        if app_version:
-            values["app_version"] = app_version
-        values.update(overrides)
+        if browser_data_dir:
+            kwargs["browser_data_dir"] = browser_data_dir
+        if chromium_executable_path:
+            kwargs["chromium_executable_path"] = chromium_executable_path
+        if timeout is not None:
+            kwargs["timeout"] = timeout
+        if proxy is not None:
+            kwargs["proxy"] = proxy
+        return kwargs
+
+    @classmethod
+    async def _resolve_login_credentials(
+        cls,
+        *,
+        method: str,
+        device_id: str = "",
+        person_uid: str = "",
+        jwt_token: str = "",
+        private_key: Any = None,
+        app_version: str = "",
+        phone: str = "",
+        password: str = "",
+        headful_env: str = "OOPZ_LOGIN_HEADFUL",
+        headless: bool | None = None,
+        browser_data_dir: str | None = None,
+        chromium_executable_path: str | None = None,
+        timeout: float | None = None,
+        proxy: ProxyConfig | dict[str, Any] | str | None = None,
+    ) -> Any:
+        from oopz_sdk.auth import OopzLoginCredentials
+        from oopz_sdk.auth import api_password_login as api_password_login_module
+        from oopz_sdk.auth import password_login as password_login_module
+
+        method = cls._normalize_login_method(method)
+        password_kwargs = cls._build_password_kwargs(
+            headful_env=headful_env,
+            headless=headless,
+            browser_data_dir=browser_data_dir,
+            chromium_executable_path=chromium_executable_path,
+            timeout=timeout,
+            proxy=proxy,
+        )
+
+        if method == "credentials":
+            return OopzLoginCredentials.from_mapping(
+                {
+                    "device_id": device_id,
+                    "person_uid": person_uid,
+                    "jwt_token": jwt_token,
+                    "private_key": private_key,
+                    "app_version": app_version,
+                }
+            )
+        if method == "password_api":
+            return await asyncio.to_thread(
+                api_password_login_module.login_with_api_password,
+                cls._require_non_empty(phone, "phone"),
+                str(password or ""),
+                device_id=str(device_id or "") or None,
+                timeout=timeout if timeout is not None else 20,
+            )
+        if method == "password_browser":
+            return await password_login_module.login_with_playwright_password(
+                cls._require_non_empty(phone, "phone"),
+                str(password or ""),
+                **password_kwargs,
+            )
+        if method == "password":
+            return await password_login_module.login_with_password(
+                cls._require_non_empty(phone, "phone"),
+                str(password or ""),
+                **password_kwargs,
+            )
+        if cls._has_complete_credentials(
+            device_id=device_id,
+            person_uid=person_uid,
+            jwt_token=jwt_token,
+            private_key=private_key,
+        ):
+            return OopzLoginCredentials.from_mapping(
+                {
+                    "device_id": device_id,
+                    "person_uid": person_uid,
+                    "jwt_token": jwt_token,
+                    "private_key": private_key,
+                    "app_version": app_version,
+                }
+            )
+        if str(phone or "").strip() and str(password or ""):
+            return await password_login_module.login_with_password(
+                cls._require_non_empty(phone, "phone"),
+                str(password or ""),
+                **password_kwargs,
+            )
+        raise ValueError(
+            "No valid login configuration found. Provide complete credentials or phone/password."
+        )
+
+    @classmethod
+    async def _build_config_from_login(
+        cls,
+        *,
+        overrides: dict[str, Any] | None = None,
+        **login_kwargs: Any,
+    ) -> "OopzConfig":
+        credentials = await cls._resolve_login_credentials(**login_kwargs)
+        values: dict[str, Any] = {
+            "device_id": credentials.device_id,
+            "person_uid": credentials.person_uid,
+            "jwt_token": credentials.jwt_token,
+            "private_key": credentials.private_key_pem,
+        }
+        if credentials.app_version:
+            values["app_version"] = credentials.app_version
+        values.update(overrides or {})
         return cls(**values)
+
+    def _apply_login_credentials(
+        self,
+        credentials: Any,
+    ) -> "OopzConfig":
+        self.device_id = str(credentials.device_id or "").strip()
+        self.person_uid = str(credentials.person_uid or "").strip()
+        self.jwt_token = str(credentials.jwt_token or "").strip()
+        self.private_key = credentials.private_key_pem
+        if credentials.app_version:
+            self.app_version = credentials.app_version
+        if self.is_authenticated() and self._is_missing_private_key(self.private_key):
+            self.private_key = self._fallback_private_key()
+        return self
+
+    @classmethod
+    def from_env(cls, prefix: str = "OOPZ_", **overrides: Any) -> "OopzConfig":
+        method = cls._normalize_login_method(os.environ.get("OOPZ_LOGIN_METHOD", "auto"))
+        device_id = os.environ.get(f"{prefix}DEVICE_ID", "")
+        person_uid = os.environ.get(f"{prefix}PERSON_UID", "")
+        jwt_token = os.environ.get(f"{prefix}JWT_TOKEN", "")
+        private_key = os.environ.get(f"{prefix}PRIVATE_KEY", "")
+        app_version = os.environ.get(f"{prefix}APP_VERSION", "").strip()
+        phone = os.environ.get("OOPZ_LOGIN_PHONE", "").strip()
+        password = os.environ.get("OOPZ_LOGIN_PASSWORD", "")
+        has_any_credential_value = any(
+            str(value or "").strip() for value in (device_id, person_uid, jwt_token, private_key)
+        )
+        if method in {"auto", "credentials"} and cls._has_complete_credentials(
+            device_id=device_id,
+            person_uid=person_uid,
+            jwt_token=jwt_token,
+            private_key=private_key,
+        ):
+            values: dict[str, Any] = {
+                "device_id": cls._require_env(f"{prefix}DEVICE_ID"),
+                "person_uid": cls._require_env(f"{prefix}PERSON_UID"),
+                "jwt_token": cls._require_env(f"{prefix}JWT_TOKEN"),
+                "private_key": cls._require_env(f"{prefix}PRIVATE_KEY", strip=False),
+            }
+            if app_version:
+                values["app_version"] = app_version
+            values.update(overrides)
+            return cls(**values)
+        if method == "credentials" or (method == "auto" and has_any_credential_value and not phone and not password):
+            values = {
+                "device_id": cls._require_env(f"{prefix}DEVICE_ID"),
+                "person_uid": cls._require_env(f"{prefix}PERSON_UID"),
+                "jwt_token": cls._require_env(f"{prefix}JWT_TOKEN"),
+                "private_key": cls._require_env(f"{prefix}PRIVATE_KEY", strip=False),
+            }
+            if app_version:
+                values["app_version"] = app_version
+            values.update(overrides)
+            return cls(**values)
+        return asyncio.run(
+            cls._build_config_from_login(
+                method=method,
+                device_id=device_id,
+                person_uid=person_uid,
+                jwt_token=jwt_token,
+                private_key=private_key,
+                app_version=app_version,
+                phone=phone,
+                password=password,
+                headful_env="OOPZ_LOGIN_HEADFUL",
+                overrides=overrides,
+            )
+        )
+
+    async def login(
+        self,
+        *,
+        phone: str = "",
+        password: str = "",
+        device_id: str = "",
+        person_uid: str = "",
+        jwt_token: str = "",
+        private_key: Any = None,
+        method: str = "auto",
+        app_version: str = "",
+        headful_env: str = "OOPZ_LOGIN_HEADFUL",
+        headless: bool | None = None,
+        browser_data_dir: str | None = None,
+        chromium_executable_path: str | None = None,
+        timeout: float | None = None,
+        proxy: ProxyConfig | dict[str, Any] | str | None = None,
+    ) -> "OopzConfig":
+        credentials = await type(self)._resolve_login_credentials(
+            method=method,
+            device_id=device_id or self.device_id,
+            person_uid=person_uid or self.person_uid,
+            jwt_token=jwt_token or self.jwt_token,
+            private_key=private_key if private_key is not None else self.private_key,
+            app_version=app_version or self.app_version,
+            phone=phone,
+            password=password,
+            headful_env=headful_env,
+            headless=headless,
+            browser_data_dir=browser_data_dir,
+            chromium_executable_path=chromium_executable_path,
+            timeout=timeout,
+            proxy=proxy,
+        )
+        return self._apply_login_credentials(credentials)
 
     @classmethod
     async def from_password(
@@ -262,28 +517,20 @@ class OopzConfig:
         headless: bool | None = None,
         **kwargs: Any,
     ) -> "OopzConfig":
-        """使用账号密码登录并直接构造配置。"""
-        from oopz_sdk.auth.password_login import login_with_password, truthy_env
-
         config_overrides = dict(kwargs.pop("config_overrides", {}) or {})
-        if headless is None:
-            headless = not truthy_env(os.environ.get(headful_env))
-        credentials = await login_with_password(
-            cls._require_non_empty(phone, "phone"),
-            str(password or ""),
+        config = cls(**config_overrides)
+        return await config.login(
+            method="password",
+            phone=cls._require_non_empty(phone, "phone"),
+            password=str(password or ""),
+            headful_env=headful_env,
             headless=headless,
+            browser_data_dir=kwargs.pop("browser_data_dir", None),
+            chromium_executable_path=kwargs.pop("chromium_executable_path", None),
+            timeout=kwargs.pop("timeout", None),
+            proxy=kwargs.pop("proxy", None),
             **kwargs,
         )
-        values: dict[str, Any] = {
-            "device_id": credentials.device_id,
-            "person_uid": credentials.person_uid,
-            "jwt_token": credentials.jwt_token,
-            "private_key": credentials.private_key_pem,
-        }
-        if credentials.app_version:
-            values["app_version"] = credentials.app_version
-        values.update(config_overrides)
-        return cls(**values)
 
     @classmethod
     async def from_password_env(
@@ -295,15 +542,6 @@ class OopzConfig:
         headless: bool | None = None,
         **kwargs: Any,
     ) -> "OopzConfig":
-        """用环境变量中的 OOPZ 账号密码登录并创建配置。
-
-        默认读取 `OOPZ_LOGIN_PHONE` 和 `OOPZ_LOGIN_PASSWORD`；当 `headless`
-        没有显式传入时，会按 `OOPZ_LOGIN_HEADFUL` 环境变量决定是否显示浏览器
-        窗口（值为 ``1`` / ``true`` / ``yes`` / ``on`` 都会被识别为「显示窗口」）。
-
-        `kwargs` 会传给 :func:`login_with_password`；其中 `config_overrides`
-        可用于覆盖最终 ``OopzConfig`` 的字段。
-        """
         return await cls.from_password(
             cls._require_env(phone_env),
             cls._require_env(password_env, strip=False),
@@ -313,13 +551,7 @@ class OopzConfig:
         )
 
     @classmethod
-    def from_password_sync(cls, phone: str, password: str, **kwargs: Any) -> "OopzConfig":
-        """`from_password()` 的同步包装，适合一次性脚本。"""
-        return asyncio.run(cls.from_password(phone, password, **kwargs))
-
-    @classmethod
     def from_password_env_sync(cls, **kwargs: Any) -> "OopzConfig":
-        """`from_password_env()` 的同步包装，适合一次性脚本。"""
         return asyncio.run(cls.from_password_env(**kwargs))
 
     @staticmethod
@@ -347,4 +579,3 @@ class OopzConfig:
 
     def get_headers(self) -> dict[str, str]:
         return {**DEFAULT_HEADERS, **self.headers}
-
