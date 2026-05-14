@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import warnings
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -508,7 +509,7 @@ class OopzConfig:
         return self._apply_login_credentials(credentials)
 
     @classmethod
-    async def from_password(
+    async def _from_password_impl(
         cls,
         phone: str,
         password: str,
@@ -517,6 +518,12 @@ class OopzConfig:
         headless: bool | None = None,
         **kwargs: Any,
     ) -> "OopzConfig":
+        warnings.warn(
+            "OopzConfig.from_password() is deprecated; create OopzConfig(...) first "
+            "and then call `await config.login(...)`.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         config_overrides = dict(kwargs.pop("config_overrides", {}) or {})
         config = cls(**config_overrides)
         return await config.login(
@@ -533,6 +540,30 @@ class OopzConfig:
         )
 
     @classmethod
+    async def from_password(
+        cls,
+        phone: str,
+        password: str,
+        *,
+        headful_env: str = "OOPZ_LOGIN_HEADFUL",
+        headless: bool | None = None,
+        **kwargs: Any,
+    ) -> "OopzConfig":
+        warnings.warn(
+            "OopzConfig.from_password() is deprecated; create OopzConfig(...) first "
+            "and then call `await config.login(...)`.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return await cls._from_password_impl(
+            phone,
+            password,
+            headful_env=headful_env,
+            headless=headless,
+            **kwargs,
+        )
+
+    @classmethod
     async def from_password_env(
         cls,
         *,
@@ -542,7 +573,13 @@ class OopzConfig:
         headless: bool | None = None,
         **kwargs: Any,
     ) -> "OopzConfig":
-        return await cls.from_password(
+        warnings.warn(
+            "OopzConfig.from_password_env() is deprecated; use "
+            "`config = OopzConfig(...)` and then `await config.login(...)`.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return await cls._from_password_impl(
             cls._require_env(phone_env),
             cls._require_env(password_env, strip=False),
             headful_env=headful_env,
@@ -552,7 +589,19 @@ class OopzConfig:
 
     @classmethod
     def from_password_env_sync(cls, **kwargs: Any) -> "OopzConfig":
-        return asyncio.run(cls.from_password_env(**kwargs))
+        warnings.warn(
+            "OopzConfig.from_password_env_sync() is deprecated; use "
+            "`config = OopzConfig(...)` and then `await config.login(...)`.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return asyncio.run(cls._from_password_impl(
+            cls._require_env(kwargs.pop("phone_env", "OOPZ_LOGIN_PHONE")),
+            cls._require_env(kwargs.pop("password_env", "OOPZ_LOGIN_PASSWORD"), strip=False),
+            headful_env=kwargs.pop("headful_env", "OOPZ_LOGIN_HEADFUL"),
+            headless=kwargs.pop("headless", None),
+            **kwargs,
+        ))
 
     @staticmethod
     def _require_env(name: str, *, strip: bool = True) -> str:
