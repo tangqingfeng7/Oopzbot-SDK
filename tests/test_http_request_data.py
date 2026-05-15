@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import asyncio
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -21,6 +22,7 @@ class _FakeTransport:
 
     def __init__(self, payload: Any) -> None:
         self._payload = payload
+        self.config = SimpleNamespace(retry=SimpleNamespace(max_attempts=3))
 
     async def request_json(self, *args, **kwargs):
         return self._payload

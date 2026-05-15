@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- 推荐登录入口调整为先创建 `OopzConfig(...)`，再调用 `await config.login(...)`。
+
+### Deprecated
+
+- `OopzConfig.from_password()`
+- `OopzConfig.from_password_env()`
+- `OopzConfig.from_password_env_sync()`
+
 ## 0.12.0
 
 ### 修复

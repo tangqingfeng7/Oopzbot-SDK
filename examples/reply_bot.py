@@ -1,31 +1,26 @@
-"""最小收消息并自动回复示例。"""
-
 import asyncio
 
 from oopz_sdk import OopzBot, OopzConfig
+from oopz_sdk.events import EventContext
+from oopz_sdk.models import Message
+
+config = OopzConfig()
+
+config.login(phone="填入登录手机号", password="填入登录密码")
+
+bot = OopzBot(config)
+
+@bot.on_message
+async def handle_message(message: Message, ctx: EventContext):
+    if message.text.strip() == "ping":
+        await ctx.reply("pong")
 
 
 async def main() -> None:
-    config = OopzConfig(
-        device_id="你的设备ID",
-        person_uid="你的用户UID",
-        jwt_token="你的JWT Token",
-        private_key="-----BEGIN RSA PRIVATE KEY-----\n...\n-----END RSA PRIVATE KEY-----",
-    )
-
-    bot = OopzBot(config)
-
-    @bot.on_message
-    async def on_message(message, ctx) -> None:
-        content = message.content or ""
-        if content.strip().lower() == "ping":
-            await ctx.reply("pong")
-
     try:
         await bot.run()
     finally:
         await bot.stop()
 
 
-if __name__ == "__main__":
-    asyncio.run(main())
+asyncio.run(main())

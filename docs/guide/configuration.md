@@ -12,14 +12,7 @@ config = OopzConfig.from_env(
 )
 ```
 
-## 必填配置
-
-| 字段            | 类型                       | 说明                           |
-|---------------|--------------------------|------------------------------|
-| `device_id`   | `str`                    | 设备 ID。不能为空。                  |
-| `person_uid`  | `str`                    | 当前登录账号 UID，通常也是机器人 UID。不能为空。 |
-| `jwt_token`   | `str`                    | 登录态 JWT。不能为空。                |
-| `private_key` | `str \| bytes \| key object` | RSA 私钥，用于签名请求。不能为空。           |
+登录方法详见[认证与凭据](../reference/auth.md)
 
 ## 接受来自域的事件推送
 
@@ -43,20 +36,16 @@ await bot.ws.send_subscribe_area_events(area_ids)
 from oopz_sdk import OopzBot, OopzConfig
 
 config = OopzConfig(
-    device_id="...",
-    person_uid="...",
-    jwt_token="...",
-    private_key="...",
-
     auto_subscribe_joined_areas=True,
 )
+
+config.login("手机号", "密码")
 
 bot = OopzBot(config)
 
 @bot.on_ready
 async def ready(ctx):
     print("Bot ready, joined area events subscribed")
-
 ```
 
 这个功能会在机器人启动后自动查询已加入的域，并订阅这些域的事件推送。这样当有用户进入退出房间、域设置更改等事件时，机器人就能及时收到通知。
@@ -96,7 +85,7 @@ from oopz_sdk import OopzConfig
 
 
 async def main():
-    config = await OopzConfig.from_password_env()
+    config = await OopzConfig.from_env_async()
     print(config.person_uid)
 
 

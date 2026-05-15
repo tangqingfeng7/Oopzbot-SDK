@@ -1,6 +1,7 @@
 site_name: Oopzbot SDK 文档
 site_description: Oopz 平台 Python SDK 使用文档
 repo_url: https://github.com/tangqingfeng7/Oopzbot-SDK
+repo_name: Oopzbot-SDK
 theme:
   name: material
   language: zh
@@ -19,6 +20,8 @@ theme:
     - navigation.expand
     - content.code.copy
     - content.tabs.link
+    - navigation.top
+    - navigation.footer
 nav:
   - 首页: index.md
   - 快速开始:

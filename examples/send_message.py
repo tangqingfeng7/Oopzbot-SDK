@@ -1,28 +1,26 @@
-"""最小发送消息示例。"""
-
 import asyncio
 
-from oopz_sdk import MessageSendResult, OopzConfig, OopzRESTClient
+from oopz_sdk import OopzBot, OopzConfig
+from oopz_sdk.events import EventContext
+from oopz_sdk.models import Message
+
+config = OopzConfig()
+
+config.login(phone="18306357121", password="Dd114133627")
+
+bot = OopzBot(config)
+
+@bot.on_message
+async def handle_message(message: Message, ctx: EventContext):
+    if message.text.strip() == "ping":
+        await bot.messages.send_message("Hello from OopzBot!", area=message.area, channel=message.channel)
 
 
 async def main() -> None:
-    area_id = "你的域ID"
-    channel_id = "你的频道ID"
-    config = OopzConfig(
-        device_id="你的设备ID",
-        person_uid="你的用户UID",
-        jwt_token="你的JWT Token",
-        private_key="-----BEGIN RSA PRIVATE KEY-----\n...\n-----END RSA PRIVATE KEY-----",
-    )
-
-    async with OopzRESTClient(config) as sender:
-        result: MessageSendResult = await sender.messages.send_message(
-            "Hello Oopz!",
-            area=area_id,
-            channel=channel_id,
-        )
-        print(f"发送成功，message_id={result.message_id or 'unknown'}")
+    try:
+        await bot.run()
+    finally:
+        await bot.stop()
 
 
-if __name__ == "__main__":
-    asyncio.run(main())
+asyncio.run(main())
