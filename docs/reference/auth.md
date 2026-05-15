@@ -178,14 +178,24 @@ password_browser
     export OOPZ_PRIVATE_KEY="..."
     ```
 
-
-
 然后：
 
 ```python
 from oopz_sdk import OopzConfig
 
 config = OopzConfig.from_env()
+```
+
+### 通过 override 修改其他配置项
+
+```python
+from oopz_sdk import OopzConfig, RetryConfig, HeartbeatConfig, ProxyConfig
+
+config = OopzConfig.from_env(
+    retry=RetryConfig(max_attempts=3),
+    heartbeat=HeartbeatConfig(interval=10.0, reconnect_interval=2.0),
+    proxy=ProxyConfig(http="http://127.0.0.1:7890", https="http://127.0.0.1:7890"),
+)
 ```
 
 ## `OopzConfig.from_env_async(...)`
@@ -208,6 +218,8 @@ async def main():
 if __name__ == "__main__":
     asyncio.run(main())
 ```
+
+
 
 ---
 

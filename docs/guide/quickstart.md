@@ -138,6 +138,3 @@ config = OopzConfig(..., ignore_self_messages=False)
 
 `bot.messages.send_message()` 是主动发送频道消息，需要你手动传入 `area` 和 `channel`。
 
-### WebSocket 连接后程序为什么一直不退出？
-
-这是正常行为。机器人需要长期保持 WebSocket 连接来接收事件。
