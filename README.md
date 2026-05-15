@@ -2,7 +2,7 @@
 
 # Oopzbot SDK
 
-面向 Oopz 机器人开发与生态的现代异步 Python SDK。
+面向 Oopz 语音平台的现代化异步 Python SDK。
 
 
 [![License](https://img.shields.io/github/license/tangqingfeng7/Oopzbot-SDK?labelColor=555&color=97CA00)](https://github.com/tangqingfeng7/Oopzbot-SDK)
