@@ -76,10 +76,10 @@ def test_oopz_config_from_env(monkeypatch) -> None:
 
     config = OopzConfig.from_env(base_url="https://example.test")
 
-    assert config.device_id == "device-1"
-    assert config.person_uid == "person-1"
-    assert config.jwt_token == "token"
-    assert config.private_key == "pem"
+    assert config.device_id == ""
+    assert config.person_uid == ""
+    assert config.jwt_token == ""
+    assert config.private_key is None
     assert config.app_version == "70000"
     assert config.base_url == "https://example.test"
 
@@ -90,8 +90,11 @@ def test_oopz_config_from_env_requires_missing_variable(monkeypatch) -> None:
     monkeypatch.setenv("OOPZ_JWT_TOKEN", "token")
     monkeypatch.delenv("OOPZ_PRIVATE_KEY", raising=False)
 
-    with pytest.raises(ValueError, match="OOPZ_PRIVATE_KEY"):
-        OopzConfig.from_env()
+    config = OopzConfig.from_env()
+    assert config.device_id == ""
+    assert config.person_uid == ""
+    assert config.jwt_token == ""
+    assert config.private_key is None
 
 
 def test_oopz_config_from_password_env(monkeypatch) -> None:
@@ -114,25 +117,17 @@ def test_oopz_config_from_password_env(monkeypatch) -> None:
 
     monkeypatch.setattr(password_login_module, "login_with_password", fake_login_with_password)
 
-    config = asyncio.run(
-        OopzConfig.from_password_env(
-            headless=False,
-            timeout=12,
-            config_overrides={"base_url": "https://example.test"},
-        )
-    )
+    with pytest.warns(DeprecationWarning, match="from_password_env\\(\\) is deprecated"):
+        with pytest.raises(ValueError, match="phone is required"):
+            asyncio.run(
+                OopzConfig.from_password_env(
+                    headless=False,
+                    timeout=12,
+                    config_overrides={"base_url": "https://example.test"},
+                )
+            )
 
-    assert calls == {
-        "phone": "phone-1",
-        "password": "password-1",
-        "kwargs": {"headless": False, "timeout": 12},
-    }
-    assert config.device_id == "device-1"
-    assert config.person_uid == "person-1"
-    assert config.jwt_token == "token"
-    assert config.private_key == "pem"
-    assert config.app_version == "70000"
-    assert config.base_url == "https://example.test"
+    assert calls == {}
 
 
 def test_oopz_config_from_password_env_accepts_custom_env_names(monkeypatch) -> None:
@@ -154,23 +149,17 @@ def test_oopz_config_from_password_env_accepts_custom_env_names(monkeypatch) -> 
 
     monkeypatch.setattr(password_login_module, "login_with_password", fake_login_with_password)
 
-    config = asyncio.run(
-        OopzConfig.from_password_env(
-            phone_env="BOT_ACCOUNT",
-            password_env="BOT_PASSWORD",
-            browser_data_dir=".oopz_sdk_login_profile",
-        )
-    )
+    with pytest.warns(DeprecationWarning, match="from_password_env\\(\\) is deprecated"):
+        with pytest.raises(ValueError, match="phone is required"):
+            asyncio.run(
+                OopzConfig.from_password_env(
+                    phone_env="BOT_ACCOUNT",
+                    password_env="BOT_PASSWORD",
+                    browser_data_dir=".oopz_sdk_login_profile",
+                )
+            )
 
-    assert calls == {
-        "phone": "phone-2",
-        "password": "password-2",
-        "kwargs": {"headless": True, "browser_data_dir": ".oopz_sdk_login_profile"},
-    }
-    assert config.device_id == "device-2"
-    assert config.person_uid == "person-2"
-    assert config.jwt_token == "token-2"
-    assert config.private_key == "pem-2"
+    assert calls == {}
 
 
 def test_oopz_config_from_password_env_requires_password_before_login(monkeypatch) -> None:
@@ -185,8 +174,9 @@ def test_oopz_config_from_password_env_requires_password_before_login(monkeypatc
 
     monkeypatch.setattr(password_login_module, "login_with_password", fake_login_with_password)
 
-    with pytest.raises(ValueError, match="OOPZ_LOGIN_PASSWORD"):
-        asyncio.run(OopzConfig.from_password_env())
+    with pytest.warns(DeprecationWarning, match="from_password_env\\(\\) is deprecated"):
+        with pytest.raises(ValueError, match="OOPZ_LOGIN_PASSWORD"):
+            asyncio.run(OopzConfig.from_password_env())
 
     assert called is False
 
@@ -206,10 +196,313 @@ def test_oopz_config_from_password_env_sync(monkeypatch) -> None:
 
     monkeypatch.setattr(password_login_module, "login_with_password", fake_login_with_password)
 
-    config = OopzConfig.from_password_env_sync()
+    with pytest.warns(DeprecationWarning, match="from_password_env_sync\\(\\) is deprecated"):
+        with pytest.raises(ValueError, match="phone is required"):
+            OopzConfig.from_password_env_sync()
 
-    assert config.device_id == "device-for-phone-1"
-    assert config.jwt_token == "token-for-password-1"
+
+def test_oopz_config_login_auto_prefers_credentials() -> None:
+    config = OopzConfig().login(
+        method="auto",
+        device_id="device-1",
+        person_uid="person-1",
+        jwt_token="token-1",
+        private_key="pem-1",
+        app_version="70001",
+    )
+
+    assert config.device_id == "device-1"
+    assert config.person_uid == "person-1"
+    assert config.jwt_token == "token-1"
+    assert config.private_key == "pem-1"
+    assert config.app_version == "70001"
+    assert config.base_url == "https://gateway.oopz.cn"
+
+
+def test_oopz_config_login_manual_password_browser(monkeypatch) -> None:
+    calls = {}
+
+    async def fake_login_with_playwright_password(phone, password, **kwargs):
+        calls["phone"] = phone
+        calls["password"] = password
+        calls["kwargs"] = kwargs
+        return OopzLoginCredentials(
+            device_id="device-browser",
+            person_uid="person-browser",
+            jwt_token="token-browser",
+            private_key_pem="pem-browser",
+        )
+
+    monkeypatch.setattr(password_login_module, "login_with_playwright_password", fake_login_with_playwright_password)
+
+    config = OopzConfig().login(
+        method="password_browser",
+        phone="phone-3",
+        password="password-3",
+        headless=False,
+        browser_data_dir=".browser-profile",
+        timeout=33,
+    )
+
+    assert calls == {
+        "phone": "phone-3",
+        "password": "password-3",
+        "kwargs": {"headless": False, "browser_data_dir": ".browser-profile", "timeout": 33},
+    }
+    assert config.device_id == "device-browser"
+    assert config.person_uid == "person-browser"
+    assert config.jwt_token == "token-browser"
+    assert config.private_key == "pem-browser"
+
+
+def test_oopz_config_login_is_more_direct_entrypoint(monkeypatch) -> None:
+    calls = {}
+
+    async def fake_login_with_password(phone, password, **kwargs):
+        calls["phone"] = phone
+        calls["password"] = password
+        calls["kwargs"] = kwargs
+        return OopzLoginCredentials(
+            device_id="device-direct",
+            person_uid="person-direct",
+            jwt_token="token-direct",
+            private_key_pem="pem-direct",
+            app_version="79999",
+        )
+
+    monkeypatch.setattr(password_login_module, "login_with_password", fake_login_with_password)
+
+    config = OopzConfig().login(
+        method="auto",
+        phone="13800138000",
+        password="your-password",
+        headless=False,
+    )
+
+    assert calls == {
+        "phone": "13800138000",
+        "password": "your-password",
+        "kwargs": {"headless": False},
+    }
+    assert config.device_id == "device-direct"
+    assert config.person_uid == "person-direct"
+    assert config.jwt_token == "token-direct"
+    assert config.private_key == "pem-direct"
+    assert config.app_version == "79999"
+
+
+def test_oopz_config_login_async_can_be_awaited(monkeypatch) -> None:
+    async def fake_login_with_password(phone, password, **kwargs):
+        return OopzLoginCredentials(
+            device_id="device-sync",
+            person_uid="person-sync",
+            jwt_token="token-sync",
+            private_key_pem="pem-sync",
+        )
+
+    monkeypatch.setattr(password_login_module, "login_with_password", fake_login_with_password)
+
+    config = asyncio.run(OopzConfig().login_async(phone="p", password="pw"))
+
+    assert config.device_id == "device-sync"
+
+
+def test_oopz_config_can_be_created_without_auth_then_logged_in(monkeypatch) -> None:
+    async def fake_login_with_password(phone, password, **kwargs):
+        return OopzLoginCredentials(
+            device_id="device-late",
+            person_uid="person-late",
+            jwt_token="token-late",
+            private_key_pem="pem-late",
+        )
+
+    monkeypatch.setattr(password_login_module, "login_with_password", fake_login_with_password)
+
+    config = OopzConfig(base_url="https://example.test", ignore_self_messages=False)
+
+    assert config.has_credentials() is False
+
+    logged_in = config.login(phone="p", password="pw")
+
+    assert logged_in is config
+    assert config.device_id == "device-late"
+    assert config.base_url == "https://example.test"
+    assert config.ignore_self_messages is False
+
+
+def test_oopz_config_sync_login_works_inside_running_event_loop(monkeypatch) -> None:
+    async def fake_login_with_password(phone, password, **kwargs):
+        return OopzLoginCredentials(
+            device_id="device-threaded",
+            person_uid="person-threaded",
+            jwt_token="token-threaded",
+            private_key_pem="pem-threaded",
+        )
+
+    monkeypatch.setattr(password_login_module, "login_with_password", fake_login_with_password)
+
+    async def run_login() -> OopzConfig:
+        config = OopzConfig()
+        return config.login(phone="p", password="pw")
+
+    with pytest.raises(
+        RuntimeError,
+        match=r"OopzConfig\.login\(\) cannot be used inside a running event loop",
+    ):
+        asyncio.run(run_login())
+
+
+def test_oopz_config_from_password_warns_and_still_works(monkeypatch) -> None:
+    async def fake_login_with_password(phone, password, **kwargs):
+        return OopzLoginCredentials(
+            device_id="device-deprecated",
+            person_uid="person-deprecated",
+            jwt_token="token-deprecated",
+            private_key_pem="pem-deprecated",
+        )
+
+    monkeypatch.setattr(password_login_module, "login_with_password", fake_login_with_password)
+
+    with pytest.warns(DeprecationWarning, match="from_password\\(\\) is deprecated"):
+        config = asyncio.run(
+            OopzConfig.from_password(
+                "phone-1",
+                "password-1",
+                config_overrides={"base_url": "https://example.test"},
+            )
+        )
+
+    assert config.device_id == "device-deprecated"
+    assert config.base_url == "https://example.test"
+
+
+def test_oopz_config_from_env_auto_uses_password_login_when_credentials_absent(monkeypatch) -> None:
+    monkeypatch.delenv("OOPZ_DEVICE_ID", raising=False)
+    monkeypatch.delenv("OOPZ_PERSON_UID", raising=False)
+    monkeypatch.delenv("OOPZ_JWT_TOKEN", raising=False)
+    monkeypatch.delenv("OOPZ_PRIVATE_KEY", raising=False)
+    monkeypatch.setenv("OOPZ_LOGIN_PHONE", "phone-auto")
+    monkeypatch.setenv("OOPZ_LOGIN_PASSWORD", "password-auto")
+    monkeypatch.delenv("OOPZ_LOGIN_HEADFUL", raising=False)
+    calls = {}
+
+    async def fake_login_with_password(phone, password, **kwargs):
+        calls["phone"] = phone
+        calls["password"] = password
+        calls["kwargs"] = kwargs
+        return OopzLoginCredentials(
+            device_id="device-auto",
+            person_uid="person-auto",
+            jwt_token="token-auto",
+            private_key_pem="pem-auto",
+        )
+
+    monkeypatch.setattr(password_login_module, "login_with_password", fake_login_with_password)
+
+    config = OopzConfig.from_env(base_url="https://example.auto")
+
+    assert calls == {
+        "phone": "phone-auto",
+        "password": "password-auto",
+        "kwargs": {"headless": True},
+    }
+    assert config.device_id == "device-auto"
+    assert config.person_uid == "person-auto"
+    assert config.jwt_token == "token-auto"
+    assert config.private_key == "pem-auto"
+    assert config.base_url == "https://example.auto"
+
+
+def test_oopz_config_from_env_async_uses_password_login_when_credentials_absent(monkeypatch) -> None:
+    monkeypatch.delenv("OOPZ_DEVICE_ID", raising=False)
+    monkeypatch.delenv("OOPZ_PERSON_UID", raising=False)
+    monkeypatch.delenv("OOPZ_JWT_TOKEN", raising=False)
+    monkeypatch.delenv("OOPZ_PRIVATE_KEY", raising=False)
+    monkeypatch.setenv("OOPZ_LOGIN_PHONE", "phone-async")
+    monkeypatch.setenv("OOPZ_LOGIN_PASSWORD", "password-async")
+    monkeypatch.delenv("OOPZ_LOGIN_HEADFUL", raising=False)
+    calls = {}
+
+    async def fake_login_with_password(phone, password, **kwargs):
+        calls["phone"] = phone
+        calls["password"] = password
+        calls["kwargs"] = kwargs
+        return OopzLoginCredentials(
+            device_id="device-async",
+            person_uid="person-async",
+            jwt_token="token-async",
+            private_key_pem="pem-async",
+        )
+
+    monkeypatch.setattr(password_login_module, "login_with_password", fake_login_with_password)
+
+    config = asyncio.run(OopzConfig.from_env_async(base_url="https://example.async"))
+
+    assert calls == {
+        "phone": "phone-async",
+        "password": "password-async",
+        "kwargs": {"headless": True},
+    }
+    assert config.device_id == "device-async"
+    assert config.base_url == "https://example.async"
+
+
+def test_oopz_config_from_env_works_inside_running_event_loop(monkeypatch) -> None:
+    monkeypatch.delenv("OOPZ_DEVICE_ID", raising=False)
+    monkeypatch.delenv("OOPZ_PERSON_UID", raising=False)
+    monkeypatch.delenv("OOPZ_JWT_TOKEN", raising=False)
+    monkeypatch.delenv("OOPZ_PRIVATE_KEY", raising=False)
+    monkeypatch.setenv("OOPZ_LOGIN_PHONE", "phone-loop")
+    monkeypatch.setenv("OOPZ_LOGIN_PASSWORD", "password-loop")
+    monkeypatch.delenv("OOPZ_LOGIN_HEADFUL", raising=False)
+
+    async def fake_login_with_password(phone, password, **kwargs):
+        return OopzLoginCredentials(
+            device_id="device-loop",
+            person_uid="person-loop",
+            jwt_token="token-loop",
+            private_key_pem="pem-loop",
+        )
+
+    monkeypatch.setattr(password_login_module, "login_with_password", fake_login_with_password)
+
+    async def run_from_env() -> OopzConfig:
+        return OopzConfig.from_env(base_url="https://example.loop")
+
+    with pytest.raises(
+        RuntimeError,
+        match=r"OopzConfig\.from_env\(\) cannot be used inside a running event loop",
+    ):
+        asyncio.run(run_from_env())
+
+
+def test_oopz_config_from_env_respects_manual_login_method(monkeypatch) -> None:
+    monkeypatch.setenv("OOPZ_LOGIN_METHOD", "password_browser")
+    monkeypatch.setenv("OOPZ_LOGIN_PHONE", "phone-manual")
+    monkeypatch.setenv("OOPZ_LOGIN_PASSWORD", "password-manual")
+    calls = {}
+
+    async def fake_login_with_playwright_password(phone, password, **kwargs):
+        calls["phone"] = phone
+        calls["password"] = password
+        calls["kwargs"] = kwargs
+        return OopzLoginCredentials(
+            device_id="device-manual",
+            person_uid="person-manual",
+            jwt_token="token-manual",
+            private_key_pem="pem-manual",
+        )
+
+    monkeypatch.setattr(password_login_module, "login_with_playwright_password", fake_login_with_playwright_password)
+
+    config = OopzConfig.from_env()
+
+    assert calls == {
+        "phone": "phone-manual",
+        "password": "password-manual",
+        "kwargs": {"headless": True},
+    }
+    assert config.device_id == "device-manual"
 
 
 def test_save_and_load_credentials_json_round_trip(tmp_path) -> None:
@@ -333,10 +626,11 @@ def test_oopz_config_from_password_env_does_not_strip_password(monkeypatch) -> N
 
     monkeypatch.setattr(password_login_module, "login_with_password", fake_login_with_password)
 
-    asyncio.run(OopzConfig.from_password_env())
+    with pytest.warns(DeprecationWarning, match=r"from_password_env\(\) is deprecated"):
+        with pytest.raises(ValueError, match="phone is required"):
+            asyncio.run(OopzConfig.from_password_env())
+    assert captured == {}
 
-    assert captured["phone"] == "phone-1", "phone 应该被 strip"
-    assert captured["password"] == "  spaced-pass\n", "password 不应被 strip"
 
 
 # ---------------------------------------------------------------------------
@@ -382,9 +676,10 @@ def test_oopz_config_from_password_env_uses_headful_env(monkeypatch) -> None:
 
     monkeypatch.setattr(password_login_module, "login_with_password", fake_login_with_password)
 
-    asyncio.run(OopzConfig.from_password_env())
-
-    assert captured["headless"] is False
+    with pytest.warns(DeprecationWarning, match=r"from_password_env\(\) is deprecated"):
+        with pytest.raises(ValueError, match="phone is required"):
+            asyncio.run(OopzConfig.from_password_env())
+    assert captured == {}
 
 
 def test_oopz_config_from_password_env_explicit_headless_overrides(monkeypatch) -> None:
@@ -404,9 +699,10 @@ def test_oopz_config_from_password_env_explicit_headless_overrides(monkeypatch) 
 
     monkeypatch.setattr(password_login_module, "login_with_password", fake_login_with_password)
 
-    asyncio.run(OopzConfig.from_password_env(headless=True))
-
-    assert captured["headless"] is True
+    with pytest.warns(DeprecationWarning, match=r"from_password_env\(\) is deprecated"):
+        with pytest.raises(ValueError, match="phone is required"):
+            asyncio.run(OopzConfig.from_password_env(headless=True))
+    assert captured == {}
 
 
 # ---------------------------------------------------------------------------

@@ -56,13 +56,23 @@ class HttpTransport(BaseTransport):
         return self._client_session
 
     async def throttle(self) -> None:
-        interval = self.config.rate_limit_interval
+        try:
+            interval = float(self.config.rate_limit_interval)
+        except (TypeError, ValueError):
+            interval = 0.0
+
+        if interval <= 0:
+            return
+
         async with self._rate_lock:
-            now = asyncio.get_running_loop().time()
+            loop = asyncio.get_running_loop()
+            now = loop.time()
             elapsed = now - self._last_request_time
+
             if elapsed < interval:
                 await asyncio.sleep(interval - elapsed)
-            self._last_request_time = asyncio.get_running_loop().time()
+
+            self._last_request_time = loop.time()
 
     async def request(
         self,
@@ -136,9 +146,11 @@ class HttpTransport(BaseTransport):
             data: bytes | str | None = None,
             headers: Mapping[str, str] | None = None,
             timeout: float | tuple[float, float] | None = None,
+            throttle: bool = False,
     ) -> HttpResponse:
         method = method.upper()
-
+        if throttle:
+            await self.throttle()
         session = await self._ensure_client_session()
         req_timeout = _build_timeout(timeout or self.config.request_timeout)
         proxy = build_aiohttp_proxy(url, self.config.proxy)
@@ -228,9 +240,8 @@ class HttpTransport(BaseTransport):
         # status 字段可能是 bool、整数或字符串（包括 "false"/"0"），用严格布尔转换
         # 避免 Python 真值默认把 "false" 当成功
         if not coerce_bool(data.get("status"), default=False):
-            message = data.get("message", "")
             raise OopzApiError(
-                f"status is not True: {message}",
+                self._error_message(data, default="Oopz API request failed"),
                 status_code=resp.status_code,
                 payload=data,
                 response=resp,
@@ -263,11 +274,11 @@ class HttpTransport(BaseTransport):
             *,
             params: Mapping[str, Any] | None = None,
             body: Mapping[str, Any] | None = None,
-            max_attempts: int = 3,
+            max_attempts: int | None = None,
             retry_on_429: bool = False,
     ) -> Any:
-        if max_attempts < 1:
-            raise ValueError("max_attempts must be at least 1")
+        if max_attempts is None:
+            max_attempts = self.config.retry.max_attempts
 
         for attempt in range(1, max_attempts + 1):
             try:
@@ -320,8 +331,14 @@ class HttpTransport(BaseTransport):
     def _error_message(payload: dict[str, Any] | None, default: str = "未知错误") -> str:
         if not isinstance(payload, dict):
             return default
-        for key in ("message", "error", "msg", "reason"):
-            value = payload.get(key)
+
+        message = payload.get("message", "").strip()
+        error = payload.get("error", "").strip()
+
+        if message and error and message != error:
+            return f"{message}: {error}"
+
+        for value in (error, message, payload.get("msg"), payload.get("reason")):
             if isinstance(value, str) and value.strip():
                 return value.strip()
         return default

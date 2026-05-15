@@ -20,16 +20,24 @@ pip install -e .
 
 ## 2. 准备凭证
 
-最小运行需要下面 4 个字段：
+你需要使用`手机号`和`密码`来进行登录, 密码可以在oopz的账号设置中进行修改
 
-| 字段 | 说明 |
-| --- | --- |
-| `device_id` | 当前登录设备 ID。 |
-| `person_uid` | 当前登录账号 UID，通常也是机器人 UID。 |
-| `jwt_token` | Oopz 登录态 JWT。 |
-| `private_key` | RSA 私钥，用于请求签名。 |
+[//]: # (最小运行需要下面 4 个字段：)
 
-推荐通过环境变量传入，不要硬编码到代码里。如果还没有这些凭据，可以参考 [账号密码登录提取凭据](../recipes/password-login.md) 从 OOPZ Web 登录态自动抓取。
+[//]: # ()
+[//]: # (| 字段 | 说明 |)
+
+[//]: # (| --- | --- |)
+
+[//]: # (| `device_id` | 当前登录设备 ID。 |)
+
+[//]: # (| `person_uid` | 当前登录账号 UID，通常也是机器人 UID。 |)
+
+[//]: # (| `jwt_token` | Oopz 登录态 JWT。 |)
+
+[//]: # (| `private_key` | RSA 私钥，用于请求签名。 |)
+
+[//]: # (推荐通过环境变量传入，不要硬编码到代码里。如果还没有这些凭据，可以参考 [账号密码登录提取凭据]&#40;../recipes/password-login.md&#41; 从 OOPZ Web 登录态自动抓取。)
 
 ## 3. 创建 `bot.py`
 
@@ -68,27 +76,23 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
-`OopzConfig.from_env()` 默认读取 `OOPZ_DEVICE_ID`、`OOPZ_PERSON_UID`、`OOPZ_JWT_TOKEN` 和 `OOPZ_PRIVATE_KEY`；如果你想直接用账号密码登录，可改用 `await OopzConfig.from_password_env()`，详见 [账号密码登录提取凭据](../recipes/password-login.md)。
+`OopzConfig.from_env()` 默认读取 `OOPZ_LOGIN_PHONE`、`OOPZ_LOGIN_PASSWORD`；如果你想直接用账号密码登录，更推荐先创建 `config = OopzConfig()`，再调用 `config.login(...)`，详见 [认证与凭据](../reference/auth.md)。
 
 ## 4. 设置环境变量
 
 Windows PowerShell：
 
 ```powershell
-$env:OOPZ_DEVICE_ID="你的设备 ID"
-$env:OOPZ_PERSON_UID="你的账号 UID"
-$env:OOPZ_JWT_TOKEN="你的 JWT"
-$env:OOPZ_PRIVATE_KEY="-----BEGIN RSA PRIVATE KEY-----`n...`n-----END RSA PRIVATE KEY-----"
+$env:OOPZ_LOGIN_PHONE = "你的 OOPZ 登录账号"
+$env:OOPZ_LOGIN_PASSWORD = "你的 OOPZ 登录密码"
 python bot.py
 ```
 
 Linux / macOS：
 
 ```bash
-export OOPZ_DEVICE_ID="你的设备 ID"
-export OOPZ_PERSON_UID="你的账号 UID"
-export OOPZ_JWT_TOKEN="你的 JWT"
-export OOPZ_PRIVATE_KEY=$'-----BEGIN RSA PRIVATE KEY-----\n...\n-----END RSA PRIVATE KEY-----'
+export OOPZ_LOGIN_PHONE="..."
+export OOPZ_LOGIN_PASSWORD="..."
 python bot.py
 ```
 
@@ -134,6 +138,3 @@ config = OopzConfig(..., ignore_self_messages=False)
 
 `bot.messages.send_message()` 是主动发送频道消息，需要你手动传入 `area` 和 `channel`。
 
-### WebSocket 连接后程序为什么一直不退出？
-
-这是正常行为。机器人需要长期保持 WebSocket 连接来接收事件。

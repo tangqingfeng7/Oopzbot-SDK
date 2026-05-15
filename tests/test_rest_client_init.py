@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import pytest
 
-from oopz_sdk import OopzRESTClient
+from oopz_sdk import OopzConfig, OopzRESTClient
 
 
 def test_rest_client_rejects_non_config_first_arg_string() -> None:
@@ -28,3 +28,8 @@ def test_rest_client_rejects_legacy_positional_bot_signature() -> None:
 
     with pytest.raises(TypeError, match=r"OopzRESTClient\(config, \*, bot=None\)"):
         OopzRESTClient(FakeBot())  # type: ignore[arg-type]
+
+
+def test_rest_client_requires_authenticated_config() -> None:
+    with pytest.raises(ValueError, match="credentials are incomplete"):
+        OopzRESTClient(OopzConfig())

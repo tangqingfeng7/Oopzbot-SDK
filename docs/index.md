@@ -34,13 +34,11 @@ from oopz_sdk import OopzBot, OopzConfig
 from oopz_sdk.events import EventContext
 from oopz_sdk.models import Message
 
-bot = OopzBot(OopzConfig(
-    device_id="你的设备 ID",
-    person_uid="机器人账号 UID",
-    jwt_token="登录态 JWT",
-    private_key="-----BEGIN RSA PRIVATE KEY-----\n...\n-----END RSA PRIVATE KEY-----",
-))
+config = OopzConfig()
 
+config.login(phone="填入登录手机号", password="填入登录密码")
+
+bot = OopzBot(config)
 
 @bot.on_message
 async def handle_message(message: Message, ctx: EventContext):

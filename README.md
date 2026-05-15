@@ -2,15 +2,16 @@
 
 # Oopzbot SDK
 
-面向 Oopz 机器人开发与生态的现代异步 Python SDK。
+面向 Oopz 语音平台的现代化异步 Python SDK。
 
 
-[![License](https://img.shields.io/github/license/tangqingfeng7/Oopzbot-SDK)](https://github.com/tangqingfeng7/Oopzbot-SDK)
-[![Python](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://www.python.org/)
-[![Package](https://img.shields.io/badge/package-oopz--sdk-yellow.svg)](https://pypi.org/project/oopz-sdk/)
-[![Async](https://img.shields.io/badge/asyncio-ready-purple.svg)](https://docs.python.org/3/library/asyncio.html)
-[![Typing](https://img.shields.io/badge/typing-pydantic%20v2-orange.svg)](https://docs.pydantic.dev/)
-[![OneBot](https://img.shields.io/badge/OneBot-v11/v12-blueviolet?style=flat-square)](https://tangqingfeng7.github.io/Oopzbot-SDK/adapters/onebot/)
+[![License](https://img.shields.io/github/license/tangqingfeng7/Oopzbot-SDK?labelColor=555&color=97CA00)](https://github.com/tangqingfeng7/Oopzbot-SDK)
+[![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![PyPI - Version](https://img.shields.io/pypi/v/oopz-sdk?logo=pypi&logoColor=white&label=PyPI&labelColor=3775A9&color=2D9CDB)](https://pypi.org/project/oopz-sdk/)
+[![Async](https://img.shields.io/badge/asyncio-ready-7B61FF.svg)](https://docs.python.org/3/library/asyncio.html)
+[![Typing](https://img.shields.io/badge/typing-pydantic%20v2-E92063.svg?logo=pydantic&logoColor=white)](https://docs.pydantic.dev/)
+[![OneBot](https://img.shields.io/badge/OneBot-v11-8A2BE2)](https://tangqingfeng7.github.io/Oopzbot-SDK/adapters/onebot/)
+[![Docs](https://img.shields.io/badge/docs-online-2ea44f?logo=materialformkdocs&logoColor=white)](https://tangqingfeng7.github.io/Oopzbot-SDK/)
 
 **异步优先 · 事件驱动 · 类型友好 · 消息 / 媒体 / 语音**
 
@@ -24,8 +25,7 @@
 
 ## 这是什么？
 
-`oopz-sdk` 是一个面向 **Oopz 平台** 的 Python SDK，用于编写机器人、监听事件、发送消息、上传媒体、调用平台 API，并逐步提供 OneBot v12 生态适配能力。
-
+`oopz-sdk` 是一个面向 **Oopz 平台** 的异步 Python SDK，用于快速构建机器人、监听事件、收发消息、上传媒体并调用平台服务。
 
 > [!IMPORTANT]
 > 项目仍处于早期开发阶段，接口和适配能力可能继续调整。欢迎参与测试、反馈和贡献。
@@ -67,8 +67,6 @@ pytest
 python -m playwright install chromium
 ```
 
-需要通过账号密码自动登录时，也使用同一个 Chromium 运行时。
-
 ## 🚀 快速开始
 
 创建 `bot.py`：
@@ -79,8 +77,7 @@ import asyncio
 from oopz_sdk import OopzBot, OopzConfig
 
 
-config = OopzConfig.from_env()
-bot = OopzBot(config)
+bot = OopzBot(OopzConfig.from_env())
 
 
 @bot.on_ready
@@ -100,47 +97,20 @@ asyncio.run(bot.run())
 设置环境变量后运行：
 
 ```bash
-export OOPZ_DEVICE_ID="你的设备 ID"
-export OOPZ_PERSON_UID="你的账号 UID"
-export OOPZ_JWT_TOKEN="你的 JWT"
-export OOPZ_PRIVATE_KEY=$'-----BEGIN RSA PRIVATE KEY-----\n...\n-----END RSA PRIVATE KEY-----'
+export OOPZ_LOGIN_PHONE="..."
+export OOPZ_LOGIN_PASSWORD="..."
 python bot.py
 ```
 
 Windows PowerShell：
 
 ```powershell
-$env:OOPZ_DEVICE_ID="你的设备 ID"
-$env:OOPZ_PERSON_UID="你的账号 UID"
-$env:OOPZ_JWT_TOKEN="你的 JWT"
-$env:OOPZ_PRIVATE_KEY="-----BEGIN RSA PRIVATE KEY-----`n...`n-----END RSA PRIVATE KEY-----"
+$env:OOPZ_LOGIN_PHONE = "你的 OOPZ 登录账号"
+$env:OOPZ_LOGIN_PASSWORD = "你的 OOPZ 登录密码"
 python bot.py
 ```
 
-也可以用 OOPZ 账号密码自动登录提取凭据，详见 [账号密码登录](https://tangqingfeng7.github.io/Oopzbot-SDK/recipes/password-login/)：
-
-```python
-import asyncio
-
-from oopz_sdk import OopzBot, OopzConfig
-
-
-async def main() -> None:
-    config = await OopzConfig.from_password_env()
-    bot = OopzBot(config)
-
-    @bot.on_message
-    async def on_message(message, ctx):
-        if message.text.strip() == "ping":
-            await ctx.reply("pong")
-
-    await bot.run()
-
-
-asyncio.run(main())
-```
-
-启动前设置 `OOPZ_LOGIN_PHONE` 和 `OOPZ_LOGIN_PASSWORD`；需要人工验证时再设置 `OOPZ_LOGIN_HEADFUL=1`（也接受 `true` / `yes` / `on`）。
+更多登录方法详见 [认证与凭据](https://tangqingfeng7.github.io/Oopzbot-SDK/reference/auth/)：
 
 在机器人能收到的频道里发送：
 
@@ -154,7 +124,7 @@ ping
 pong
 ```
 
-更多用法请查看文档。
+更多用法请查看[文档](https://tangqingfeng7.github.io/Oopzbot-SDK/)。
 
 ## 许可
 

@@ -12,6 +12,7 @@ import os
 import shlex
 import tempfile
 import time
+import warnings
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -231,6 +232,31 @@ def _safe_response_error(payload: Any) -> str:
     if code not in (None, ""):
         return f"登录失败，错误码：{code}"
     return "登录失败，请检查账号密码或风控验证"
+
+
+def _should_fallback_to_browser(exc: OopzPasswordLoginError) -> bool:
+    code = exc.code
+    if code in (401, 403):
+        return False
+    text = str(exc).lower()
+    fatal_markers = (
+        "该手机号尚未注册",
+        "密码错误"
+    )
+    if any(marker in str(exc) for marker in fatal_markers):
+        return False
+    network_markers = (
+        "请求失败",
+        "超时",
+        "timeout",
+        "连接",
+        "network",
+        "json",
+        "响应",
+    )
+    if any(marker in text for marker in network_markers):
+        return True
+    return True
 
 
 def _update_from_headers(credentials: dict[str, Any], headers: Mapping[str, str]) -> None:
@@ -596,7 +622,7 @@ async def _fill_password_login(page: Any, phone: str, password: str) -> None:
     await page.mouse.click(882, 532)
 
 
-async def login_with_password(
+async def login_with_playwright_password(
     phone: str,
     password: str,
     *,
@@ -756,9 +782,37 @@ async def login_with_password(
     return _coerce_credentials(credentials)
 
 
+async def login_with_password(
+    phone: str,
+    password: str,
+    **kwargs: Any,
+) -> OopzLoginCredentials:
+    """统一密码登录入口：默认先尝试 API，失败后回退到 Playwright。"""
+    from oopz_sdk.auth.api_password_login import login_with_api_password
+
+    api_kwargs = {
+        key: value
+        for key, value in kwargs.items()
+        if key in {"device_id", "timeout"}
+    }
+
+    try:
+        return await asyncio.to_thread(login_with_api_password, phone, password, **api_kwargs)
+    except OopzPasswordLoginError as exc:
+        if not _should_fallback_to_browser(exc):
+            raise
+        warnings.warn("OOPZ API 登录失败，正在尝试使用Playwright登录")
+        return await login_with_playwright_password(phone, password, **kwargs)
+
+
 def login_with_password_sync(phone: str, password: str, **kwargs: Any) -> OopzLoginCredentials:
     """同步包装，便于脚本或一次性工具调用。"""
     return asyncio.run(login_with_password(phone, password, **kwargs))
+
+
+def login_with_playwright_password_sync(phone: str, password: str, **kwargs: Any) -> OopzLoginCredentials:
+    """仅使用 Playwright 的同步密码登录入口。"""
+    return asyncio.run(login_with_playwright_password(phone, password, **kwargs))
 
 
 def _powershell_single_quote(value: str) -> str:

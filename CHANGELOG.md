@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.13.0
+
+### Changed
+
+- 推荐登录入口调整为先创建 `OopzConfig(...)`，再调用 `await config.login(...)`。
+- 添加`from_env_async`和`from_env`使用环境变量的方法
+- 修复`RetryConfig`中语义不一致的问题, 将`rate_limit`和`request_config`的设置从`retry`中分离, 将 `RateLimitConfig` 中 `interval`
+的值置零, 默认不设置请求频率控制
+
+### Deprecated
+
+- `OopzConfig.from_password()`
+- `OopzConfig.from_password_env()`
+- `OopzConfig.from_password_env_sync()`
+
 ## 0.12.0
 
 ### 修复

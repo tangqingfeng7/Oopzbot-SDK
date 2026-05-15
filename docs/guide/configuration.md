@@ -6,20 +6,13 @@ SDK 的所有能力都从 `OopzConfig` 开始。
 from oopz_sdk import OopzConfig, RetryConfig, HeartbeatConfig, ProxyConfig
 
 config = OopzConfig.from_env(
-    retry=RetryConfig(interval=0.35, timeout=(10, 30), max_attempts=3),
+    retry=RetryConfig(max_attempts=3),
     heartbeat=HeartbeatConfig(interval=10.0, reconnect_interval=2.0),
     proxy=ProxyConfig(http="http://127.0.0.1:7890", https="http://127.0.0.1:7890"),
 )
 ```
 
-## 必填配置
-
-| 字段            | 类型                       | 说明                           |
-|---------------|--------------------------|------------------------------|
-| `device_id`   | `str`                    | 设备 ID。不能为空。                  |
-| `person_uid`  | `str`                    | 当前登录账号 UID，通常也是机器人 UID。不能为空。 |
-| `jwt_token`   | `str`                    | 登录态 JWT。不能为空。                |
-| `private_key` | `str \| bytes \| key object` | RSA 私钥，用于签名请求。不能为空。           |
+登录方法详见[认证与凭据](../reference/auth.md)
 
 ## 接受来自域的事件推送
 
@@ -43,20 +36,16 @@ await bot.ws.send_subscribe_area_events(area_ids)
 from oopz_sdk import OopzBot, OopzConfig
 
 config = OopzConfig(
-    device_id="...",
-    person_uid="...",
-    jwt_token="...",
-    private_key="...",
-
     auto_subscribe_joined_areas=True,
 )
+
+config.login("手机号", "密码")
 
 bot = OopzBot(config)
 
 @bot.on_ready
 async def ready(ctx):
     print("Bot ready, joined area events subscribed")
-
 ```
 
 这个功能会在机器人启动后自动查询已加入的域，并订阅这些域的事件推送。这样当有用户进入退出房间、域设置更改等事件时，机器人就能及时收到通知。
@@ -96,7 +85,7 @@ from oopz_sdk import OopzConfig
 
 
 async def main():
-    config = await OopzConfig.from_password_env()
+    config = await OopzConfig.from_env_async()
     print(config.person_uid)
 
 
@@ -122,9 +111,18 @@ asyncio.run(main())
 
 | 字段             | 默认值        | 说明                                          |
 |----------------|------------|---------------------------------------------|
-| `interval`     | `0.35`     | 请求之间的基础间隔，也兼容 `config.rate_limit_interval`。 |
-| `timeout`      | `(10, 30)` | 连接超时和读取超时。                                  |
 | `max_attempts` | `3`        | 最大尝试次数。                                     |
+
+
+## 请求配置 `RequestConfig`
+
+| `timeout`      | `(10, 30)` | 连接超时和读取超时。                                  |
+
+
+## 全局请求频率限制配置 `RateLimitConfig`
+
+| `interval`     | `0.0`     | 全局请求之间的基础间隔，也兼容 `config.rate_limit_interval`。 |
+
 
 ## 心跳配置 `HeartbeatConfig`
 
