@@ -72,6 +72,11 @@ async def on_role_change(ctx, event):
 
 ## Oopz 原生 event code 到 SDK event name 映射
 
+
+!!! warning "注意"
+    默认情况下, SDK是不会收到来自域的事件 (例如域的设置更改, 用户进入退出房间等) 推送的, 需要进行手动注册。
+    请查看 [接受来自域的事件推送](../configuration/#接受来自域的事件推送) 章节了解如何订阅域事件。
+
 还在不断完善中，欢迎提交 PR 进行补充：
 
 | Oopz event code | SDK event name         | 模型                          | 说明          |
