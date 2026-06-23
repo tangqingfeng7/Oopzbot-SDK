@@ -332,12 +332,6 @@ class OopzBot:
             event = self.parser.parse(raw)
             ctx = self._make_context(event=event)
 
-            if isinstance(event, AuthEvent) and event.code != 0:
-                detail = event.message or "authentication rejected by server"
-                raise OopzAuthError(
-                    f"WebSocket authentication failed (code={event.code}): {detail}"
-                )
-
             if isinstance(event, MessageEvent) and self._should_ignore_self_message(event.message):
                 return
 
