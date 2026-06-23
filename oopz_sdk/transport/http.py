@@ -11,10 +11,13 @@ import aiohttp
 from oopz_sdk.auth.headers import build_oopz_headers
 from oopz_sdk.auth.signer import Signer
 from oopz_sdk.config.settings import OopzConfig
-from oopz_sdk.exceptions import OopzConnectionError, OopzApiError, OopzRateLimitError
+from oopz_sdk.exceptions import OopzAuthError, OopzConnectionError, OopzApiError, OopzRateLimitError
 from oopz_sdk.utils.payload import coerce_bool, safe_json
 from .base import BaseTransport
 from .proxy import build_aiohttp_proxy
+
+# Oopz returns 428 when its signed credential precondition is no longer valid.
+AUTH_FAILURE_STATUS_CODES = frozenset({401, 403, 428})
 
 def _build_timeout(timeout: float | tuple[float, float]) -> aiohttp.ClientTimeout:
     if isinstance(timeout, tuple):
@@ -209,6 +212,13 @@ class HttpTransport(BaseTransport):
             raise OopzRateLimitError(
                 message=message, retry_after=self._retry_after_seconds(resp), status_code=429,
                 payload=payload, response=resp
+            )
+
+        if resp.status_code in AUTH_FAILURE_STATUS_CODES:
+            payload = safe_json(resp)
+            detail = self._error_message(payload, default=f"HTTP {resp.status_code}")
+            raise OopzAuthError(
+                f"Oopz authentication failed (HTTP {resp.status_code}): {detail}"
             )
 
         if resp.status_code != 200:

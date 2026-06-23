@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import base64
 import getpass
 import json
 import logging
@@ -20,6 +19,7 @@ from typing import Any, Mapping
 
 from oopz_sdk.config.settings import OopzConfig, ProxyConfig
 from oopz_sdk.exceptions.auth import OopzPasswordLoginError
+from oopz_sdk.utils.jwt import decode_jwt_payload
 
 logger = logging.getLogger(__name__)
 
@@ -185,12 +185,7 @@ def _mask(value: str | None, keep: int = 4) -> str:
 
 
 def _jwt_payload(token: str) -> dict[str, Any]:
-    try:
-        part = token.split(".")[1]
-        part += "=" * (-len(part) % 4)
-        return json.loads(base64.urlsafe_b64decode(part.encode("utf-8")))
-    except Exception:
-        return {}
+    return decode_jwt_payload(token)
 
 
 def _jwt_exp_info(token: str) -> dict[str, Any]:

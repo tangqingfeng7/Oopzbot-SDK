@@ -13,7 +13,9 @@ from oopz_sdk.state.cache import CacheStore
 
 from .rest import OopzRESTClient
 from .ws import CloseInfo, OopzWSClient
+from ..exceptions import OopzAuthError
 from ..models import Message, MessageEvent
+from ..models.event import AuthEvent
 
 logger = logging.getLogger(__name__)
 
@@ -330,6 +332,12 @@ class OopzBot:
             event = self.parser.parse(raw)
             ctx = self._make_context(event=event)
 
+            if isinstance(event, AuthEvent) and event.code != 0:
+                detail = event.message or "authentication rejected by server"
+                raise OopzAuthError(
+                    f"WebSocket authentication failed (code={event.code}): {detail}"
+                )
+
             if isinstance(event, MessageEvent) and self._should_ignore_self_message(event.message):
                 return
 
@@ -430,6 +438,8 @@ class OopzBot:
                 len(area_ids),
             )
 
+        except OopzAuthError:
+            raise
         except Exception as exc:
             logger.error("Failed to subscribe joined area events: %s", exc)
 
@@ -438,5 +448,7 @@ class OopzBot:
             return
         try:
             await self.person.get_self_detail(force=True)
+        except OopzAuthError:
+            raise
         except Exception as exc:
             logger.warning("Failed to warm up self identity cache: %s", exc)

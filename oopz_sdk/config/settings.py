@@ -198,7 +198,7 @@ class OopzConfig:
     def __post_init__(self) -> None:
         self.device_id = str(self.device_id or "").strip()
         self.person_uid = str(self.person_uid or "").strip()
-        self.jwt_token = str(self.jwt_token or "").strip()
+        self.jwt_token = self._normalize_jwt_token(self.jwt_token)
 
         if self.has_credentials() and self._is_missing_private_key(self.private_key):
             self.private_key = self._fallback_private_key()
@@ -209,6 +209,14 @@ class OopzConfig:
         if not text:
             raise ValueError(f"{field_name} is required")
         return text
+
+    @staticmethod
+    def _normalize_jwt_token(value: Any) -> str:
+        """Remove whitespace and accidental shell quotes around a JWT value."""
+        token = str(value or "").strip()
+        if len(token) >= 2 and token[0] == token[-1] and token[0] in {"'", '"'}:
+            return token[1:-1].strip()
+        return token
 
     @staticmethod
     def _is_missing_private_key(value: Any) -> bool:
@@ -256,6 +264,13 @@ class OopzConfig:
 
     def ensure_credentials(self) -> None:
         if self.has_credentials():
+            from oopz_sdk.exceptions import OopzAuthError
+            from oopz_sdk.utils.jwt import jwt_expired
+
+            if jwt_expired(self.jwt_token):
+                raise OopzAuthError(
+                    "JWT token has expired. Update OOPZ_JWT_TOKEN or log in again before starting the client."
+                )
             if self._is_missing_private_key(self.private_key):
                 self.private_key = self._fallback_private_key()
             return
