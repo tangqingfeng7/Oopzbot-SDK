@@ -15,7 +15,6 @@ from .rest import OopzRESTClient
 from .ws import CloseInfo, OopzWSClient
 from ..exceptions import OopzAuthError
 from ..models import Message, MessageEvent
-from ..models.event import AuthEvent
 
 logger = logging.getLogger(__name__)
 
