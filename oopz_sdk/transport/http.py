@@ -11,19 +11,17 @@ import aiohttp
 from oopz_sdk.auth.headers import build_oopz_headers
 from oopz_sdk.auth.signer import Signer
 from oopz_sdk.config.settings import OopzConfig
-from oopz_sdk.exceptions import OopzAuthError, OopzConnectionError, OopzApiError, OopzRateLimitError
+from oopz_sdk.exceptions import (
+    AUTH_FAILURE_STATUS_CODES,
+    OopzApiError,
+    OopzAuthError,
+    OopzConnectionError,
+    OopzRateLimitError,
+)
 from oopz_sdk.utils.payload import coerce_bool, safe_json
 from .base import BaseTransport
 from .proxy import build_aiohttp_proxy
 
-# Status codes that mean the *credential itself* is no longer usable, so the
-# whole client should stop instead of retrying. Oopz returns 428 when its signed
-# credential precondition is no longer valid.
-#
-# 403 is intentionally excluded: Oopz uses 403 for per-resource permission
-# denials (e.g. posting to a channel the bot has no rights in), which are normal
-# business responses and must not tear down the entire client.
-AUTH_FAILURE_STATUS_CODES = frozenset({401, 428})
 
 def _build_timeout(timeout: float | tuple[float, float]) -> aiohttp.ClientTimeout:
     if isinstance(timeout, tuple):
@@ -152,15 +150,15 @@ class HttpTransport(BaseTransport):
             raise OopzConnectionError(f"request failed: {exc}") from exc
 
     async def request_raw(
-            self,
-            method: str,
-            url: str,
-            *,
-            params: Mapping[str, Any] | None = None,
-            data: bytes | str | None = None,
-            headers: Mapping[str, str] | None = None,
-            timeout: float | tuple[float, float] | None = None,
-            throttle: bool = False,
+        self,
+        method: str,
+        url: str,
+        *,
+        params: Mapping[str, Any] | None = None,
+        data: bytes | str | None = None,
+        headers: Mapping[str, str] | None = None,
+        timeout: float | tuple[float, float] | None = None,
+        throttle: bool = False,
     ) -> HttpResponse:
         method = method.upper()
         if throttle:
@@ -171,13 +169,13 @@ class HttpTransport(BaseTransport):
 
         try:
             async with session.request(
-                    method,
-                    url,
-                    params=params,
-                    data=data,
-                    headers=dict(headers or {}),
-                    timeout=req_timeout,
-                    proxy=proxy,
+                method,
+                url,
+                params=params,
+                data=data,
+                headers=dict(headers or {}),
+                timeout=req_timeout,
+                proxy=proxy,
             ) as resp:
                 content = await resp.read()
                 try:
@@ -203,12 +201,12 @@ class HttpTransport(BaseTransport):
         return await self.request("GET", url_path, params=params)
 
     async def request_json(
-            self,
-            method: str,
-            path: str,
-            *,
-            params: Mapping[str, Any] | None = None,
-            body: Mapping[str, Any] | list | None = None,
+        self,
+        method: str,
+        path: str,
+        *,
+        params: Mapping[str, Any] | None = None,
+        body: Mapping[str, Any] | list | None = None,
     ) -> Any:
         resp = await self.request(
             method,
@@ -284,16 +282,14 @@ class HttpTransport(BaseTransport):
         return data
 
     async def request_data(
-            self,
-            method: str,
-            path: str,
-            *,
-            params: Mapping[str, Any] | None = None,
-            body: Mapping[str, Any] | list | None = None,
+        self,
+        method: str,
+        path: str,
+        *,
+        params: Mapping[str, Any] | None = None,
+        body: Mapping[str, Any] | list | None = None,
     ) -> Any:
-        json_data = await self.request_json(
-            method, path, params=params,
-            body=body)
+        json_data = await self.request_json(method, path, params=params, body=body)
         if "data" not in json_data:
             raise OopzApiError(
                 "response JSON does not contain 'data' field",
@@ -303,14 +299,14 @@ class HttpTransport(BaseTransport):
         return json_data["data"]
 
     async def request_data_with_retry(
-            self,
-            method: str,
-            path: str,
-            *,
-            params: Mapping[str, Any] | None = None,
-            body: Mapping[str, Any] | None = None,
-            max_attempts: int | None = None,
-            retry_on_429: bool = False,
+        self,
+        method: str,
+        path: str,
+        *,
+        params: Mapping[str, Any] | None = None,
+        body: Mapping[str, Any] | None = None,
+        max_attempts: int | None = None,
+        retry_on_429: bool = False,
     ) -> Any:
         if max_attempts is None:
             max_attempts = self.config.retry.max_attempts

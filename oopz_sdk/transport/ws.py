@@ -5,12 +5,25 @@ import logging
 import aiohttp
 
 from oopz_sdk.config.settings import OopzConfig, ProxyConfig
+from oopz_sdk.exceptions import (
+    AUTH_FAILURE_STATUS_CODES,
+    OopzAuthError,
+    OopzConnectionError,
+    OopzTransportError,
+)
 from .proxy import build_aiohttp_proxy
 
 logger = logging.getLogger(__name__)
 
 
-class WebSocketClosedError(ConnectionError):
+class WebSocketClosedError(OopzTransportError):
+    """WebSocket 连接被关闭。
+
+    归入 ``OopzTransportError`` 谱系（与 HTTP 层的 ``OopzConnectionError`` 一致），
+    使调用方可用单一 SDK 传输异常基类捕获所有传输层错误，而非混用内置
+    ``ConnectionError``。
+    """
+
     def __init__(self, *, code: int | None, reason: str):
         super().__init__(reason)
         self.code = code
@@ -29,12 +42,28 @@ class WebSocketTransport:
 
         proxy = build_aiohttp_proxy(self.config.ws_url, getattr(self.config, "proxy", ProxyConfig()))
 
-        self._ws = await self._session.ws_connect(
-            self.config.ws_url,
-            proxy=proxy,
-            heartbeat=None,
-            autoping=True,
-        )
+        try:
+            self._ws = await self._session.ws_connect(
+                self.config.ws_url,
+                proxy=proxy,
+                heartbeat=None,
+                autoping=True,
+            )
+        except aiohttp.WSServerHandshakeError as exc:
+            # 服务端在握手阶段直接以 401/428 拒绝失效 token：升级为 OopzAuthError，
+            # 让上层（OopzWSClient）尝试续期恢复或上报停机，避免持死 token 无限重连。
+            if exc.status in AUTH_FAILURE_STATUS_CODES:
+                raise OopzAuthError(
+                    f"WebSocket 握手鉴权失败 (HTTP {exc.status}): {exc.message}",
+                    status_code=exc.status,
+                ) from exc
+            # 其余握手失败统一包装为 OopzConnectionError，与 HTTP 传输层一致，
+            # 对外暴露稳定的 SDK 异常类型而非泄漏 aiohttp 内部异常。
+            raise OopzConnectionError(
+                f"WebSocket 握手失败 (HTTP {exc.status}): {exc.message}"
+            ) from exc
+        except aiohttp.ClientError as exc:
+            raise OopzConnectionError(f"WebSocket 连接失败: {exc}") from exc
 
     async def recv(self) -> str:
         if self._ws is None:

@@ -57,6 +57,7 @@ EVENT_MESSAGE_EDIT = 57 # 群聊消息编辑事件
 
 EVENT_SUBSCRIBE_AREA_EVENTS = 249 # 加入域, 接收来自域的事件推送
 EVENT_AUTH = 253
+EVENT_AUTH_RESULT = 21 # 鉴权校验结果，body.checkRes=false 表示凭据被服务端拒绝（与 EVENT_AUTH 配套）
 EVENT_HEARTBEAT = 254 # 心跳
 
 ATTACHMENT_TYPE_IMAGE = "IMAGE"

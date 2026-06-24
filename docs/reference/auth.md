@@ -130,7 +130,7 @@ config.login(
 | `OOPZ_JWT_TOKEN`   | 登录态 JWT。    |
 | `OOPZ_PRIVATE_KEY` | RSA 私钥 PEM。 |
 | `OOPZ_LOGIN_PHONE` | 登录的手机号。     |
-| `OOPZ_LOGIN_PHONE` | 登录的密码。      |
+| `OOPZ_LOGIN_PASSWORD` | 登录的密码。      |
 | `OOPZ_APP_VERSION` | 可选，客户端版本。   |
 
 `from_env`同样可以指定登录方式：
@@ -220,6 +220,59 @@ if __name__ == "__main__":
 ```
 
 
+
+---
+
+## 无人值守续期（`AuthManager`）
+
+`OopzBot` 内置统一认证管理组件 `AuthManager`，由 Bot 生命周期托管，自动处理 JWT 临期续期、鉴权失效后的单次重登重试，以及不可恢复时上报停机。
+
+- 提供续期凭据后即可无人值守运行：token 临期会自动续期并用新 token 重连；REST 命中 `401`/`428` 会先尝试续期并对该请求重试一次。
+- 未提供续期凭据（仅静态 `jwt_token`）时维持原行为：鉴权失效即上报停机，**不会**用失效 token 无限重连。
+- 续期沿用现有 `device_id` 保持身份稳定，走 API 登录（非浏览器），不需要验证码交互。
+
+### 启用方式
+
+最常见的是直接给 `OopzBot` 传账号密码，由 SDK 构造续期回调：
+
+```python
+from oopz_sdk import OopzBot, OopzConfig
+
+config = OopzConfig.from_env()  # 或已有 jwt 凭据
+bot = OopzBot(
+    config,
+    login_phone="...",
+    login_password="...",
+)
+```
+
+也可以传入自定义续期回调 `auth_relogin`（一个返回 `OopzLoginCredentials` 的 async 函数），适合自带登录流程或凭据来源的场景：
+
+```python
+from oopz_sdk import OopzBot, OopzConfig, login_with_password
+
+async def relogin():
+    return await login_with_password(phone="...", password="...")
+
+bot = OopzBot(config, auth_relogin=relogin)
+```
+
+### 构造参数
+
+| 参数                               | 类型                | 默认值   | 说明                                                         |
+|----------------------------------|-------------------|-------|------------------------------------------------------------|
+| `login_phone`                    | `str \| None`     | `None` | 续期用手机号；与 `login_password` 同时提供时自动启用无人值守续期。                |
+| `login_password`                 | `str \| None`     | `None` | 续期用密码。                                                     |
+| `auth_relogin`                   | `Callable \| None`| `None` | 自定义续期回调（async，返回 `OopzLoginCredentials`）；优先级高于手机号/密码。      |
+| `auth_refresh_threshold_seconds` | `float \| None`   | `300` | 临期阈值（秒）。token 剩余有效期低于该值即触发主动续期。                            |
+
+### 高级用法
+
+如果需要在自定义客户端里复用，可直接从顶层导入：
+
+```python
+from oopz_sdk import AuthManager
+```
 
 ---
 

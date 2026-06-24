@@ -4,12 +4,13 @@
 
 ### 新增
 
-- 新增统一认证管理组件 `AuthManager`（`oopz_sdk.auth.AuthManager`），由 `OopzBot` 生命周期托管，统一处理 JWT 临期续期、鉴权失效后的单次重登重试，以及不可恢复时上报停机：
+- 新增统一认证管理组件 `AuthManager`（可从 `oopz_sdk` 或 `oopz_sdk.auth` 导入），由 `OopzBot` 生命周期托管，统一处理 JWT 临期续期、鉴权失效后的单次重登重试，以及不可恢复时上报停机：
   - `OopzBot(..., login_phone=..., login_password=...)` 或自定义 `auth_relogin` 回调即可启用无人值守续期；未提供时退化为「失效即上报」，与原行为一致。
   - REST：命中 `401`/`428` 时若可续期，自动重登并对该请求重试一次；不可恢复则抛 `OopzAuthError`。
-  - WebSocket：运行期 JWT 临期由后台任务主动续期并用新 token 重连；鉴权失效（`OopzAuthError`）先尝试续期恢复，不可恢复才升级为致命错误停止重连。
-  - 续期沿用现有 `device_id` 保持身份稳定，并通过 `config._apply_login_credentials` 写回，REST 请求头与 WS 鉴权帧随即使用新 token；`Signer.reload_key()` 用于私钥轮换同步。
+  - WebSocket：运行期 JWT 临期由后台任务主动续期并用新 token 重连（计划内轮换走静默干净重连，不触发 `on_error`）；握手被 `401`/`428` 拒绝、或运行期鉴权校验失败（服务端 `event=21` 且 `body.checkRes=false`）均升级为 `OopzAuthError`，先尝试续期恢复，不可恢复才升级为致命错误停止重连，避免用失效 token 无限重连。
+  - 续期沿用现有 `device_id` 保持身份稳定，新凭据就地写回当前 `OopzConfig`，REST 请求头与 WS 鉴权帧随即使用新 token；私钥轮换会同步刷新签名器。
   - `auth_refresh_threshold_seconds` 可配置临期阈值（默认 300 秒）。
+  - 无人值守续期遇瞬时错误（网络/超时/5xx，`OopzConnectionError`）会有限次退避重试，仅凭据被拒（`OopzAuthError`）才上报为不可恢复并停机。
 
 ### 修复
 

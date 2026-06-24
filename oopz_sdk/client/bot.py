@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any
 
@@ -145,10 +146,12 @@ class OopzBot:
     def _make_password_relogin(config, phone: str, password: str):
         """构造无人值守续期回调：用 API 密码登录并复用现有 device_id 保持身份稳定。
 
-        续期走 API 登录（非浏览器），避免触发验证码/风控交互；账号或密码失效会抛
-        OopzAuthError，由 AuthManager 上报为不可恢复。
+        刻意只走 API 登录、不调用统一入口 ``login_with_password``，因为后者在 API
+        失败时会回退到 Playwright 浏览器登录，可能触发验证码/风控交互——这在无人
+        值守续期场景不可接受。账号或密码失效会抛 OopzAuthError，由 AuthManager 上
+        报为不可恢复；网络/超时/5xx 等瞬时错误抛 OopzConnectionError，由 AuthManager
+        退避重试。
         """
-        import asyncio
 
         async def _relogin():
             from oopz_sdk.auth.api_password_login import login_with_api_password

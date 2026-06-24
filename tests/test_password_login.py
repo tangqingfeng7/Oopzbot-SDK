@@ -879,3 +879,69 @@ def test_resolve_chromium_executable_path_returns_existing_path(tmp_path) -> Non
         password_login_module._resolve_chromium_executable_path(str(fake_exe))
         == str(fake_exe)
     )
+
+
+# ---------------------------------------------------------------------------
+# API 登录：瞬时（可重试）vs 永久（凭据失效）错误分类
+# ---------------------------------------------------------------------------
+
+
+class _FakeResponse:
+    def __init__(self, *, status_code: int, payload: object = None) -> None:
+        self.status_code = status_code
+        self._payload = payload
+
+    def json(self):
+        if self._payload is None:
+            raise ValueError("no json")
+        return self._payload
+
+
+def test_api_login_network_error_raises_connection_error(monkeypatch) -> None:
+    """网络错误属瞬时故障，应抛 OopzConnectionError（非 OopzAuthError 子类）。"""
+    import requests
+    import oopz_sdk.auth.api_password_login as api_module
+    from oopz_sdk.exceptions import OopzAuthError, OopzConnectionError
+
+    def _raise(*_args, **_kwargs):
+        raise requests.exceptions.ConnectionError("connection reset")
+
+    monkeypatch.setattr(api_module.requests, "post", _raise)
+
+    with pytest.raises(OopzConnectionError) as exc_info:
+        api_module.login_with_api_password("phone-1", "password-1", device_id="dev-1")
+    # 关键：不得是 OopzAuthError 子类，否则会被 AuthManager 误判为永久停机。
+    assert not isinstance(exc_info.value, OopzAuthError)
+
+
+def test_api_login_server_5xx_raises_connection_error(monkeypatch) -> None:
+    """5xx 属服务端瞬时不可用，应抛 OopzConnectionError。"""
+    import oopz_sdk.auth.api_password_login as api_module
+    from oopz_sdk.exceptions import OopzAuthError, OopzConnectionError
+
+    monkeypatch.setattr(
+        api_module.requests, "post", lambda *a, **k: _FakeResponse(status_code=503)
+    )
+
+    with pytest.raises(OopzConnectionError) as exc_info:
+        api_module.login_with_api_password("phone-1", "password-1", device_id="dev-1")
+    assert not isinstance(exc_info.value, OopzAuthError)
+
+
+def test_api_login_credential_rejection_raises_password_login_error(monkeypatch) -> None:
+    """业务 status=false（如密码错误）属永久失败，保持 OopzPasswordLoginError。"""
+    import oopz_sdk.auth.api_password_login as api_module
+    from oopz_sdk.exceptions import OopzAuthError, OopzPasswordLoginError
+
+    monkeypatch.setattr(
+        api_module.requests,
+        "post",
+        lambda *a, **k: _FakeResponse(
+            status_code=200, payload={"status": False, "message": "密码错误"}
+        ),
+    )
+
+    with pytest.raises(OopzPasswordLoginError) as exc_info:
+        api_module.login_with_api_password("phone-1", "password-1", device_id="dev-1")
+    # 永久失败必须是 OopzAuthError 子类，以便 AuthManager 上报为不可恢复并停机。
+    assert isinstance(exc_info.value, OopzAuthError)

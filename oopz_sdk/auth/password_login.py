@@ -784,6 +784,7 @@ async def login_with_password(
 ) -> OopzLoginCredentials:
     """统一密码登录入口：默认先尝试 API，失败后回退到 Playwright。"""
     from oopz_sdk.auth.api_password_login import login_with_api_password
+    from oopz_sdk.exceptions.transport import OopzConnectionError
 
     api_kwargs = {
         key: value
@@ -793,11 +794,16 @@ async def login_with_password(
 
     try:
         return await asyncio.to_thread(login_with_api_password, phone, password, **api_kwargs)
+    except OopzConnectionError:
+        # API 瞬时不可用（网络/超时/5xx）：回退浏览器登录再试一次。
+        reason = "API 登录瞬时失败（网络/超时/5xx）"
     except OopzPasswordLoginError as exc:
         if not _should_fallback_to_browser(exc):
             raise
-        warnings.warn("OOPZ API 登录失败，正在尝试使用Playwright登录")
-        return await login_with_playwright_password(phone, password, **kwargs)
+        reason = "API 登录失败"
+
+    warnings.warn(f"OOPZ {reason}，正在尝试使用 Playwright 登录")
+    return await login_with_playwright_password(phone, password, **kwargs)
 
 
 def login_with_password_sync(phone: str, password: str, **kwargs: Any) -> OopzLoginCredentials:

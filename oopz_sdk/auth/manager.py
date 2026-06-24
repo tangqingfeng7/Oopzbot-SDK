@@ -10,7 +10,7 @@ import time
 from typing import TYPE_CHECKING, Awaitable, Callable, Optional
 
 from oopz_sdk.config.settings import OopzConfig
-from oopz_sdk.exceptions import OopzAuthError
+from oopz_sdk.exceptions import OopzAuthError, OopzConnectionError
 from oopz_sdk.utils.jwt import decode_jwt_payload
 
 if TYPE_CHECKING:
@@ -22,6 +22,10 @@ ReloginCallback = Callable[[], Awaitable["OopzLoginCredentials"]]
 TokenListener = Callable[[OopzConfig], None]
 
 DEFAULT_REFRESH_THRESHOLD_SECONDS = 300.0
+# 重登遇瞬时错误(OopzConnectionError)时的有限次退避重试，避免一次网络抖动/5xx
+# 就被反应式路径误判为不可恢复而停机；耗尽后才返回失败交由调用方决策。
+DEFAULT_RELOGIN_MAX_ATTEMPTS = 3
+DEFAULT_RELOGIN_BACKOFF_SECONDS = 1.0
 
 
 class AuthManager:
@@ -33,10 +37,14 @@ class AuthManager:
         *,
         relogin: Optional[ReloginCallback] = None,
         refresh_threshold_seconds: float = DEFAULT_REFRESH_THRESHOLD_SECONDS,
+        relogin_max_attempts: int = DEFAULT_RELOGIN_MAX_ATTEMPTS,
+        relogin_backoff_seconds: float = DEFAULT_RELOGIN_BACKOFF_SECONDS,
     ) -> None:
         self._config = config
         self._relogin = relogin
         self._refresh_threshold = max(0.0, float(refresh_threshold_seconds))
+        self._relogin_max_attempts = max(1, int(relogin_max_attempts))
+        self._relogin_backoff_seconds = max(0.0, float(relogin_backoff_seconds))
         self._lock = asyncio.Lock()
         self._token_version = 0
         self._listeners: list[TokenListener] = []
@@ -71,7 +79,13 @@ class AuthManager:
         return exp - (time.time() if now is None else now)
 
     def needs_refresh(self, *, now: float | None = None) -> bool:
-        """token 是否已进入临期窗口（含已过期）。无 exp 时返回 False。"""
+        """token 是否已进入临期窗口（含已过期）。无 exp 时返回 False。
+
+        这里刻意不像 ``jwt_expired`` 那样再叠加时钟容差(leeway)，续期阈值
+        (``refresh_threshold``，默认 300s) 本身就是一段提前量，已经覆盖了本地时钟偏差，
+        时钟偏快只会让续期“提前”发生（安全方向），不会像启动期硬校验那样误拒有效 token，
+        故无需额外 leeway。
+        """
         remaining = self.seconds_until_expiry(now=now)
         if remaining is None:
             return False
@@ -85,7 +99,7 @@ class AuthManager:
             return False
         return await self.refresh()
 
-    async def handle_auth_error(self, error: BaseException | None = None) -> bool:
+    async def handle_auth_error(self, error: OopzAuthError | None = None) -> bool:
         """鉴权失效后的单次重登尝试。
 
         返回 True 表示已用新 token 恢复，调用方可重试一次；返回 False 表示不可
@@ -93,6 +107,10 @@ class AuthManager:
         """
         if not self.can_refresh:
             return False
+        logger.debug(
+            "AuthManager 处理鉴权失效，尝试强制续期 (status_code=%s)",
+            getattr(error, "status_code", None),
+        )
         return await self.refresh(force=True)
 
     async def refresh(self, *, force: bool = False) -> bool:
@@ -113,14 +131,8 @@ class AuthManager:
             if not force and not self.needs_refresh():
                 return True
 
-            assert self._relogin is not None
-            try:
-                credentials = await self._relogin()
-            except OopzAuthError:
-                # 凭据被服务端拒绝（账号/密码失效等），属不可恢复，直接上报。
-                raise
-            except Exception as exc:
-                logger.warning("AuthManager 重新登录失败: %s", exc)
+            credentials = await self._relogin_with_transient_retry()
+            if credentials is None:
                 return False
 
             self._apply(credentials)
@@ -128,6 +140,48 @@ class AuthManager:
                 "AuthManager 已刷新凭据 (token_version=%d)", self._token_version
             )
             return True
+
+    async def _relogin_with_transient_retry(
+        self,
+    ) -> Optional["OopzLoginCredentials"]:
+        """执行一次重登，并对瞬时错误做有限次退避重试。
+
+        - 凭据被服务端拒绝(``OopzAuthError``)：账号/密码失效等，属不可恢复，直接
+          上抛，由调用方上报停机。
+        - 瞬时连接错误(``OopzConnectionError``，网络/超时/5xx)：退避重试，耗尽后
+          返回 ``None``（可恢复失败，调用方可稍后再试），不升级为永久停机。
+        - 其它异常：记录并返回 ``None``。
+        """
+        assert self._relogin is not None
+        last_error: OopzConnectionError | None = None
+        for attempt in range(1, self._relogin_max_attempts + 1):
+            try:
+                return await self._relogin()
+            except OopzAuthError:
+                raise
+            except OopzConnectionError as exc:
+                last_error = exc
+                if attempt >= self._relogin_max_attempts:
+                    break
+                backoff = self._relogin_backoff_seconds * attempt
+                logger.warning(
+                    "AuthManager 重登遇瞬时错误，%.1fs 后第 %d 次重试: %s",
+                    backoff,
+                    attempt + 1,
+                    exc,
+                )
+                if backoff > 0:
+                    await asyncio.sleep(backoff)
+            except Exception as exc:
+                logger.warning("AuthManager 重新登录失败: %s", exc)
+                return None
+
+        logger.warning(
+            "AuthManager 重登瞬时错误重试 %d 次仍失败: %s",
+            self._relogin_max_attempts,
+            last_error,
+        )
+        return None
 
     def _apply(self, credentials: "OopzLoginCredentials") -> None:
         self._config._apply_login_credentials(credentials)
