@@ -57,12 +57,14 @@ class OopzWSClient:
         self._receive_task: asyncio.Task | None = None
         self._heartbeat_task: asyncio.Task | None = None
         self._refresh_task: asyncio.Task | None = None
+        self._refresh_fatal_error: Exception | None = None
         self._consecutive_failures = 0
         self._has_connected_once = False
 
     async def start(self) -> None:
         self._running = True
         self._stop_event.clear()
+        self._refresh_fatal_error = None
 
         if self._auth_manager is not None and self._auth_manager.can_refresh:
             self._refresh_task = asyncio.create_task(self._token_refresh_loop())
@@ -143,6 +145,9 @@ class OopzWSClient:
                         if fatal_error is None:
                             fatal_error = callback_exc.original
 
+            if fatal_error is None and self._refresh_fatal_error is not None:
+                fatal_error = self._refresh_fatal_error
+
             if fatal_error is not None:
                 await self._cancel_refresh_task()
                 raise fatal_error
@@ -164,6 +169,10 @@ class OopzWSClient:
                 pass
 
         await self._cancel_refresh_task()
+
+        # 后台续期遇到不可恢复的鉴权失败时，在此向上抛出以触发全局停机。
+        if self._refresh_fatal_error is not None:
+            raise self._refresh_fatal_error
 
     async def stop(self) -> None:
         self._running = False
@@ -215,9 +224,13 @@ class OopzWSClient:
 
                 try:
                     refreshed = await manager.refresh()
-                except OopzAuthError:
-                    # 续期被服务端拒绝（不可恢复）：关闭连接，让主循环按鉴权失败处理。
-                    logger.warning("token 续期被拒绝，触发连接关闭以上报")
+                except OopzAuthError as exc:
+                    # 续期被服务端拒绝（不可恢复）：记录致命错误并停止整个客户端，
+                    # 由主循环退出后向上抛出，触发全局停机。
+                    logger.warning("token 续期被拒绝，触发全局停机: %s", exc)
+                    self._refresh_fatal_error = exc
+                    self._running = False
+                    self._stop_event.set()
                     await self.transport.close()
                     return
                 except Exception:
