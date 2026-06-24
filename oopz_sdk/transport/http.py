@@ -16,8 +16,14 @@ from oopz_sdk.utils.payload import coerce_bool, safe_json
 from .base import BaseTransport
 from .proxy import build_aiohttp_proxy
 
-# Oopz returns 428 when its signed credential precondition is no longer valid.
-AUTH_FAILURE_STATUS_CODES = frozenset({401, 403, 428})
+# Status codes that mean the *credential itself* is no longer usable, so the
+# whole client should stop instead of retrying. Oopz returns 428 when its signed
+# credential precondition is no longer valid.
+#
+# 403 is intentionally excluded: Oopz uses 403 for per-resource permission
+# denials (e.g. posting to a channel the bot has no rights in), which are normal
+# business responses and must not tear down the entire client.
+AUTH_FAILURE_STATUS_CODES = frozenset({401, 428})
 
 def _build_timeout(timeout: float | tuple[float, float]) -> aiohttp.ClientTimeout:
     if isinstance(timeout, tuple):
@@ -218,7 +224,10 @@ class HttpTransport(BaseTransport):
             payload = safe_json(resp)
             detail = self._error_message(payload, default=f"HTTP {resp.status_code}")
             raise OopzAuthError(
-                f"Oopz authentication failed (HTTP {resp.status_code}): {detail}"
+                f"Oopz authentication failed (HTTP {resp.status_code}): {detail}",
+                status_code=resp.status_code,
+                payload=payload,
+                response=resp,
             )
 
         if resp.status_code != 200:

@@ -7,7 +7,7 @@ import logging
 import os
 import warnings
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, ClassVar
 from .constants import DEFAULT_HEADERS
 
 logger = logging.getLogger(__name__)
@@ -145,6 +145,9 @@ class OneBotV11Config:
 
 @dataclass
 class OopzConfig:
+    # Clock-skew tolerance (seconds) for the local JWT expiry pre-check.
+    JWT_EXPIRY_LEEWAY_SECONDS: ClassVar[float] = 60.0
+
     device_id: str = ""
     person_uid: str = ""
     jwt_token: str = ""
@@ -267,7 +270,9 @@ class OopzConfig:
             from oopz_sdk.exceptions import OopzAuthError
             from oopz_sdk.utils.jwt import jwt_expired
 
-            if jwt_expired(self.jwt_token):
+            # Allow a small clock skew so a slightly fast local clock does not
+            # wrongly reject a token that the server still accepts.
+            if jwt_expired(self.jwt_token, leeway=self.JWT_EXPIRY_LEEWAY_SECONDS):
                 raise OopzAuthError(
                     "JWT token has expired. Update OOPZ_JWT_TOKEN or log in again before starting the client."
                 )

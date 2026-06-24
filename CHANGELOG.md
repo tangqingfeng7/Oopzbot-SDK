@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+### 修复
+
+- 认证失败状态码不再把 `403` 当作凭据失效：`403` 通常表示对具体资源无权限（如向无权限频道发消息），属正常业务返回，之前会被升级为 `OopzAuthError` 并导致整个客户端停机。现仅 `401`/`428` 视为凭据失效。
+- `OopzAuthError` 现携带 `status_code`/`payload`/`response`，便于 `on_error` 等处理器编程判断，而非解析报错字符串。
+- `jwt_expired()` 新增 `leeway` 时钟容差参数，`OopzConfig` 启动期 JWT 过期预检默认容忍 `JWT_EXPIRY_LEEWAY_SECONDS`（60 秒），避免本地时钟偏快误判有效 token 过期。
+
+### 说明
+
+- 启动期凭据校验为快速失败语义：`OopzConfig.ensure_credentials()` 检测到本地可判定的 JWT 过期会抛 `OopzAuthError`；`_warmup_self_identity_cache` 在遇到 `OopzAuthError` 时会中断 `OopzBot.start()`（不再仅记录 warning）。
+- 本次改动覆盖的是 REST 侧鉴权失效退出；实时 WebSocket 通道自身的鉴权拒绝（握手被服务端关闭或鉴权应答失败）尚未升级为 `OopzAuthError`，且不含 JWT 续签，留待后续 PR。
+
 ## 0.13.0
 
 ### Changed

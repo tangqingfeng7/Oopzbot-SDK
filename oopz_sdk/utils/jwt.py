@@ -23,9 +23,15 @@ def decode_jwt_payload(token: str) -> dict[str, Any]:
     return payload if isinstance(payload, dict) else {}
 
 
-def jwt_expired(token: str, *, now: float | None = None) -> bool:
-    """Return whether the unverified JWT ``exp`` claim is already past."""
+def jwt_expired(token: str, *, now: float | None = None, leeway: float = 0.0) -> bool:
+    """Return whether the unverified JWT ``exp`` claim is already past.
+
+    ``leeway`` (seconds) guards against a fast local clock: the token is only
+    reported as expired once it is past ``exp`` by at least ``leeway`` seconds,
+    so a small clock skew will not wrongly reject an otherwise valid token.
+    """
     expires_at = decode_jwt_payload(token).get("exp")
     if not isinstance(expires_at, (int, float)):
         return False
-    return expires_at <= (time.time() if now is None else now)
+    now_value = time.time() if now is None else now
+    return expires_at <= (now_value - leeway)
