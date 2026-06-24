@@ -39,6 +39,7 @@ class OopzWSClient:
         on_error: Optional[Callable[[object], Awaitable[None]]] = None,
         on_close: Optional[Callable[[CloseInfo], Awaitable[None] | None]] = None,
         on_reconnect: Optional[Callable[[], Awaitable[None]]] = None,
+        auth_manager=None,
     ):
         config.ensure_credentials()
         self.config = config
@@ -47,6 +48,7 @@ class OopzWSClient:
         self.on_error = on_error
         self.on_close = on_close
         self.on_reconnect = on_reconnect
+        self._auth_manager = auth_manager
 
         self.transport = WebSocketTransport(config)
 
@@ -54,12 +56,16 @@ class OopzWSClient:
         self._stop_event = asyncio.Event()
         self._receive_task: asyncio.Task | None = None
         self._heartbeat_task: asyncio.Task | None = None
+        self._refresh_task: asyncio.Task | None = None
         self._consecutive_failures = 0
         self._has_connected_once = False
 
     async def start(self) -> None:
         self._running = True
         self._stop_event.clear()
+
+        if self._auth_manager is not None and self._auth_manager.can_refresh:
+            self._refresh_task = asyncio.create_task(self._token_refresh_loop())
 
         while self._running:
             fatal_error: Exception | None = None
@@ -89,9 +95,11 @@ class OopzWSClient:
                     exc.original if isinstance(exc, _WebSocketCallbackError) else exc
                 )
                 if isinstance(runtime_error, OopzAuthError):
-                    # Static JWT credentials cannot be refreshed by this client.
-                    # Retrying would only create an endless failed reconnect loop.
-                    fatal_error = runtime_error
+                    # 鉴权失效：若 AuthManager 能续期则重登后继续重连（下一轮
+                    # send_auth 会用新 token）；不可恢复（无重登能力或重登失败）
+                    # 才升级为致命错误，避免用死 token 无限重连。
+                    if not await self._recover_from_auth_error(runtime_error):
+                        fatal_error = runtime_error
                 normal_stop_error = self._is_normal_stop_error(runtime_error)
                 if not normal_stop_error:
                     logger.exception("WebSocket 运行异常: %s", runtime_error)
@@ -136,6 +144,7 @@ class OopzWSClient:
                             fatal_error = callback_exc.original
 
             if fatal_error is not None:
+                await self._cancel_refresh_task()
                 raise fatal_error
 
             if not self._running:
@@ -154,10 +163,73 @@ class OopzWSClient:
             except asyncio.TimeoutError:
                 pass
 
+        await self._cancel_refresh_task()
+
     async def stop(self) -> None:
         self._running = False
         self._stop_event.set()
+        await self._cancel_refresh_task()
         await self.transport.close()
+
+    async def _cancel_refresh_task(self) -> None:
+        if self._refresh_task is None:
+            return
+        self._refresh_task.cancel()
+        try:
+            await self._refresh_task
+        except asyncio.CancelledError:
+            pass
+        except Exception:
+            logger.exception("token 续期任务退出异常")
+        finally:
+            self._refresh_task = None
+
+    async def _recover_from_auth_error(self, error: OopzAuthError) -> bool:
+        """鉴权失效时尝试通过 AuthManager 续期恢复。返回是否恢复成功。"""
+        if self._auth_manager is None:
+            return False
+        try:
+            return await self._auth_manager.handle_auth_error(error)
+        except Exception:
+            logger.exception("AuthManager 处理鉴权失效时异常")
+            return False
+
+    async def _token_refresh_loop(self) -> None:
+        """后台周期检查 JWT 是否临期，临期则续期并用新 token 重连。"""
+        manager = self._auth_manager
+        if manager is None or not manager.can_refresh:
+            return
+
+        # 检查间隔取续期阈值的一半，至少 30 秒，避免空转或错过窗口。
+        interval = max(30.0, manager.refresh_threshold_seconds / 2)
+        try:
+            while self._running:
+                try:
+                    await asyncio.wait_for(self._stop_event.wait(), timeout=interval)
+                    return  # stop_event 被置位，退出
+                except asyncio.TimeoutError:
+                    pass
+
+                if not self._running or not manager.needs_refresh():
+                    continue
+
+                try:
+                    refreshed = await manager.refresh()
+                except OopzAuthError:
+                    # 续期被服务端拒绝（不可恢复）：关闭连接，让主循环按鉴权失败处理。
+                    logger.warning("token 续期被拒绝，触发连接关闭以上报")
+                    await self.transport.close()
+                    return
+                except Exception:
+                    logger.exception("token 续期任务异常")
+                    continue
+
+                if refreshed and self._running:
+                    logger.info("token 已续期，重连以应用新 token")
+                    # 关闭当前连接 → 主循环 recv 抛出 → 用新 token 重连。
+                    await self.transport.close()
+        except asyncio.CancelledError:
+            raise
 
     def _is_normal_stop_error(self, error: Exception) -> bool:
         return not self._running and isinstance(error, WebSocketClosedError)

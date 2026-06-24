@@ -39,8 +39,9 @@ def _run(coro):
 class _StubTransport(HttpTransport):
     """复用 HttpTransport.request_json，但把底层 request 换成受控响应。"""
 
-    def __init__(self, response: HttpResponse) -> None:  # noqa: D401 - 不调用 super
+    def __init__(self, response: HttpResponse, *, auth_manager=None) -> None:  # noqa: D401
         self._response = response
+        self._auth_manager = auth_manager
 
     async def request(self, *args, **kwargs) -> HttpResponse:
         return self._response

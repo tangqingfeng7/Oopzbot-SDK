@@ -50,14 +50,19 @@ class HttpResponse:
 
 
 class HttpTransport(BaseTransport):
-    def __init__(self, config: OopzConfig, signer: Signer):
+    def __init__(self, config: OopzConfig, signer: Signer, *, auth_manager=None):
         self.config = config
         self.signer = signer
         self.headers = dict(config.get_headers())
+        self._auth_manager = auth_manager
 
         self._client_session: aiohttp.ClientSession | None = None
         self._rate_lock = asyncio.Lock()
         self._last_request_time = 0.0
+
+        if auth_manager is not None:
+            # 续期后服务端要求的签名私钥若发生轮换，让 signer 同步刷新。
+            auth_manager.add_token_listener(lambda _config: self.signer.reload_key())
 
     async def _ensure_client_session(self) -> aiohttp.ClientSession:
         if self._client_session is None or self._client_session.closed:
@@ -212,23 +217,34 @@ class HttpTransport(BaseTransport):
             body=body,
         )
 
-        if resp.status_code == 429:
-            payload = safe_json(resp)
-            message = self._error_message(payload, default="HTTP 429")
-            raise OopzRateLimitError(
-                message=message, retry_after=self._retry_after_seconds(resp), status_code=429,
-                payload=payload, response=resp
-            )
+        auth_retry_used = False
+        while True:
+            if resp.status_code == 429:
+                payload = safe_json(resp)
+                message = self._error_message(payload, default="HTTP 429")
+                raise OopzRateLimitError(
+                    message=message, retry_after=self._retry_after_seconds(resp), status_code=429,
+                    payload=payload, response=resp
+                )
 
-        if resp.status_code in AUTH_FAILURE_STATUS_CODES:
-            payload = safe_json(resp)
-            detail = self._error_message(payload, default=f"HTTP {resp.status_code}")
-            raise OopzAuthError(
-                f"Oopz authentication failed (HTTP {resp.status_code}): {detail}",
-                status_code=resp.status_code,
-                payload=payload,
-                response=resp,
-            )
+            if resp.status_code in AUTH_FAILURE_STATUS_CODES:
+                payload = safe_json(resp)
+                detail = self._error_message(payload, default=f"HTTP {resp.status_code}")
+                auth_error = OopzAuthError(
+                    f"Oopz authentication failed (HTTP {resp.status_code}): {detail}",
+                    status_code=resp.status_code,
+                    payload=payload,
+                    response=resp,
+                )
+                # 鉴权失效时，若 AuthManager 能续期则重登并重试一次；不可恢复则上报。
+                if self._auth_manager is not None and not auth_retry_used:
+                    auth_retry_used = True
+                    if await self._auth_manager.handle_auth_error(auth_error):
+                        resp = await self.request(method, path, params=params, body=body)
+                        continue
+                raise auth_error
+
+            break
 
         if resp.status_code != 200:
             payload = safe_json(resp)

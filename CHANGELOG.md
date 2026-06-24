@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### 新增
+
+- 新增统一认证管理组件 `AuthManager`（`oopz_sdk.auth.AuthManager`），由 `OopzBot` 生命周期托管，统一处理 JWT 临期续期、鉴权失效后的单次重登重试，以及不可恢复时上报停机：
+  - `OopzBot(..., login_phone=..., login_password=...)` 或自定义 `auth_relogin` 回调即可启用无人值守续期；未提供时退化为「失效即上报」，与原行为一致。
+  - REST：命中 `401`/`428` 时若可续期，自动重登并对该请求重试一次；不可恢复则抛 `OopzAuthError`。
+  - WebSocket：运行期 JWT 临期由后台任务主动续期并用新 token 重连；鉴权失效（`OopzAuthError`）先尝试续期恢复，不可恢复才升级为致命错误停止重连。
+  - 续期沿用现有 `device_id` 保持身份稳定，并通过 `config._apply_login_credentials` 写回，REST 请求头与 WS 鉴权帧随即使用新 token；`Signer.reload_key()` 用于私钥轮换同步。
+  - `auth_refresh_threshold_seconds` 可配置临期阈值（默认 300 秒）。
+
 ### 修复
 
 - 认证失败状态码不再把 `403` 当作凭据失效：`403` 通常表示对具体资源无权限（如向无权限频道发消息），属正常业务返回，之前会被升级为 `OopzAuthError` 并导致整个客户端停机。现仅 `401`/`428` 视为凭据失效。
@@ -10,8 +19,8 @@
 
 ### 说明
 
-- 启动期凭据校验为快速失败语义：`OopzConfig.ensure_credentials()` 检测到本地可判定的 JWT 过期会抛 `OopzAuthError`；`_warmup_self_identity_cache` 在遇到 `OopzAuthError` 时会中断 `OopzBot.start()`（不再仅记录 warning）。
-- 本次改动覆盖的是 REST 侧鉴权失效退出；实时 WebSocket 通道自身的鉴权拒绝（握手被服务端关闭或鉴权应答失败）尚未升级为 `OopzAuthError`，且不含 JWT 续签，留待后续 PR。
+- 启动期凭据校验为快速失败语义：`OopzConfig.ensure_credentials()` 检测到本地可判定的 JWT 过期会抛 `OopzAuthError`；未配置续期能力时 `_warmup_self_identity_cache` 在遇到 `OopzAuthError` 时会中断 `OopzBot.start()`（不再仅记录 warning）。
+- 未提供续期凭据（仅静态 `jwt_token`）时，鉴权失效仍为「快速失败 / 停机」语义；提供续期凭据后则优先尝试续期恢复。
 
 ## 0.13.0
 
