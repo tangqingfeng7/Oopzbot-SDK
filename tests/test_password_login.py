@@ -255,6 +255,66 @@ def test_oopz_config_login_manual_password_browser(monkeypatch) -> None:
     assert config.private_key == "pem-browser"
 
 
+def test_login_with_password_is_api_only(monkeypatch) -> None:
+    """统一密码登录入口只走 API，不会触碰浏览器登录。"""
+    import oopz_sdk.auth.api_password_login as api_module
+
+    creds = OopzLoginCredentials(
+        device_id="dev-api",
+        person_uid="uid-api",
+        jwt_token="jwt-api",
+        private_key_pem="pem-api",
+    )
+    api_calls = {}
+
+    def fake_api_login(phone, password, *, device_id=None, timeout=20):
+        api_calls.update(
+            phone=phone, password=password, device_id=device_id, timeout=timeout
+        )
+        return creds
+
+    async def fail_browser(*args, **kwargs):
+        raise AssertionError("纯 API 登录入口不应回退浏览器")
+
+    monkeypatch.setattr(api_module, "login_with_api_password", fake_api_login)
+    monkeypatch.setattr(
+        password_login_module, "login_with_playwright_password", fail_browser
+    )
+
+    result = asyncio.run(
+        password_login_module.login_with_password(
+            "phone-x", "pass-x", device_id="dev-keep", timeout=12
+        )
+    )
+
+    assert result is creds
+    assert api_calls == {
+        "phone": "phone-x",
+        "password": "pass-x",
+        "device_id": "dev-keep",
+        "timeout": 12,
+    }
+
+
+def test_login_with_password_does_not_fallback_to_browser_on_error(monkeypatch) -> None:
+    """API 登录失败时按真实原因抛出，不再静默回退浏览器。"""
+    import oopz_sdk.auth.api_password_login as api_module
+
+    def fake_api_login(phone, password, *, device_id=None, timeout=20):
+        raise OopzPasswordLoginError("密码错误", code=401)
+
+    async def fail_browser(*args, **kwargs):
+        raise AssertionError("失败时不应回退浏览器")
+
+    monkeypatch.setattr(api_module, "login_with_api_password", fake_api_login)
+    monkeypatch.setattr(
+        password_login_module, "login_with_playwright_password", fail_browser
+    )
+
+    with pytest.raises(OopzPasswordLoginError, match="密码错误"):
+        asyncio.run(password_login_module.login_with_password("phone-x", "pass-x"))
+
+
 def test_oopz_config_login_is_more_direct_entrypoint(monkeypatch) -> None:
     calls = {}
 
@@ -279,10 +339,11 @@ def test_oopz_config_login_is_more_direct_entrypoint(monkeypatch) -> None:
         headless=False,
     )
 
+    # 密码登录已收敛为纯 API 入口：浏览器参数(headless)不再透传，只剩 API 相关 kwargs。
     assert calls == {
         "phone": "13800138000",
         "password": "your-password",
-        "kwargs": {"headless": False},
+        "kwargs": {"device_id": None, "timeout": 20},
     }
     assert config.device_id == "device-direct"
     assert config.person_uid == "person-direct"
@@ -404,7 +465,7 @@ def test_oopz_config_from_env_auto_uses_password_login_when_credentials_absent(m
     assert calls == {
         "phone": "phone-auto",
         "password": "password-auto",
-        "kwargs": {"headless": True},
+        "kwargs": {"device_id": None, "timeout": 20},
     }
     assert config.device_id == "device-auto"
     assert config.person_uid == "person-auto"
@@ -441,7 +502,7 @@ def test_oopz_config_from_env_async_uses_password_login_when_credentials_absent(
     assert calls == {
         "phone": "phone-async",
         "password": "password-async",
-        "kwargs": {"headless": True},
+        "kwargs": {"device_id": None, "timeout": 20},
     }
     assert config.device_id == "device-async"
     assert config.base_url == "https://example.async"

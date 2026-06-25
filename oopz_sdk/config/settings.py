@@ -366,18 +366,9 @@ class OopzConfig:
         proxy: ProxyConfig | dict[str, Any] | str | None = None,
     ) -> Any:
         from oopz_sdk.auth import OopzLoginCredentials
-        from oopz_sdk.auth import api_password_login as api_password_login_module
         from oopz_sdk.auth import password_login as password_login_module
 
         method = cls._normalize_login_method(method)
-        password_kwargs = cls._build_password_kwargs(
-            headful_env=headful_env,
-            headless=headless,
-            browser_data_dir=browser_data_dir,
-            chromium_executable_path=chromium_executable_path,
-            timeout=timeout,
-            proxy=proxy,
-        )
 
         if method == "credentials":
             if not cls._has_credentials(
@@ -399,9 +390,10 @@ class OopzConfig:
                 )
             )
 
-        if method == "password_api":
-            return await asyncio.to_thread(
-                api_password_login_module.login_with_api_password,
+        if method in ("password", "password_api"):
+            # 密码登录统一走纯 API 入口（不再自动回退浏览器）；浏览器登录仅在显式
+            # method="password_browser" 时进行。
+            return await password_login_module.login_with_password(
                 cls._require_non_empty(phone, "phone"),
                 str(password or ""),
                 device_id=str(device_id or "") or None,
@@ -412,14 +404,14 @@ class OopzConfig:
             return await password_login_module.login_with_playwright_password(
                 cls._require_non_empty(phone, "phone"),
                 str(password or ""),
-                **password_kwargs,
-            )
-
-        if method == "password":
-            return await password_login_module.login_with_password(
-                cls._require_non_empty(phone, "phone"),
-                str(password or ""),
-                **password_kwargs,
+                **cls._build_password_kwargs(
+                    headful_env=headful_env,
+                    headless=headless,
+                    browser_data_dir=browser_data_dir,
+                    chromium_executable_path=chromium_executable_path,
+                    timeout=timeout,
+                    proxy=proxy,
+                ),
             )
 
         if cls._has_credentials(
@@ -441,7 +433,8 @@ class OopzConfig:
             return await password_login_module.login_with_password(
                 cls._require_non_empty(phone, "phone"),
                 str(password or ""),
-                **password_kwargs,
+                device_id=str(device_id or "") or None,
+                timeout=timeout if timeout is not None else 20,
             )
 
         raise ValueError(

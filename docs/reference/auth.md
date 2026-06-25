@@ -278,9 +278,9 @@ from oopz_sdk import AuthManager
 
 ## `login_with_password(phone, password, ...)`
 
-底层账号密码登录函数。
+账号密码登录函数（**仅 API 登录**）。
 
-它会通过 OOPZ 登录流程获取 SDK 需要的：
+它通过 OOPZ 的密码登录接口获取 SDK 需要的：
 
 - `device_id`
 - `person_uid`
@@ -289,6 +289,8 @@ from oopz_sdk import AuthManager
 - `app_version`
 
 返回值是 `OopzLoginCredentials`，而不是 `OopzConfig`。
+
+> 说明：早期版本会在 API 登录失败时自动回退到浏览器（Playwright）登录。由于浏览器路径会触发验证码/风控等人工交互、不适合无人值守，现已改为**纯 API 登录**。失败会按真实原因抛出：账号/密码错误或风控拒绝抛 `OopzPasswordLoginError`，网络/超时/5xx 等瞬时问题抛 `OopzConnectionError`。确需浏览器登录时请显式使用下面的 [`login_with_playwright_password`](#login_with_playwright_passwordphone-password-)，或 `login(method="password_browser")`。
 
 ```python
 import getpass
@@ -299,7 +301,6 @@ from oopz_sdk import login_with_password
 credentials = await login_with_password(
     os.environ["OOPZ_LOGIN_PHONE"],
     getpass.getpass("OOPZ 密码: "),
-    headless=True,
 )
 
 print(credentials.masked())
@@ -310,11 +311,36 @@ print(credentials.masked())
 
 常用参数：
 
+| 参数          | 类型      | 默认值  | 说明                                                  |
+|-------------|---------|------|-----------------------------------------------------|
+| `phone`     | `str`   | -    | OOPZ 登录账号或手机号。                                       |
+| `password`  | `str`   | -    | OOPZ 登录密码。建议交互输入，不要写入代码。                             |
+| `device_id` | `str \| None` | `None` | 复用已有设备 ID 以保持身份稳定；不传则自动生成。                  |
+| `timeout`   | `float` | `20` | 等待登录接口响应的秒数。                                        |
+
+---
+
+## `login_with_playwright_password(phone, password, ...)`
+
+**显式**的浏览器（Playwright）账号密码登录函数，仅在确需浏览器交互（例如处理验证码/风控）时使用。返回值同样是 `OopzLoginCredentials`。
+
+```python
+from oopz_sdk import login_with_playwright_password
+
+credentials = await login_with_playwright_password(
+    phone,
+    password,
+    headless=False,  # 需要人工处理验证码时显示窗口
+)
+```
+
+常用参数：
+
 | 参数                         | 类型                                   | 默认值    | 说明                                |
 |----------------------------|--------------------------------------|--------|-----------------------------------|
 | `phone`                    | `str`                                | -      | OOPZ 登录账号或手机号。                    |
 | `password`                 | `str`                                | -      | OOPZ 登录密码。建议交互输入，不要写入代码。          |
-| `timeout`                  | `float`                              | `90`   | 等待登录接口响应的秒数。                      |
+| `timeout`                  | `float`                              | `90`   | 等待登录响应的秒数。                        |
 | `headless`                 | `bool`                               | `True` | 是否无头运行浏览器。遇到验证码或风控验证时可设为 `False`。 |
 | `browser_data_dir`         | `str \| Path \| None`                | `None` | 自定义浏览器 profile 目录。默认使用临时目录。       |
 | `chromium_executable_path` | `str \| Path \| None`                | `None` | 自定义 Chromium/Chrome 可执行文件路径。      |

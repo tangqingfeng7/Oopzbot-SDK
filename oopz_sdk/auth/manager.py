@@ -99,14 +99,29 @@ class AuthManager:
             return False
         return await self.refresh()
 
-    async def handle_auth_error(self, error: OopzAuthError | None = None) -> bool:
+    async def handle_auth_error(
+        self,
+        error: OopzAuthError | None = None,
+        *,
+        observed_token_version: int | None = None,
+    ) -> bool:
         """鉴权失效后的单次重登尝试。
 
-        返回 True 表示已用新 token 恢复，调用方可重试一次；返回 False 表示不可
+        返回 True 表示已有可用的新 token（调用方可重试一次）；返回 False 表示不可
         恢复（无重登能力或重登失败），调用方应升级为致命错误并停机。
+
+        ``observed_token_version`` 是失败请求所用的 token 版本快照。若当前版本已领先于
+        该快照，说明在请求在途期间凭据已被其它路径（如后台续期）轮换，手中已有更新的
+        token，调用方直接重试即可，无需再次重登——避免一次网络在途请求的过期 401 触发
+        多余的登录调用。
         """
         if not self.can_refresh:
             return False
+        if (
+            observed_token_version is not None
+            and observed_token_version != self._token_version
+        ):
+            return True
         logger.debug(
             "AuthManager 处理鉴权失效，尝试强制续期 (status_code=%s)",
             getattr(error, "status_code", None),

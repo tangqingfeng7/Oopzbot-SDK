@@ -12,6 +12,15 @@
   - `auth_refresh_threshold_seconds` 可配置临期阈值（默认 300 秒）。
   - 无人值守续期遇瞬时错误（网络/超时/5xx，`OopzConnectionError`）会有限次退避重试，仅凭据被拒（`OopzAuthError`）才上报为不可恢复并停机。
 
+### 变更
+
+- 密码登录改为「纯 API 登录」：`login_with_password` / `login_with_password_sync` 不再在 API 登录失败时自动回退到浏览器（Playwright）登录，失败按真实原因抛出（账号密码错误/风控 `OopzPasswordLoginError`，网络/超时/5xx `OopzConnectionError`）。`login(method="password")` / `password_api` / `auto` 默认均走 API 登录；浏览器登录仅在显式 `method="password_browser"`、直接调用 `login_with_playwright_password`，或命令行 `oopz-login` 时进行。此举去除隐式降级，避免无人值守场景被浏览器验证码/风控交互阻塞。
+  - `login_with_password(...)` 参数收敛为 `phone` / `password` / `device_id` / `timeout`（默认 `20`），不再接受浏览器相关参数（`headless` / `browser_data_dir` / `chromium_executable_path` / `proxy` 等仅在 `login_with_playwright_password` 上保留）。
+
+### 优化
+
+- `AuthManager.handle_auth_error(...)` 新增 `observed_token_version` 入参：HTTP 请求在失效重试前会快照 token 版本，若请求在途期间凭据已被后台续期轮换，则直接复用当前新 token 重试，不再触发一次多余的强制重登。
+
 ### 修复
 
 - 认证失败状态码不再把 `403` 当作凭据失效：`403` 通常表示对具体资源无权限（如向无权限频道发消息），属正常业务返回，之前会被升级为 `OopzAuthError` 并导致整个客户端停机。现仅 `401`/`428` 视为凭据失效。

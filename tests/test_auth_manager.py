@@ -215,6 +215,44 @@ def test_handle_auth_error_true_on_recovery() -> None:
     assert _run(manager.handle_auth_error(OopzAuthError("x"))) is True
 
 
+def test_handle_auth_error_skips_relogin_when_token_already_rotated() -> None:
+    """token 在请求在途期间已被轮换：直接复用当前 token，不再重登。"""
+    calls = {"n": 0}
+
+    async def _relogin():
+        calls["n"] += 1
+        return _credentials(_fake_jwt(time.time() + 3600))
+
+    manager = AuthManager(_config(100), relogin=_relogin)
+    assert _run(manager.refresh(force=True)) is True
+    assert manager.token_version == 1
+    assert calls["n"] == 1
+
+    # 失败请求所用的是续期前版本(0)，当前已是 1 → 直接返回 True，不触发额外重登。
+    assert (
+        _run(manager.handle_auth_error(OopzAuthError("x"), observed_token_version=0))
+        is True
+    )
+    assert calls["n"] == 1
+
+
+def test_handle_auth_error_relogins_when_version_matches() -> None:
+    """观察到的版本与当前一致：确属当前 token 被拒，仍需强制重登。"""
+    calls = {"n": 0}
+
+    async def _relogin():
+        calls["n"] += 1
+        return _credentials(_fake_jwt(time.time() + 3600))
+
+    manager = AuthManager(_config(100), relogin=_relogin)
+    assert (
+        _run(manager.handle_auth_error(OopzAuthError("x"), observed_token_version=0))
+        is True
+    )
+    assert calls["n"] == 1
+    assert manager.token_version == 1
+
+
 def test_concurrent_refresh_is_single_flight() -> None:
     calls = 0
 
@@ -246,15 +284,22 @@ def test_concurrent_refresh_is_single_flight() -> None:
 
 
 class _FakeAuthManager:
-    def __init__(self, *, recover: bool) -> None:
+    def __init__(self, *, recover: bool, token_version: int = 0) -> None:
         self._recover = recover
+        self._token_version = token_version
         self.calls = 0
+        self.observed_versions: list[int | None] = []
+
+    @property
+    def token_version(self) -> int:
+        return self._token_version
 
     def add_token_listener(self, listener) -> None:  # noqa: D401 - 接口占位
         pass
 
-    async def handle_auth_error(self, error) -> bool:
+    async def handle_auth_error(self, error, *, observed_token_version=None) -> bool:
         self.calls += 1
+        self.observed_versions.append(observed_token_version)
         return self._recover
 
 

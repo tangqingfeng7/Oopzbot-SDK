@@ -208,6 +208,12 @@ class HttpTransport(BaseTransport):
         params: Mapping[str, Any] | None = None,
         body: Mapping[str, Any] | list | None = None,
     ) -> Any:
+        # 在签发请求前快照 token 版本：若请求在途期间凭据被后台续期轮换，则失效重试
+        # 时直接用当前（已更新的）token，无需再次重登。
+        observed_token_version = (
+            self._auth_manager.token_version if self._auth_manager is not None else None
+        )
+
         resp = await self.request(
             method,
             path,
@@ -237,7 +243,9 @@ class HttpTransport(BaseTransport):
                 # 鉴权失效时，若 AuthManager 能续期则重登并重试一次；不可恢复则上报。
                 if self._auth_manager is not None and not auth_retry_used:
                     auth_retry_used = True
-                    if await self._auth_manager.handle_auth_error(auth_error):
+                    if await self._auth_manager.handle_auth_error(
+                        auth_error, observed_token_version=observed_token_version
+                    ):
                         resp = await self.request(method, path, params=params, body=body)
                         continue
                 raise auth_error
