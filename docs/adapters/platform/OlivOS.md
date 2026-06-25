@@ -1,6 +1,6 @@
 # 接入 OlivOS
 
-[OlivOS](https://github.com/OlivOS-Team/OlivOS)同时支持 OneBot v11 和 OneBot v12 协议，不过强烈建议对接 Oopz SDK 的 OneBot v11 适配器
+本文档将教你如何把 Oopz 平台账号通过民间协议端 Oopzbot SDK 接入 [OlivOS](https://github.com/OlivOS-Team/OlivOS) 使用。
 
 ## 1. 准备 Oopz 小号
 
@@ -169,8 +169,10 @@ chmod +x start.sh
 1. 启动 OlivOS。
 2. 启动对应启动脚本。
 3. 让主号在机器人小号所在的频道内随便发送一条消息。
-4. 在 OlivOS 中查看是否有上报信息，并查看上报的 id 是多少el + message_id` 会映射成 OneBot v11 里的数字 `group_id`、`message_id` 等字段。因此首次收到事件后，应以 OlivOS 里实际看到的账号和频道 ID 为准。
+4. 在 OlivOS 中查看是否有上报信息，并记录首次上报中显示的账号 ID 和频道 ID。
 
+注意：因为 Oopz 和 OneBot 的 ID 模型不同，不能把所有 ID 原样透传。Oopz 的 `area + channel + message_id` 会映射成 OneBot v11 里的数字 
+`group_id`、`message_id` 等字段。因此首次收到事件后，应以 OlivOS 里实际看到的账号和频道 ID 为准。
 本项目将映射数据保存到：
 
 ```text
@@ -179,7 +181,7 @@ chmod +x start.sh
 
 搭建完成后不要随意删除该文件。删除后 OneBot 数字 ID 可能重新生成，已有配置可能需要重新确认。
 
-## 6. 退出 OVO 后进行配置
+## 6. 退出 OlivOS 后进行配置
 
 确认 OlivOS 已经识别到账号后，先退出 OlivOS，再按实际看到的账号信息进行配置。
 
@@ -188,10 +190,12 @@ chmod +x start.sh
 | 配置项 | 推荐值 |
 | --- | --- |
 | 账号类型 | onebotv11/Http/NapCat |
-| 账号 | 上图中你的 ID |
+| 账号 | 首次上报时 OlivOS 中显示的 ID |
 | 地址 | `http://127.0.0.1` |
 | 端口 | `9881`，可自定义，但必须与 `bot.py` 中你所填写的一致 |
 | access token | 与 `bot.py` 中 `access_token` 一致 |
+
+![OlivOS-setting-example.png](OlivOS-setting-example.png)
 
 配置完成后重新启动 OlivOS 即可。OOPZ Bot 在此期间可以不关闭（当然你关了再开也行）
 

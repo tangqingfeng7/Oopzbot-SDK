@@ -51,6 +51,7 @@ nav:
       - 平台适配:
           - 接入Astrbot: adapters/platform/astrbot.md
           - 接入HoshinoBot: adapters/platform/hoshinobot.md
+          - 接入OlivOS: adapters/platform/OlivOS.md
   - API 参考:
       - 认证与凭据: reference/auth.md
       - Service 总览: reference/services.md
