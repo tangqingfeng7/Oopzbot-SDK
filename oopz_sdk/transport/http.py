@@ -11,19 +11,17 @@ import aiohttp
 from oopz_sdk.auth.headers import build_oopz_headers
 from oopz_sdk.auth.signer import Signer
 from oopz_sdk.config.settings import OopzConfig
-from oopz_sdk.exceptions import OopzAuthError, OopzConnectionError, OopzApiError, OopzRateLimitError
+from oopz_sdk.exceptions import (
+    AUTH_FAILURE_STATUS_CODES,
+    OopzApiError,
+    OopzAuthError,
+    OopzConnectionError,
+    OopzRateLimitError,
+)
 from oopz_sdk.utils.payload import coerce_bool, safe_json
 from .base import BaseTransport
 from .proxy import build_aiohttp_proxy
 
-# Status codes that mean the *credential itself* is no longer usable, so the
-# whole client should stop instead of retrying. Oopz returns 428 when its signed
-# credential precondition is no longer valid.
-#
-# 403 is intentionally excluded: Oopz uses 403 for per-resource permission
-# denials (e.g. posting to a channel the bot has no rights in), which are normal
-# business responses and must not tear down the entire client.
-AUTH_FAILURE_STATUS_CODES = frozenset({401, 428})
 
 def _build_timeout(timeout: float | tuple[float, float]) -> aiohttp.ClientTimeout:
     if isinstance(timeout, tuple):
@@ -50,14 +48,19 @@ class HttpResponse:
 
 
 class HttpTransport(BaseTransport):
-    def __init__(self, config: OopzConfig, signer: Signer):
+    def __init__(self, config: OopzConfig, signer: Signer, *, auth_manager=None):
         self.config = config
         self.signer = signer
         self.headers = dict(config.get_headers())
+        self._auth_manager = auth_manager
 
         self._client_session: aiohttp.ClientSession | None = None
         self._rate_lock = asyncio.Lock()
         self._last_request_time = 0.0
+
+        if auth_manager is not None:
+            # 续期后服务端要求的签名私钥若发生轮换，让 signer 同步刷新。
+            auth_manager.add_token_listener(lambda _config: self.signer.reload_key())
 
     async def _ensure_client_session(self) -> aiohttp.ClientSession:
         if self._client_session is None or self._client_session.closed:
@@ -147,15 +150,15 @@ class HttpTransport(BaseTransport):
             raise OopzConnectionError(f"request failed: {exc}") from exc
 
     async def request_raw(
-            self,
-            method: str,
-            url: str,
-            *,
-            params: Mapping[str, Any] | None = None,
-            data: bytes | str | None = None,
-            headers: Mapping[str, str] | None = None,
-            timeout: float | tuple[float, float] | None = None,
-            throttle: bool = False,
+        self,
+        method: str,
+        url: str,
+        *,
+        params: Mapping[str, Any] | None = None,
+        data: bytes | str | None = None,
+        headers: Mapping[str, str] | None = None,
+        timeout: float | tuple[float, float] | None = None,
+        throttle: bool = False,
     ) -> HttpResponse:
         method = method.upper()
         if throttle:
@@ -166,13 +169,13 @@ class HttpTransport(BaseTransport):
 
         try:
             async with session.request(
-                    method,
-                    url,
-                    params=params,
-                    data=data,
-                    headers=dict(headers or {}),
-                    timeout=req_timeout,
-                    proxy=proxy,
+                method,
+                url,
+                params=params,
+                data=data,
+                headers=dict(headers or {}),
+                timeout=req_timeout,
+                proxy=proxy,
             ) as resp:
                 content = await resp.read()
                 try:
@@ -198,13 +201,19 @@ class HttpTransport(BaseTransport):
         return await self.request("GET", url_path, params=params)
 
     async def request_json(
-            self,
-            method: str,
-            path: str,
-            *,
-            params: Mapping[str, Any] | None = None,
-            body: Mapping[str, Any] | list | None = None,
+        self,
+        method: str,
+        path: str,
+        *,
+        params: Mapping[str, Any] | None = None,
+        body: Mapping[str, Any] | list | None = None,
     ) -> Any:
+        # 在签发请求前快照 token 版本：若请求在途期间凭据被后台续期轮换，则失效重试
+        # 时直接用当前（已更新的）token，无需再次重登。
+        observed_token_version = (
+            self._auth_manager.token_version if self._auth_manager is not None else None
+        )
+
         resp = await self.request(
             method,
             path,
@@ -212,23 +221,36 @@ class HttpTransport(BaseTransport):
             body=body,
         )
 
-        if resp.status_code == 429:
-            payload = safe_json(resp)
-            message = self._error_message(payload, default="HTTP 429")
-            raise OopzRateLimitError(
-                message=message, retry_after=self._retry_after_seconds(resp), status_code=429,
-                payload=payload, response=resp
-            )
+        auth_retry_used = False
+        while True:
+            if resp.status_code == 429:
+                payload = safe_json(resp)
+                message = self._error_message(payload, default="HTTP 429")
+                raise OopzRateLimitError(
+                    message=message, retry_after=self._retry_after_seconds(resp), status_code=429,
+                    payload=payload, response=resp
+                )
 
-        if resp.status_code in AUTH_FAILURE_STATUS_CODES:
-            payload = safe_json(resp)
-            detail = self._error_message(payload, default=f"HTTP {resp.status_code}")
-            raise OopzAuthError(
-                f"Oopz authentication failed (HTTP {resp.status_code}): {detail}",
-                status_code=resp.status_code,
-                payload=payload,
-                response=resp,
-            )
+            if resp.status_code in AUTH_FAILURE_STATUS_CODES:
+                payload = safe_json(resp)
+                detail = self._error_message(payload, default=f"HTTP {resp.status_code}")
+                auth_error = OopzAuthError(
+                    f"Oopz authentication failed (HTTP {resp.status_code}): {detail}",
+                    status_code=resp.status_code,
+                    payload=payload,
+                    response=resp,
+                )
+                # 鉴权失效时，若 AuthManager 能续期则重登并重试一次；不可恢复则上报。
+                if self._auth_manager is not None and not auth_retry_used:
+                    auth_retry_used = True
+                    if await self._auth_manager.handle_auth_error(
+                        auth_error, observed_token_version=observed_token_version
+                    ):
+                        resp = await self.request(method, path, params=params, body=body)
+                        continue
+                raise auth_error
+
+            break
 
         if resp.status_code != 200:
             payload = safe_json(resp)
@@ -268,16 +290,14 @@ class HttpTransport(BaseTransport):
         return data
 
     async def request_data(
-            self,
-            method: str,
-            path: str,
-            *,
-            params: Mapping[str, Any] | None = None,
-            body: Mapping[str, Any] | list | None = None,
+        self,
+        method: str,
+        path: str,
+        *,
+        params: Mapping[str, Any] | None = None,
+        body: Mapping[str, Any] | list | None = None,
     ) -> Any:
-        json_data = await self.request_json(
-            method, path, params=params,
-            body=body)
+        json_data = await self.request_json(method, path, params=params, body=body)
         if "data" not in json_data:
             raise OopzApiError(
                 "response JSON does not contain 'data' field",
@@ -287,14 +307,14 @@ class HttpTransport(BaseTransport):
         return json_data["data"]
 
     async def request_data_with_retry(
-            self,
-            method: str,
-            path: str,
-            *,
-            params: Mapping[str, Any] | None = None,
-            body: Mapping[str, Any] | None = None,
-            max_attempts: int | None = None,
-            retry_on_429: bool = False,
+        self,
+        method: str,
+        path: str,
+        *,
+        params: Mapping[str, Any] | None = None,
+        body: Mapping[str, Any] | None = None,
+        max_attempts: int | None = None,
+        retry_on_429: bool = False,
     ) -> Any:
         if max_attempts is None:
             max_attempts = self.config.retry.max_attempts

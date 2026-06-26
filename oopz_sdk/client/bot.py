@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any
 
@@ -43,6 +44,10 @@ class OopzBot:
         on_close=None,
         on_reconnect=None,
         on_raw_event=None,
+        login_phone=None,
+        login_password=None,
+        auth_relogin=None,
+        auth_refresh_threshold_seconds=None,
     ):
         self.cache: CacheStore = CacheStore(config)
         self.config = config
@@ -50,7 +55,18 @@ class OopzBot:
         self.dispatcher = EventDispatcher(self.registry)
         self.parser = EventParser()
 
-        self.rest = OopzRESTClient(config, bot=self, cache=self.cache)
+        # 统一认证管理：JWT 临期续期 / 鉴权失效单次重试 / 不可恢复上报。
+        # 仅当提供 login_phone+login_password 或自定义 auth_relogin 时具备续期能力，
+        # 否则退化为「失效即上报」，与未启用 AuthManager 时行为一致。
+        self.auth = self._build_auth_manager(
+            config,
+            phone=login_phone,
+            password=login_password,
+            relogin=auth_relogin,
+            refresh_threshold_seconds=auth_refresh_threshold_seconds,
+        )
+
+        self.rest = OopzRESTClient(config, bot=self, cache=self.cache, auth_manager=self.auth)
         self.messages: message_service.Message = self.rest.messages
         self.media = self.rest.media
         self.areas = self.rest.areas
@@ -82,6 +98,7 @@ class OopzBot:
             on_error=self._handle_error,
             on_close=self._handle_close,
             on_reconnect=self._handle_reconnect,
+            auth_manager=self.auth,
         )
 
         # 函数式事件注册。
@@ -97,6 +114,56 @@ class OopzBot:
             self.registry.on("reconnect", on_reconnect)
         if on_raw_event is not None:
             self.registry.on("raw_event", on_raw_event)
+
+    # -------------------------
+    # 认证管理
+    # -------------------------
+    @staticmethod
+    def _build_auth_manager(
+        config,
+        *,
+        phone=None,
+        password=None,
+        relogin=None,
+        refresh_threshold_seconds=None,
+    ):
+        from oopz_sdk.auth.manager import (
+            DEFAULT_REFRESH_THRESHOLD_SECONDS,
+            AuthManager,
+        )
+
+        if relogin is None and phone and password:
+            relogin = OopzBot._make_password_relogin(config, phone, password)
+
+        threshold = (
+            DEFAULT_REFRESH_THRESHOLD_SECONDS
+            if refresh_threshold_seconds is None
+            else refresh_threshold_seconds
+        )
+        return AuthManager(config, relogin=relogin, refresh_threshold_seconds=threshold)
+
+    @staticmethod
+    def _make_password_relogin(config, phone: str, password: str):
+        """构造无人值守续期回调：用 API 密码登录并复用现有 device_id 保持身份稳定。
+
+        刻意只走 API 登录、不调用统一入口 ``login_with_password``，因为后者在 API
+        失败时会回退到 Playwright 浏览器登录，可能触发验证码/风控交互——这在无人
+        值守续期场景不可接受。账号或密码失效会抛 OopzAuthError，由 AuthManager 上
+        报为不可恢复；网络/超时/5xx 等瞬时错误抛 OopzConnectionError，由 AuthManager
+        退避重试。
+        """
+
+        async def _relogin():
+            from oopz_sdk.auth.api_password_login import login_with_api_password
+
+            return await asyncio.to_thread(
+                login_with_api_password,
+                phone,
+                password,
+                device_id=config.device_id or None,
+            )
+
+        return _relogin
 
     # -------------------------
     # Adapter 注册 API

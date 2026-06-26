@@ -11,7 +11,6 @@ import os
 import shlex
 import tempfile
 import time
-import warnings
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -227,31 +226,6 @@ def _safe_response_error(payload: Any) -> str:
     if code not in (None, ""):
         return f"登录失败，错误码：{code}"
     return "登录失败，请检查账号密码或风控验证"
-
-
-def _should_fallback_to_browser(exc: OopzPasswordLoginError) -> bool:
-    code = exc.code
-    if code in (401, 403):
-        return False
-    text = str(exc).lower()
-    fatal_markers = (
-        "该手机号尚未注册",
-        "密码错误"
-    )
-    if any(marker in str(exc) for marker in fatal_markers):
-        return False
-    network_markers = (
-        "请求失败",
-        "超时",
-        "timeout",
-        "连接",
-        "network",
-        "json",
-        "响应",
-    )
-    if any(marker in text for marker in network_markers):
-        return True
-    return True
 
 
 def _update_from_headers(credentials: dict[str, Any], headers: Mapping[str, str]) -> None:
@@ -780,29 +754,44 @@ async def login_with_playwright_password(
 async def login_with_password(
     phone: str,
     password: str,
-    **kwargs: Any,
+    *,
+    device_id: str | None = None,
+    timeout: float = 20,
 ) -> OopzLoginCredentials:
-    """统一密码登录入口：默认先尝试 API，失败后回退到 Playwright。"""
+    """统一密码登录入口（仅 API 登录）。
+
+    本入口会在 API 登录失败时自动回退到 Playwright 浏览器登录。浏览器路径会触发
+    验证码/风控等人工交互，不适合无人值守，也把「账号密码错误」与「可换条件重试」两类
+    语义混在一起。现已收敛为纯 API 登录，失败按真实原因抛出：
+
+    - 账号/密码错误、风控拒绝 -> ``OopzPasswordLoginError``
+    - 网络/超时/5xx 等瞬时问题 -> ``OopzConnectionError``
+
+    确需浏览器登录时请显式调用 :func:`login_with_playwright_password`，或使用
+    ``login(method="password_browser")``。
+    """
     from oopz_sdk.auth.api_password_login import login_with_api_password
 
-    api_kwargs = {
-        key: value
-        for key, value in kwargs.items()
-        if key in {"device_id", "timeout"}
-    }
-
-    try:
-        return await asyncio.to_thread(login_with_api_password, phone, password, **api_kwargs)
-    except OopzPasswordLoginError as exc:
-        if not _should_fallback_to_browser(exc):
-            raise
-        warnings.warn("OOPZ API 登录失败，正在尝试使用Playwright登录")
-        return await login_with_playwright_password(phone, password, **kwargs)
+    return await asyncio.to_thread(
+        login_with_api_password,
+        phone,
+        password,
+        device_id=device_id or None,
+        timeout=timeout,
+    )
 
 
-def login_with_password_sync(phone: str, password: str, **kwargs: Any) -> OopzLoginCredentials:
+def login_with_password_sync(
+    phone: str,
+    password: str,
+    *,
+    device_id: str | None = None,
+    timeout: float = 20,
+) -> OopzLoginCredentials:
     """同步包装，便于脚本或一次性工具调用。"""
-    return asyncio.run(login_with_password(phone, password, **kwargs))
+    return asyncio.run(
+        login_with_password(phone, password, device_id=device_id, timeout=timeout)
+    )
 
 
 def login_with_playwright_password_sync(phone: str, password: str, **kwargs: Any) -> OopzLoginCredentials:
@@ -855,7 +844,9 @@ def main(argv: list[str] | None = None) -> int:
 
     phone = args.phone.strip() or input("OOPZ 账号/手机号: ").strip()
     password = args.password or getpass.getpass("OOPZ 密码: ")
-    credentials = login_with_password_sync(
+    # 本 CLI 是面向人工的凭据提取工具，全部参数（--headful/--browser-data-dir/...）
+    # 都服务于浏览器流程，故显式走 Playwright 登录，而非编程默认的纯 API 入口。
+    credentials = login_with_playwright_password_sync(
         phone,
         password,
         timeout=args.timeout,

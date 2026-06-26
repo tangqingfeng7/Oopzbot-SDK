@@ -44,6 +44,14 @@ class Signer:
             return key_input
         raise OopzAuthError(f"不支持的 private_key 类型: {type(key_input)}")
 
+    def reload_key(self) -> None:
+        """重新从 config 解析私钥。
+
+        续期后若服务端要求的签名私钥发生轮换，调用本方法让 signer 使用新私钥。
+        API 续期通常沿用内置签名私钥，此时为幂等操作。
+        """
+        self.private_key = self._resolve_key(self._config.private_key)
+
     def sign(self, data: str) -> str:
         sig = self.private_key.sign(
             data.encode("utf-8"),
