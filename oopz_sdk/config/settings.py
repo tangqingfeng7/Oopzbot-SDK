@@ -469,7 +469,7 @@ class OopzConfig:
     ) -> "OopzConfig":
         self.device_id = str(credentials.device_id or "").strip()
         self.person_uid = str(credentials.person_uid or "").strip()
-        self.jwt_token = str(credentials.jwt_token or "").strip()
+        self.jwt_token = self._normalize_jwt_token(credentials.jwt_token)
         self.private_key = credentials.private_key_pem
 
         if self.has_credentials() and self._is_missing_private_key(self.private_key):
