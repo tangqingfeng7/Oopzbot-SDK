@@ -13,6 +13,7 @@ from oopz_sdk.state.cache import CacheStore
 
 from .rest import OopzRESTClient
 from .ws import CloseInfo, OopzWSClient
+from ..exceptions import OopzAuthError
 from ..models import Message, MessageEvent
 
 logger = logging.getLogger(__name__)
@@ -430,6 +431,8 @@ class OopzBot:
                 len(area_ids),
             )
 
+        except OopzAuthError:
+            raise
         except Exception as exc:
             logger.error("Failed to subscribe joined area events: %s", exc)
 
@@ -438,5 +441,7 @@ class OopzBot:
             return
         try:
             await self.person.get_self_detail(force=True)
+        except OopzAuthError:
+            raise
         except Exception as exc:
             logger.warning("Failed to warm up self identity cache: %s", exc)

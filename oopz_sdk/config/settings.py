@@ -7,7 +7,7 @@ import logging
 import os
 import warnings
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, ClassVar
 from .constants import DEFAULT_HEADERS
 
 logger = logging.getLogger(__name__)
@@ -145,6 +145,9 @@ class OneBotV11Config:
 
 @dataclass
 class OopzConfig:
+    # Clock-skew tolerance (seconds) for the local JWT expiry pre-check.
+    JWT_EXPIRY_LEEWAY_SECONDS: ClassVar[float] = 60.0
+
     device_id: str = ""
     person_uid: str = ""
     jwt_token: str = ""
@@ -198,7 +201,7 @@ class OopzConfig:
     def __post_init__(self) -> None:
         self.device_id = str(self.device_id or "").strip()
         self.person_uid = str(self.person_uid or "").strip()
-        self.jwt_token = str(self.jwt_token or "").strip()
+        self.jwt_token = self._normalize_jwt_token(self.jwt_token)
 
         if self.has_credentials() and self._is_missing_private_key(self.private_key):
             self.private_key = self._fallback_private_key()
@@ -209,6 +212,14 @@ class OopzConfig:
         if not text:
             raise ValueError(f"{field_name} is required")
         return text
+
+    @staticmethod
+    def _normalize_jwt_token(value: Any) -> str:
+        """Remove whitespace and accidental shell quotes around a JWT value."""
+        token = str(value or "").strip()
+        if len(token) >= 2 and token[0] == token[-1] and token[0] in {"'", '"'}:
+            return token[1:-1].strip()
+        return token
 
     @staticmethod
     def _is_missing_private_key(value: Any) -> bool:
@@ -256,6 +267,15 @@ class OopzConfig:
 
     def ensure_credentials(self) -> None:
         if self.has_credentials():
+            from oopz_sdk.exceptions import OopzAuthError
+            from oopz_sdk.utils.jwt import jwt_expired
+
+            # Allow a small clock skew so a slightly fast local clock does not
+            # wrongly reject a token that the server still accepts.
+            if jwt_expired(self.jwt_token, leeway=self.JWT_EXPIRY_LEEWAY_SECONDS):
+                raise OopzAuthError(
+                    "JWT token has expired. Update OOPZ_JWT_TOKEN or log in again before starting the client."
+                )
             if self._is_missing_private_key(self.private_key):
                 self.private_key = self._fallback_private_key()
             return

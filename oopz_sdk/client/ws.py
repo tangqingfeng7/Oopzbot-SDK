@@ -9,6 +9,7 @@ from typing import Awaitable, Callable, Optional
 
 from oopz_sdk.config.settings import HeartbeatConfig, OopzConfig
 from oopz_sdk.config.constants import EVENT_AUTH, EVENT_HEARTBEAT, EVENT_SUBSCRIBE_AREA_EVENTS
+from oopz_sdk.exceptions import OopzAuthError
 from oopz_sdk.transport.ws import WebSocketClosedError, WebSocketTransport
 
 logger = logging.getLogger(__name__)
@@ -87,6 +88,10 @@ class OopzWSClient:
                 runtime_error = (
                     exc.original if isinstance(exc, _WebSocketCallbackError) else exc
                 )
+                if isinstance(runtime_error, OopzAuthError):
+                    # Static JWT credentials cannot be refreshed by this client.
+                    # Retrying would only create an endless failed reconnect loop.
+                    fatal_error = runtime_error
                 normal_stop_error = self._is_normal_stop_error(runtime_error)
                 if not normal_stop_error:
                     logger.exception("WebSocket 运行异常: %s", runtime_error)
