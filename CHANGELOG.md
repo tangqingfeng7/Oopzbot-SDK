@@ -23,6 +23,8 @@
 
 ### 修复
 
+- 事件分发器不再吞掉来自事件处理器的 `OopzAuthError`：处理器内 REST 调用遇到不可恢复的鉴权失效（HTTP 层单次重登重试后仍失败）时，异常会向上传播并由 WS 客户端升级为致命错误触发全局停机，不再出现「连接仍在但后续鉴权请求持续失败」的状态。其它处理器异常仍维持原语义：记录日志并派发 `error` 事件，不中断 Bot。
+- 补充声明缺失的 `requests` 运行时依赖：`oopz_sdk.auth.api_password_login`（纯 API 密码登录）顶层 `import requests`，但 `pyproject.toml` 未声明该依赖，全新环境安装 SDK 后 `import oopz_sdk` 会直接抛 `ModuleNotFoundError: No module named 'requests'`。
 - 认证失败状态码不再把 `403` 当作凭据失效：`403` 通常表示对具体资源无权限（如向无权限频道发消息），属正常业务返回，之前会被升级为 `OopzAuthError` 并导致整个客户端停机。现仅 `401`/`428` 视为凭据失效。
 - `OopzAuthError` 现携带 `status_code`/`payload`/`response`，便于 `on_error` 等处理器编程判断，而非解析报错字符串。
 - `jwt_expired()` 新增 `leeway` 时钟容差参数，`OopzConfig` 启动期 JWT 过期预检默认容忍 `JWT_EXPIRY_LEEWAY_SECONDS`（60 秒），避免本地时钟偏快误判有效 token 过期。
