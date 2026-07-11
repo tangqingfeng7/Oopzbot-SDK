@@ -5,6 +5,7 @@ import json
 import logging
 import time
 from dataclasses import dataclass
+from enum import Enum, auto
 from typing import Awaitable, Callable, Optional
 
 from oopz_sdk.config.settings import HeartbeatConfig, OopzConfig
@@ -18,6 +19,21 @@ from oopz_sdk.exceptions import OopzAuthError
 from oopz_sdk.transport.ws import WebSocketClosedError, WebSocketTransport
 
 logger = logging.getLogger(__name__)
+
+
+class _WSState(Enum):
+    STOPPED = auto()
+    CONNECTING = auto()
+    AUTHENTICATING = auto()
+    CONNECTED = auto()
+    RECONNECTING = auto()
+    STOPPING = auto()
+    FAILED = auto()
+
+
+class _TokenState(Enum):
+    CURRENT = auto()
+    PENDING_VALIDATION = auto()
 
 
 class _WebSocketCallbackError(RuntimeError):
@@ -58,9 +74,9 @@ class OopzWSClient:
 
         self.transport = WebSocketTransport(config)
 
-        self._running = False
+        self._state = _WSState.STOPPED
+        self._token_state = _TokenState.CURRENT
         self._stop_event = asyncio.Event()
-        self._receive_task: asyncio.Task | None = None
         self._heartbeat_task: asyncio.Task | None = None
         self._refresh_task: asyncio.Task | None = None
         self._refresh_fatal_error: Exception | None = None
@@ -69,24 +85,34 @@ class OopzWSClient:
         # 窗口）时标志跨连接残留，从而把后续真实断连误判为计划内续期。
         self._connection_generation = 0
         self._planned_refresh_generation: int | None = None
-        # 标记「刚续期换的新 token 尚未经一次成功通信验证」：若新 token 未验证就
-        # 再次被鉴权拒绝，说明续期无法恢复，升级停机，避免高频重登死循环。
-        self._fresh_token_unverified = False
         self._consecutive_failures = 0
         self._has_connected_once = False
 
+    @property
+    def _is_running(self) -> bool:
+        return self._state not in {
+            _WSState.STOPPED,
+            _WSState.STOPPING,
+            _WSState.FAILED,
+        }
+
     async def start(self) -> None:
-        self._running = True
+        if self._state is not _WSState.STOPPED:
+            raise RuntimeError("WebSocket client is already running")
+
+        self._state = _WSState.CONNECTING
+        self._token_state = _TokenState.CURRENT
         self._stop_event.clear()
         self._refresh_fatal_error = None
         self._connection_generation = 0
         self._planned_refresh_generation = None
-        self._fresh_token_unverified = False
+        self._consecutive_failures = 0
+        self._has_connected_once = False
 
         if self._auth_manager is not None and self._auth_manager.can_refresh:
             self._refresh_task = asyncio.create_task(self._token_refresh_loop())
 
-        while self._running:
+        while self._is_running:
             fatal_error: Exception | None = None
             runtime_error: Exception | None = None
             connected_this_round = False
@@ -94,14 +120,16 @@ class OopzWSClient:
 
             try:
                 if self._has_connected_once:
+                    self._state = _WSState.RECONNECTING
                     await self._run_callback("on_reconnect", self.on_reconnect)
 
+                self._state = _WSState.CONNECTING
                 await self.transport.connect()
                 connected_this_round = True
                 self._connection_generation += 1
-                self._consecutive_failures = 0
                 self._has_connected_once = True
 
+                self._state = _WSState.AUTHENTICATING
                 await self.send_auth()
 
                 await self._run_callback("on_open", self.on_open)
@@ -157,7 +185,7 @@ class OopzWSClient:
                         code=close_code,
                         reason=close_reason,
                         error=runtime_error,
-                        reconnecting=self._running and fatal_error is None,
+                        reconnecting=self._is_running and fatal_error is None,
                     )
                     try:
                         await self._run_callback("on_close", self.on_close, close_info)
@@ -169,12 +197,14 @@ class OopzWSClient:
                 fatal_error = self._refresh_fatal_error
 
             if fatal_error is not None:
+                self._state = _WSState.FAILED
                 await self._cancel_refresh_task()
                 raise fatal_error
 
-            if not self._running:
+            if not self._is_running:
                 break
 
+            self._state = _WSState.RECONNECTING
             if planned_refresh:
                 # 计划内 token 轮换：立即用新 token 重连，不退避、不打重连警告。
                 logger.info("token 已续期，使用新 token 重连")
@@ -197,13 +227,16 @@ class OopzWSClient:
 
         # 后台续期遇到不可恢复的鉴权失败时，在此向上抛出以触发全局停机。
         if self._refresh_fatal_error is not None:
+            self._state = _WSState.FAILED
             raise self._refresh_fatal_error
+        self._state = _WSState.STOPPED
 
     async def stop(self) -> None:
-        self._running = False
+        self._state = _WSState.STOPPING
         self._stop_event.set()
         await self._cancel_refresh_task()
         await self.transport.close()
+        self._state = _WSState.STOPPED
 
     async def _cancel_refresh_task(self) -> None:
         if self._refresh_task is None:
@@ -249,14 +282,14 @@ class OopzWSClient:
         if not connection_auth_error:
             return None, False
 
-        if self._fresh_token_unverified:
+        if self._token_state is _TokenState.PENDING_VALIDATION:
             logger.error(
                 "续期后的新 token 仍被鉴权拒绝，停止重连: %s", runtime_error
             )
             return runtime_error, False
 
         if await self._recover_from_auth_error(runtime_error):
-            self._fresh_token_unverified = True
+            self._token_state = _TokenState.PENDING_VALIDATION
             logger.warning(
                 "WebSocket 鉴权失效已自动续期恢复，将用新 token 重连: %s",
                 runtime_error,
@@ -285,7 +318,7 @@ class OopzWSClient:
             return
 
         try:
-            while self._running:
+            while self._is_running:
                 try:
                     interval = self._compute_refresh_interval(manager)
                     await asyncio.wait_for(self._stop_event.wait(), timeout=interval)
@@ -293,7 +326,7 @@ class OopzWSClient:
                 except asyncio.TimeoutError:
                     pass
 
-                if not self._running or not manager.needs_refresh():
+                if not self._is_running or not manager.needs_refresh():
                     continue
 
                 try:
@@ -303,7 +336,7 @@ class OopzWSClient:
                     # 由主循环退出后向上抛出，触发全局停机。
                     logger.warning("token 续期被拒绝，触发全局停机: %s", exc)
                     self._refresh_fatal_error = exc
-                    self._running = False
+                    self._state = _WSState.FAILED
                     self._stop_event.set()
                     await self.transport.close()
                     return
@@ -311,7 +344,7 @@ class OopzWSClient:
                     logger.exception("token 续期任务异常")
                     continue
 
-                if refreshed and self._running:
+                if refreshed and self._is_running:
                     logger.info("token 已续期，重连以应用新 token")
                     # 把计划内断连绑定到当前连接代，再关闭连接 → 主循环 recv 抛出
                     # WebSocketClosedError → 走干净重连用新 token，不当作错误。
@@ -336,7 +369,7 @@ class OopzWSClient:
         return base
 
     def _is_normal_stop_error(self, error: Exception) -> bool:
-        return not self._running and isinstance(error, WebSocketClosedError)
+        return not self._is_running and isinstance(error, WebSocketClosedError)
 
     def _is_planned_refresh_close(self, error: Exception | None) -> bool:
         """是否为主动续期触发的预期断连（应静默干净重连，而非报错）。
@@ -351,19 +384,21 @@ class OopzWSClient:
         )
 
     def _get_close_reason(self, error: Exception | None) -> str:
-        if not self._running:
+        if not self._is_running:
             return "stopped"
         if isinstance(error, WebSocketClosedError):
             return error.reason
         return "connection closed"
 
     async def _receive_loop(self) -> None:
-        while self._running:
+        while self._is_running:
             raw = await self.transport.recv()
             self._raise_if_auth_rejected(raw)
             # 收到一条非鉴权拒绝的帧 = 当前（可能是续期后的新）token 已生效，
-            # 清除「续期待验证」标记，使后续若再次失效仍可正常续期恢复。
-            self._fresh_token_unverified = False
+            # 连接完成鉴权并清除「续期待验证」状态，使后续失效仍可正常续期恢复。
+            self._state = _WSState.CONNECTED
+            self._token_state = _TokenState.CURRENT
+            self._consecutive_failures = 0
             await self._run_callback("on_message", self.on_message, raw)
 
     @staticmethod
@@ -422,10 +457,10 @@ class OopzWSClient:
         )
 
     async def _heartbeat_loop(self) -> None:
-        while self._running and not self.transport.closed:
+        while self._is_running and not self.transport.closed:
             heartbeat = getattr(self.config, "heartbeat", HeartbeatConfig())
             await asyncio.sleep(heartbeat.interval)
-            if self._running and not self.transport.closed:
+            if self._is_running and not self.transport.closed:
                 await self.send_heartbeat()
 
     @staticmethod

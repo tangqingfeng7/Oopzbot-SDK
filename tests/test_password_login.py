@@ -9,6 +9,7 @@ import time
 
 import pytest
 
+import oopz_sdk.auth.api_password_login as api_password_login_module
 import oopz_sdk.auth.password_login as password_login_module
 from oopz_sdk import (
     OopzConfig,
@@ -366,6 +367,81 @@ def test_oopz_config_login_async_can_be_awaited(monkeypatch) -> None:
     config = asyncio.run(OopzConfig().login_async(phone="p", password="pw"))
 
     assert config.device_id == "device-sync"
+    assert config._get_auth_relogin() is not None
+
+
+def test_password_relogin_uses_current_device_and_login_timeout(monkeypatch) -> None:
+    calls = {}
+
+    async def fake_initial_login(phone, password, **kwargs):
+        return OopzLoginCredentials(
+            device_id="device-initial",
+            person_uid="person-initial",
+            jwt_token="token-initial",
+            private_key_pem="pem-initial",
+        )
+
+    def fake_api_relogin(phone, password, **kwargs):
+        calls.update(phone=phone, password=password, kwargs=kwargs)
+        return OopzLoginCredentials(
+            device_id="device-refreshed",
+            person_uid="person-refreshed",
+            jwt_token="token-refreshed",
+            private_key_pem="pem-refreshed",
+        )
+
+    monkeypatch.setattr(password_login_module, "login_with_password", fake_initial_login)
+    monkeypatch.setattr(api_password_login_module, "login_with_api_password", fake_api_relogin)
+
+    config = asyncio.run(
+        OopzConfig().login_async(phone="13800138000", password="pw", timeout=7)
+    )
+    credentials = asyncio.run(config._get_auth_relogin()())
+
+    assert credentials.jwt_token == "token-refreshed"
+    assert calls == {
+        "phone": "13800138000",
+        "password": "pw",
+        "kwargs": {"device_id": "device-initial", "timeout": 7},
+    }
+
+
+def test_credentials_login_has_no_automatic_relogin() -> None:
+    config = asyncio.run(
+        OopzConfig().login_async(
+            method="credentials",
+            device_id="device-static",
+            person_uid="person-static",
+            jwt_token="token-static",
+        )
+    )
+
+    assert config._get_auth_relogin() is None
+
+
+def test_credentials_login_clears_previous_password_relogin(monkeypatch) -> None:
+    async def fake_login_with_password(phone, password, **kwargs):
+        return OopzLoginCredentials(
+            device_id="device-password",
+            person_uid="person-password",
+            jwt_token="token-password",
+            private_key_pem="pem-password",
+        )
+
+    monkeypatch.setattr(password_login_module, "login_with_password", fake_login_with_password)
+    config = asyncio.run(OopzConfig().login_async(phone="p", password="pw"))
+    assert config._get_auth_relogin() is not None
+
+    asyncio.run(
+        config.login_async(
+            method="credentials",
+            device_id="device-static",
+            person_uid="person-static",
+            jwt_token="token-static",
+        )
+    )
+
+    assert config._get_auth_relogin() is None
 
 
 def test_oopz_config_can_be_created_without_auth_then_logged_in(monkeypatch) -> None:

@@ -233,18 +233,17 @@ if __name__ == "__main__":
 
 ### 启用方式
 
-最常见的是直接给 `OopzBot` 传账号密码，由 SDK 构造续期回调：
+通过 `config.login_async()` 使用密码登录后，配置会自动携带续期能力，创建 Bot 时无需再次传入密码：
 
 ```python
 from oopz_sdk import OopzBot, OopzConfig
 
-config = OopzConfig.from_env()  # 或已有 jwt 凭据
-bot = OopzBot(
-    config,
-    login_phone="...",
-    login_password="...",
-)
+config = OopzConfig()
+await config.login_async(phone="...", password="...")
+bot = OopzBot(config)
 ```
+
+直接使用静态 JWT 登录不会自动获得续期能力；这类场景可以通过 `auth_relogin` 提供外部凭据更新函数。
 
 也可以传入自定义续期回调 `auth_relogin`（一个返回 `OopzLoginCredentials` 的 async 函数），适合自带登录流程或凭据来源的场景：
 
@@ -261,9 +260,7 @@ bot = OopzBot(config, auth_relogin=relogin)
 
 | 参数                               | 类型                | 默认值   | 说明                                                         |
 |----------------------------------|-------------------|-------|------------------------------------------------------------|
-| `login_phone`                    | `str \| None`     | `None` | 续期用手机号；与 `login_password` 同时提供时自动启用无人值守续期。                |
-| `login_password`                 | `str \| None`     | `None` | 续期用密码。                                                     |
-| `auth_relogin`                   | `Callable \| None`| `None` | 自定义续期回调（async，返回 `OopzLoginCredentials`）；优先级高于手机号/密码。      |
+| `auth_relogin`                   | `Callable \| None`| `None` | 自定义续期回调（async，返回 `OopzLoginCredentials`）；优先于配置自带的续期能力。      |
 | `auth_refresh_threshold_seconds` | `float \| None`   | `300` | 临期阈值（秒）。token 剩余有效期低于该值即触发主动续期。                            |
 
 ### 高级用法

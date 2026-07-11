@@ -197,6 +197,7 @@ class OopzConfig:
     auto_subscribe_joined_areas: bool = False # 加入后自动请求账号加入的所有域, 然后向websocket注册加入的域, 接受来自域的事件
 
     onebot_v11: OneBotV11Config = field(default_factory=OneBotV11Config)
+    _auth_relogin: Any = field(default=None, init=False, repr=False, compare=False)
 
     def __post_init__(self) -> None:
         self.device_id = str(self.device_id or "").strip()
@@ -461,7 +462,17 @@ class OopzConfig:
             values["app_version"] = credentials.app_version
 
         values.update(overrides or {})
-        return cls(**values)
+        config = cls(**values)
+        config._configure_auth_relogin(
+            method=login_kwargs.get("method", "auto"),
+            phone=login_kwargs.get("phone", ""),
+            password=login_kwargs.get("password", ""),
+            device_id=login_kwargs.get("device_id", ""),
+            person_uid=login_kwargs.get("person_uid", ""),
+            jwt_token=login_kwargs.get("jwt_token", ""),
+            timeout=login_kwargs.get("timeout"),
+        )
+        return config
 
     def _apply_login_credentials(
         self,
@@ -479,6 +490,51 @@ class OopzConfig:
             self.app_version = credentials.app_version
 
         return self
+
+    def _configure_auth_relogin(
+        self,
+        *,
+        method: str,
+        phone: str,
+        password: str,
+        device_id: str,
+        person_uid: str,
+        jwt_token: str,
+        timeout: float | None,
+    ) -> None:
+        """Remember how to obtain the next credential set after password login."""
+        normalized = self._normalize_login_method(method)
+        password_login = normalized in {"password", "password_api"}
+        if normalized == "auto":
+            password_login = not self._has_credentials(
+                device_id=device_id,
+                person_uid=person_uid,
+                jwt_token=jwt_token,
+            ) and bool(str(phone or "").strip() and str(password or ""))
+
+        if not password_login:
+            self._auth_relogin = None
+            return
+
+        login_phone = str(phone or "").strip()
+        login_password = str(password or "")
+        login_timeout = timeout if timeout is not None else 20
+
+        async def _relogin():
+            from oopz_sdk.auth.api_password_login import login_with_api_password
+
+            return await asyncio.to_thread(
+                login_with_api_password,
+                login_phone,
+                login_password,
+                device_id=self.device_id or None,
+                timeout=login_timeout,
+            )
+
+        self._auth_relogin = _relogin
+
+    def _get_auth_relogin(self) -> Any:
+        return self._auth_relogin
 
     @staticmethod
     def _run_coroutine_sync(
@@ -600,11 +656,14 @@ class OopzConfig:
         timeout: float | None = None,
         proxy: ProxyConfig | dict[str, Any] | str | None = None,
     ) -> "OopzConfig":
+        resolved_device_id = device_id or self.device_id
+        resolved_person_uid = person_uid or self.person_uid
+        resolved_jwt_token = jwt_token or self.jwt_token
         credentials = await type(self)._resolve_login_credentials(
             method=method,
-            device_id=device_id or self.device_id,
-            person_uid=person_uid or self.person_uid,
-            jwt_token=jwt_token or self.jwt_token,
+            device_id=resolved_device_id,
+            person_uid=resolved_person_uid,
+            jwt_token=resolved_jwt_token,
             private_key=private_key if private_key is not None else self.private_key,
             app_version=app_version or self.app_version,
             phone=phone,
@@ -616,7 +675,17 @@ class OopzConfig:
             timeout=timeout,
             proxy=proxy,
         )
-        return self._apply_login_credentials(credentials)
+        self._apply_login_credentials(credentials)
+        self._configure_auth_relogin(
+            method=method,
+            phone=phone,
+            password=password,
+            device_id=resolved_device_id,
+            person_uid=resolved_person_uid,
+            jwt_token=resolved_jwt_token,
+            timeout=timeout,
+        )
+        return self
 
     def login(
         self,
