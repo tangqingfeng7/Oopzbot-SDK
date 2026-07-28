@@ -19,8 +19,6 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 ReloginCallback = Callable[[], Awaitable["OopzLoginCredentials"]]
-TokenListener = Callable[[OopzConfig], None]
-
 DEFAULT_REFRESH_THRESHOLD_SECONDS = 300.0
 # 重登遇瞬时错误(OopzConnectionError)时的有限次退避重试，避免一次网络抖动/5xx
 # 就被反应式路径误判为不可恢复而停机；耗尽后才返回失败交由调用方决策。
@@ -47,7 +45,6 @@ class AuthManager:
         self._relogin_backoff_seconds = max(0.0, float(relogin_backoff_seconds))
         self._lock = asyncio.Lock()
         self._token_version = 0
-        self._listeners: list[TokenListener] = []
 
     @property
     def config(self) -> OopzConfig:
@@ -66,10 +63,6 @@ class AuthManager:
     @property
     def refresh_threshold_seconds(self) -> float:
         return self._refresh_threshold
-
-    def add_token_listener(self, listener: TokenListener) -> None:
-        """注册 token 变更监听者（续期成功后同步调用）。"""
-        self._listeners.append(listener)
 
     def seconds_until_expiry(self, *, now: float | None = None) -> float | None:
         """返回当前 token 距离 ``exp`` 的剩余秒数；无 exp 时返回 None。"""
@@ -199,10 +192,10 @@ class AuthManager:
         return None
 
     def _apply(self, credentials: "OopzLoginCredentials") -> None:
+        # Signer 在客户端生命周期内固定使用初始化时的私钥。正常续期返回的密钥
+        # 必定与原密钥一致，否则根本无法进行请求；当前只轮换登录凭据，
+        # 暂不支持私钥热更新，因此明确保留原值。
+        private_key = self._config.private_key
         self._config._apply_login_credentials(credentials)
+        self._config.private_key = private_key
         self._token_version += 1
-        for listener in list(self._listeners):
-            try:
-                listener(self._config)
-            except Exception:
-                logger.exception("AuthManager token 监听者执行失败")

@@ -80,6 +80,22 @@ def test_can_refresh_true_with_relogin() -> None:
     assert manager.can_refresh is True
 
 
+def test_bot_uses_config_relogin_unless_explicitly_overridden() -> None:
+    async def _config_relogin():
+        raise AssertionError("not called")
+
+    async def _explicit_relogin():
+        raise AssertionError("not called")
+
+    from oopz_sdk.client.bot import OopzBot
+
+    config = _config(3600)
+    config.private_key = config._fallback_private_key()
+    config._auth_relogin = _config_relogin
+    assert OopzBot(config).auth._relogin is _config_relogin
+    assert OopzBot(config, auth_relogin=_explicit_relogin).auth._relogin is _explicit_relogin
+
+
 def test_seconds_until_expiry_and_needs_refresh() -> None:
     manager = AuthManager(_config(1000))
     remaining = manager.seconds_until_expiry()
@@ -140,21 +156,42 @@ def test_ensure_fresh_returns_false_when_near_expiry_but_cannot_refresh() -> Non
     assert _run(manager.ensure_fresh()) is False
 
 
-def test_refresh_applies_credentials_and_notifies_listener() -> None:
+def test_refresh_applies_credentials() -> None:
     new_token = _fake_jwt(time.time() + 7200)
-    seen: list[str] = []
 
     async def _relogin():
         return _credentials(new_token)
 
     config = _config(100)
     manager = AuthManager(config, relogin=_relogin)
-    manager.add_token_listener(lambda cfg: seen.append(cfg.jwt_token))
 
     assert _run(manager.refresh(force=True)) is True
     assert config.jwt_token == new_token
-    assert seen == [new_token]
     assert manager.token_version == 1
+
+
+def test_refresh_preserves_original_private_key() -> None:
+    config = _config(100)
+    original_key = config.private_key
+    credentials = _credentials(_fake_jwt(time.time() + 7200))
+    credentials.private_key_pem = "different-key"
+
+    async def _relogin():
+        return credentials
+
+    manager = AuthManager(config, relogin=_relogin)
+    assert _run(manager.refresh(force=True)) is True
+    assert config.private_key is original_key
+
+
+def test_ws_start_rejects_duplicate_run() -> None:
+    from oopz_sdk.client.ws import OopzWSClient, _WSState
+
+    client = OopzWSClient(config=_config(3600))
+    client._state = _WSState.CONNECTING
+
+    with pytest.raises(RuntimeError, match="already running"):
+        _run(client.start())
 
 
 def test_refresh_returns_false_when_cannot_refresh() -> None:
@@ -293,9 +330,6 @@ class _FakeAuthManager:
     @property
     def token_version(self) -> int:
         return self._token_version
-
-    def add_token_listener(self, listener) -> None:  # noqa: D401 - 接口占位
-        pass
 
     async def handle_auth_error(self, error, *, observed_token_version=None) -> bool:
         self.calls += 1
@@ -491,9 +525,9 @@ def test_raise_if_auth_rejected_passes_through_non_failures() -> None:
     OopzWSClient._raise_if_auth_rejected(json.dumps({"event": 21, "body": "not-json"}))
 
 
-def test_receive_loop_clears_fresh_token_unverified_on_success() -> None:
+def test_receive_loop_marks_refreshed_token_current_on_success() -> None:
     """收到一条正常帧后应清除「续期待验证」标记，避免误升级为致命停机。"""
-    from oopz_sdk.client.ws import OopzWSClient
+    from oopz_sdk.client.ws import OopzWSClient, _TokenState, _WSState
     from oopz_sdk.transport.ws import WebSocketClosedError
 
     class _OneFrameTransport:
@@ -506,14 +540,17 @@ def test_receive_loop_clears_fresh_token_unverified_on_success() -> None:
             raise WebSocketClosedError(code=1000, reason="done")
 
     client = OopzWSClient(config=_config(3600))
-    client._running = True
-    client._fresh_token_unverified = True
+    client._state = _WSState.CONNECTED
+    client._token_state = _TokenState.PENDING_VALIDATION
+    client._consecutive_failures = 3
     client.transport = _OneFrameTransport()
 
     # 第一帧正常 → 清标记；第二次 recv 抛 WebSocketClosedError 退出循环。
     with pytest.raises(WebSocketClosedError):
         _run(client._receive_loop())
-    assert client._fresh_token_unverified is False
+    assert client._state is _WSState.CONNECTED
+    assert client._token_state is _TokenState.CURRENT
+    assert client._consecutive_failures == 0
 
 
 def test_start_escalates_when_refreshed_token_still_rejected() -> None:
@@ -546,9 +583,6 @@ def test_start_escalates_when_refreshed_token_still_rejected() -> None:
 
         def __init__(self) -> None:
             self.calls = 0
-
-        def add_token_listener(self, listener) -> None:
-            pass
 
         @property
         def refresh_threshold_seconds(self) -> float:
@@ -606,9 +640,6 @@ def test_start_does_not_relogin_on_callback_auth_error() -> None:
 
         def __init__(self) -> None:
             self.calls = 0
-
-        def add_token_listener(self, listener) -> None:
-            pass
 
         @property
         def refresh_threshold_seconds(self) -> float:

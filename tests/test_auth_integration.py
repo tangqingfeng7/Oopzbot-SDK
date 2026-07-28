@@ -78,9 +78,8 @@ class _SequenceTransport(HttpTransport):
         return self._responses.pop(0)
 
 
-def test_http_401_relogin_rotates_token_and_signing_key_end_to_end() -> None:
+def test_http_401_relogin_rotates_token_and_keeps_signing_key_end_to_end() -> None:
     old_pem, old_pub = _rsa_pem()
-    new_pem, new_pub = _rsa_pem()
     old_jwt = _fake_jwt(time.time() + 3600)
     # 故意给新 jwt 包上引号与空白，顺带验证续期写回也走 _normalize_jwt_token 归一化。
     raw_new_jwt = _fake_jwt(time.time() + 7200)
@@ -98,12 +97,12 @@ def test_http_401_relogin_rotates_token_and_signing_key_end_to_end() -> None:
 
     async def _relogin():
         relogin_calls["n"] += 1
-        # 续期沿用同一 device_id 保持身份稳定，但换发新 jwt 与新签名私钥。
+        # 续期沿用同一 device_id 和签名私钥，只换发新 jwt。
         return SimpleNamespace(
             device_id="dev-stable",
             person_uid="uid-1",
             jwt_token=quoted_new_jwt,
-            private_key_pem=new_pem,
+            private_key_pem=old_pem,
             app_version="",
         )
 
@@ -133,12 +132,11 @@ def test_http_401_relogin_rotates_token_and_signing_key_end_to_end() -> None:
     assert config.jwt_token == raw_new_jwt
     assert config.device_id == "dev-stable"
 
-    # 续期后：请求头随即用新 jwt，且签名由新私钥而非旧私钥产生。
+    # 续期后：请求头随即用新 jwt，签名继续使用原私钥。
     headers_after = build_oopz_headers(config, signer, "/ping", "{}")
     assert headers_after["Oopz-Signature"] == raw_new_jwt
     msg_after = signer.body_md5("/ping", "{}") + headers_after["Oopz-Time"]
-    assert _signature_valid(new_pub, headers_after["Oopz-Sign"], msg_after) is True
-    assert _signature_valid(old_pub, headers_after["Oopz-Sign"], msg_after) is False
+    assert _signature_valid(old_pub, headers_after["Oopz-Sign"], msg_after) is True
 
 
 def test_http_401_without_auth_manager_raises_and_keeps_old_key() -> None:

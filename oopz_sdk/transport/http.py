@@ -58,10 +58,6 @@ class HttpTransport(BaseTransport):
         self._rate_lock = asyncio.Lock()
         self._last_request_time = 0.0
 
-        if auth_manager is not None:
-            # 续期后服务端要求的签名私钥若发生轮换，让 signer 同步刷新。
-            auth_manager.add_token_listener(lambda _config: self.signer.reload_key())
-
     async def _ensure_client_session(self) -> aiohttp.ClientSession:
         if self._client_session is None or self._client_session.closed:
             self._client_session = aiohttp.ClientSession(headers=self.headers)
@@ -210,8 +206,9 @@ class HttpTransport(BaseTransport):
     ) -> Any:
         # 在签发请求前快照 token 版本：若请求在途期间凭据被后台续期轮换，则失效重试
         # 时直接用当前（已更新的）token，无需再次重登。
+        auth_manager = getattr(self, "_auth_manager", None)
         observed_token_version = (
-            self._auth_manager.token_version if self._auth_manager is not None else None
+            auth_manager.token_version if auth_manager is not None else None
         )
 
         resp = await self.request(
@@ -241,9 +238,9 @@ class HttpTransport(BaseTransport):
                     response=resp,
                 )
                 # 鉴权失效时，若 AuthManager 能续期则重登并重试一次；不可恢复则上报。
-                if self._auth_manager is not None and not auth_retry_used:
+                if auth_manager is not None and not auth_retry_used:
                     auth_retry_used = True
-                    if await self._auth_manager.handle_auth_error(
+                    if await auth_manager.handle_auth_error(
                         auth_error, observed_token_version=observed_token_version
                     ):
                         resp = await self.request(method, path, params=params, body=body)
