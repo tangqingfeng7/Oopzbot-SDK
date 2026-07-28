@@ -5,6 +5,7 @@ from typing import Any
 
 import oopz_sdk.services.message as message_service
 import oopz_sdk.services.voice as voice_service
+from oopz_sdk.auth.manager import DEFAULT_REFRESH_THRESHOLD_SECONDS, AuthManager
 from oopz_sdk.events.context import EventContext
 from oopz_sdk.events.dispatcher import EventDispatcher
 from oopz_sdk.events.parser import EventParser
@@ -13,6 +14,7 @@ from oopz_sdk.state.cache import CacheStore
 
 from .rest import OopzRESTClient
 from .ws import CloseInfo, OopzWSClient
+from ..exceptions import OopzAuthError
 from ..models import Message, MessageEvent
 
 logger = logging.getLogger(__name__)
@@ -42,6 +44,8 @@ class OopzBot:
         on_close=None,
         on_reconnect=None,
         on_raw_event=None,
+        auth_relogin=None,
+        auth_refresh_threshold_seconds=None,
     ):
         self.cache: CacheStore = CacheStore(config)
         self.config = config
@@ -49,7 +53,23 @@ class OopzBot:
         self.dispatcher = EventDispatcher(self.registry)
         self.parser = EventParser()
 
-        self.rest = OopzRESTClient(config, bot=self, cache=self.cache)
+        relogin = (
+            auth_relogin
+            if auth_relogin is not None
+            else config._get_auth_relogin()
+        )
+        refresh_threshold = (
+            DEFAULT_REFRESH_THRESHOLD_SECONDS
+            if auth_refresh_threshold_seconds is None
+            else auth_refresh_threshold_seconds
+        )
+        self.auth = AuthManager(
+            config,
+            relogin=relogin,
+            refresh_threshold_seconds=refresh_threshold,
+        )
+
+        self.rest = OopzRESTClient(config, bot=self, cache=self.cache, auth_manager=self.auth)
         self.messages: message_service.Message = self.rest.messages
         self.media = self.rest.media
         self.areas = self.rest.areas
@@ -81,6 +101,7 @@ class OopzBot:
             on_error=self._handle_error,
             on_close=self._handle_close,
             on_reconnect=self._handle_reconnect,
+            auth_manager=self.auth,
         )
 
         # 函数式事件注册。
@@ -430,6 +451,8 @@ class OopzBot:
                 len(area_ids),
             )
 
+        except OopzAuthError:
+            raise
         except Exception as exc:
             logger.error("Failed to subscribe joined area events: %s", exc)
 
@@ -438,5 +461,7 @@ class OopzBot:
             return
         try:
             await self.person.get_self_detail(force=True)
+        except OopzAuthError:
+            raise
         except Exception as exc:
             logger.warning("Failed to warm up self identity cache: %s", exc)

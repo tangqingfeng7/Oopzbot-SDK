@@ -17,6 +17,7 @@ from oopz_sdk.auth._builtin_login_bundle import (
 )
 from oopz_sdk.auth.password_login import OopzLoginCredentials
 from oopz_sdk.exceptions.auth import OopzPasswordLoginError
+from oopz_sdk.exceptions.transport import OopzConnectionError
 
 
 BASE_URL = "https://gateway.oopz.cn"
@@ -235,7 +236,15 @@ def login_with_api_password(
             timeout=timeout,
         )
     except requests.RequestException as exc:
-        raise OopzPasswordLoginError(f"OOPZ 登录请求失败: {exc}") from exc
+        # 网络错误/超时属瞬时故障：抛 OopzConnectionError（非 OopzAuthError 子类），
+        # 让 AuthManager 续期时按「可重试」处理，而非误判为凭据失效而永久停机。
+        raise OopzConnectionError(f"OOPZ 登录请求失败: {exc}") from exc
+
+    # 5xx 属服务端瞬时不可用，同样按可重试处理，避免无人值守续期被一次抖动打死。
+    if response.status_code >= 500:
+        raise OopzConnectionError(
+            f"OOPZ 登录服务暂时不可用 (HTTP {response.status_code})"
+        )
 
     try:
         payload = response.json()
@@ -244,6 +253,8 @@ def login_with_api_password(
             f"OOPZ 登录接口返回非 JSON 响应: HTTP {response.status_code}"
         ) from exc
 
+    # 4xx 或业务 status=false 属凭据/风控等永久性失败：保持 OopzPasswordLoginError
+    # （OopzAuthError 子类），由 AuthManager 上报为不可恢复并停机。
     if response.status_code >= 400 or not isinstance(payload, dict) or not payload.get("status"):
         raise OopzPasswordLoginError(
             _extract_login_error(payload),

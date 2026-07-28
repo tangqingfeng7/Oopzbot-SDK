@@ -7,7 +7,7 @@ import logging
 import os
 import warnings
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, ClassVar
 from .constants import DEFAULT_HEADERS
 
 logger = logging.getLogger(__name__)
@@ -145,6 +145,9 @@ class OneBotV11Config:
 
 @dataclass
 class OopzConfig:
+    # Clock-skew tolerance (seconds) for the local JWT expiry pre-check.
+    JWT_EXPIRY_LEEWAY_SECONDS: ClassVar[float] = 60.0
+
     device_id: str = ""
     person_uid: str = ""
     jwt_token: str = ""
@@ -194,11 +197,12 @@ class OopzConfig:
     auto_subscribe_joined_areas: bool = False # 加入后自动请求账号加入的所有域, 然后向websocket注册加入的域, 接受来自域的事件
 
     onebot_v11: OneBotV11Config = field(default_factory=OneBotV11Config)
+    _auth_relogin: Any = field(default=None, init=False, repr=False, compare=False)
 
     def __post_init__(self) -> None:
         self.device_id = str(self.device_id or "").strip()
         self.person_uid = str(self.person_uid or "").strip()
-        self.jwt_token = str(self.jwt_token or "").strip()
+        self.jwt_token = self._normalize_jwt_token(self.jwt_token)
 
         if self.has_credentials() and self._is_missing_private_key(self.private_key):
             self.private_key = self._fallback_private_key()
@@ -209,6 +213,14 @@ class OopzConfig:
         if not text:
             raise ValueError(f"{field_name} is required")
         return text
+
+    @staticmethod
+    def _normalize_jwt_token(value: Any) -> str:
+        """Remove whitespace and accidental shell quotes around a JWT value."""
+        token = str(value or "").strip()
+        if len(token) >= 2 and token[0] == token[-1] and token[0] in {"'", '"'}:
+            return token[1:-1].strip()
+        return token
 
     @staticmethod
     def _is_missing_private_key(value: Any) -> bool:
@@ -256,6 +268,15 @@ class OopzConfig:
 
     def ensure_credentials(self) -> None:
         if self.has_credentials():
+            from oopz_sdk.exceptions import OopzAuthError
+            from oopz_sdk.utils.jwt import jwt_expired
+
+            # Allow a small clock skew so a slightly fast local clock does not
+            # wrongly reject a token that the server still accepts.
+            if jwt_expired(self.jwt_token, leeway=self.JWT_EXPIRY_LEEWAY_SECONDS):
+                raise OopzAuthError(
+                    "JWT token has expired. Update OOPZ_JWT_TOKEN or log in again before starting the client."
+                )
             if self._is_missing_private_key(self.private_key):
                 self.private_key = self._fallback_private_key()
             return
@@ -346,18 +367,9 @@ class OopzConfig:
         proxy: ProxyConfig | dict[str, Any] | str | None = None,
     ) -> Any:
         from oopz_sdk.auth import OopzLoginCredentials
-        from oopz_sdk.auth import api_password_login as api_password_login_module
         from oopz_sdk.auth import password_login as password_login_module
 
         method = cls._normalize_login_method(method)
-        password_kwargs = cls._build_password_kwargs(
-            headful_env=headful_env,
-            headless=headless,
-            browser_data_dir=browser_data_dir,
-            chromium_executable_path=chromium_executable_path,
-            timeout=timeout,
-            proxy=proxy,
-        )
 
         if method == "credentials":
             if not cls._has_credentials(
@@ -379,9 +391,10 @@ class OopzConfig:
                 )
             )
 
-        if method == "password_api":
-            return await asyncio.to_thread(
-                api_password_login_module.login_with_api_password,
+        if method in ("password", "password_api"):
+            # 密码登录统一走纯 API 入口（不再自动回退浏览器）；浏览器登录仅在显式
+            # method="password_browser" 时进行。
+            return await password_login_module.login_with_password(
                 cls._require_non_empty(phone, "phone"),
                 str(password or ""),
                 device_id=str(device_id or "") or None,
@@ -392,14 +405,14 @@ class OopzConfig:
             return await password_login_module.login_with_playwright_password(
                 cls._require_non_empty(phone, "phone"),
                 str(password or ""),
-                **password_kwargs,
-            )
-
-        if method == "password":
-            return await password_login_module.login_with_password(
-                cls._require_non_empty(phone, "phone"),
-                str(password or ""),
-                **password_kwargs,
+                **cls._build_password_kwargs(
+                    headful_env=headful_env,
+                    headless=headless,
+                    browser_data_dir=browser_data_dir,
+                    chromium_executable_path=chromium_executable_path,
+                    timeout=timeout,
+                    proxy=proxy,
+                ),
             )
 
         if cls._has_credentials(
@@ -421,7 +434,8 @@ class OopzConfig:
             return await password_login_module.login_with_password(
                 cls._require_non_empty(phone, "phone"),
                 str(password or ""),
-                **password_kwargs,
+                device_id=str(device_id or "") or None,
+                timeout=timeout if timeout is not None else 20,
             )
 
         raise ValueError(
@@ -448,7 +462,17 @@ class OopzConfig:
             values["app_version"] = credentials.app_version
 
         values.update(overrides or {})
-        return cls(**values)
+        config = cls(**values)
+        config._configure_auth_relogin(
+            method=login_kwargs.get("method", "auto"),
+            phone=login_kwargs.get("phone", ""),
+            password=login_kwargs.get("password", ""),
+            device_id=login_kwargs.get("device_id", ""),
+            person_uid=login_kwargs.get("person_uid", ""),
+            jwt_token=login_kwargs.get("jwt_token", ""),
+            timeout=login_kwargs.get("timeout"),
+        )
+        return config
 
     def _apply_login_credentials(
         self,
@@ -456,7 +480,7 @@ class OopzConfig:
     ) -> "OopzConfig":
         self.device_id = str(credentials.device_id or "").strip()
         self.person_uid = str(credentials.person_uid or "").strip()
-        self.jwt_token = str(credentials.jwt_token or "").strip()
+        self.jwt_token = self._normalize_jwt_token(credentials.jwt_token)
         self.private_key = credentials.private_key_pem
 
         if self.has_credentials() and self._is_missing_private_key(self.private_key):
@@ -466,6 +490,51 @@ class OopzConfig:
             self.app_version = credentials.app_version
 
         return self
+
+    def _configure_auth_relogin(
+        self,
+        *,
+        method: str,
+        phone: str,
+        password: str,
+        device_id: str,
+        person_uid: str,
+        jwt_token: str,
+        timeout: float | None,
+    ) -> None:
+        """Remember how to obtain the next credential set after password login."""
+        normalized = self._normalize_login_method(method)
+        password_login = normalized in {"password", "password_api"}
+        if normalized == "auto":
+            password_login = not self._has_credentials(
+                device_id=device_id,
+                person_uid=person_uid,
+                jwt_token=jwt_token,
+            ) and bool(str(phone or "").strip() and str(password or ""))
+
+        if not password_login:
+            self._auth_relogin = None
+            return
+
+        login_phone = str(phone or "").strip()
+        login_password = str(password or "")
+        login_timeout = timeout if timeout is not None else 20
+
+        async def _relogin():
+            from oopz_sdk.auth.api_password_login import login_with_api_password
+
+            return await asyncio.to_thread(
+                login_with_api_password,
+                login_phone,
+                login_password,
+                device_id=self.device_id or None,
+                timeout=login_timeout,
+            )
+
+        self._auth_relogin = _relogin
+
+    def _get_auth_relogin(self) -> Any:
+        return self._auth_relogin
 
     @staticmethod
     def _run_coroutine_sync(
@@ -587,11 +656,14 @@ class OopzConfig:
         timeout: float | None = None,
         proxy: ProxyConfig | dict[str, Any] | str | None = None,
     ) -> "OopzConfig":
+        resolved_device_id = device_id or self.device_id
+        resolved_person_uid = person_uid or self.person_uid
+        resolved_jwt_token = jwt_token or self.jwt_token
         credentials = await type(self)._resolve_login_credentials(
             method=method,
-            device_id=device_id or self.device_id,
-            person_uid=person_uid or self.person_uid,
-            jwt_token=jwt_token or self.jwt_token,
+            device_id=resolved_device_id,
+            person_uid=resolved_person_uid,
+            jwt_token=resolved_jwt_token,
             private_key=private_key if private_key is not None else self.private_key,
             app_version=app_version or self.app_version,
             phone=phone,
@@ -603,7 +675,17 @@ class OopzConfig:
             timeout=timeout,
             proxy=proxy,
         )
-        return self._apply_login_credentials(credentials)
+        self._apply_login_credentials(credentials)
+        self._configure_auth_relogin(
+            method=method,
+            phone=phone,
+            password=password,
+            device_id=resolved_device_id,
+            person_uid=resolved_person_uid,
+            jwt_token=resolved_jwt_token,
+            timeout=timeout,
+        )
+        return self
 
     def login(
         self,

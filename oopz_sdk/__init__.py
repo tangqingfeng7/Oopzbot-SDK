@@ -8,6 +8,7 @@ _logger.propagate = False
 
 from .logger import setup_logging
 from .auth import (
+    AuthManager,
     OopzLoginCredentials,
     OopzPasswordLoginError,
     Signer,
@@ -75,6 +76,7 @@ __all__ = [
     "AreaMembersPage",
     "AreaService",
     "Attachment",
+    "AuthManager",
     "Channel",
     "ChannelSetting",
     "DEFAULT_HEADERS",

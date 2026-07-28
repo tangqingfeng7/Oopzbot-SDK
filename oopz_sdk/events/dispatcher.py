@@ -6,6 +6,7 @@ from typing import Any
 
 from .context import EventContext
 from .registry import EventRegistry
+from ..exceptions import OopzAuthError
 from ..state.cache import CacheStore
 
 logger = logging.getLogger(__name__)
@@ -37,6 +38,16 @@ class EventDispatcher:
                 result = self._invoke_handler(handler, event_name, event, context)
                 if inspect.isawaitable(result):
                     await result
+            except OopzAuthError:
+                # 不可恢复的鉴权失效（HTTP 层已做过单次重登重试仍失败）不能在此吞掉：
+                # 否则 Bot 会带着死凭据继续运行，连接仍在但后续鉴权请求持续失败。
+                # 向上传播，由 WS 客户端按回调致命错误升级为全局停机
+                logger.error(
+                    "事件处理器遇到不可恢复的鉴权失效，升级为致命错误: event=%s handler=%r",
+                    event_name,
+                    handler,
+                )
+                raise
             except Exception as exc:
                 logger.exception("事件处理器执行失败: event=%s handler=%r", event_name, handler)
                 if event_name == "error":

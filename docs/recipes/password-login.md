@@ -64,6 +64,8 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
-这段代码默认读取 `OOPZ_LOGIN_PHONE` 和 `OOPZ_LOGIN_PASSWORD`。需要人工验证时设置 `OOPZ_LOGIN_HEADFUL=1`（也接受 `true` / `yes` / `on`），也可以在调用时显式传 `headless=False`。
+这段代码默认读取 `OOPZ_LOGIN_PHONE` 和 `OOPZ_LOGIN_PASSWORD`，走**纯 API 登录**（不再自动回退浏览器）。
+
+如果确实需要浏览器登录来处理验证码/风控，请显式设置 `OOPZ_LOGIN_METHOD=password_browser`，此时才会启用 Playwright；配合 `OOPZ_LOGIN_HEADFUL=1`（也接受 `true` / `yes` / `on`）显示窗口，或在调用时显式传 `headless=False`。命令行工具 `oopz-login` 始终走浏览器登录。
 
 不要把输出的真实 token、私钥或任何保存了这些内容的文件提交到仓库。

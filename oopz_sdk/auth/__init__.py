@@ -11,9 +11,11 @@ from .password_login import (
     save_credentials_json,
 )
 from .api_password_login import login_with_api_password
+from .manager import AuthManager
 from .signer import Signer
 
 __all__ = [
+    "AuthManager",
     "ClientMessageIdGenerator",
     "OopzLoginCredentials",
     "OopzPasswordLoginError",
