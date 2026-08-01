@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any, Mapping
 
 from pydantic import Field, model_validator
-from .base import BaseModel
+from .base import BaseModel, OperationResult
 from oopz_sdk.exceptions import OopzApiError
 from oopz_sdk.utils.payload import coerce_bool
 from enum import Enum

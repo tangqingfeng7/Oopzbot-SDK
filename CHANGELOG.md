@@ -1,6 +1,29 @@
 # Changelog
 
-## Unreleased
+## 0.15.0
+
+### 新增
+
+- 新增 `General` 通用服务，并在 `OopzRESTClient.general` 与 `OopzBot.general` 上挂载；新增 `get_daily_speech()` 获取每日一言及作者，返回 `DailySpeech` 模型。
+- `AreaService` 新增 `get_area_operate_logs()`，支持按分页偏移量和操作类型查询域操作日志，返回 `list[AreaOperateLogEntry]`。
+- `Channel` 服务新增 `drag_member()`，支持将成员移动到指定语音频道；未提供来源频道时会自动查询成员当前所在频道。
+- 新增并导出 `AreaOperateLogEntry`、`DailySpeech`、`NamePopulationResult` 模型，同时补充导出 `VoiceChannelMemberInfo`。
+
+### 变更
+- 
+- `AreaService.enter_area()` 的返回值由原始 `dict` 收敛为 `OperationResult`，与其他操作类接口保持一致。
+- `AreaService.populate_names()` 的返回值由 `dict` 改为带类型的 `NamePopulationResult`；字段仍为 `areas_named` 和 `channels_named`。
+- 消息发送的 `attachments` 与 `mention_list` 现在要求分别传入 `Attachment` 和 `MentionInfo` 模型，并在发送前统一序列化为 API payload；传入错误类型会立即抛出 `TypeError`。
+
+### 修复
+
+- 修复 HTTP 错误响应中的 `error` 字段为 `null` 时调用 `.strip()` 导致异常的问题。
+
+### 文档
+
+- 补充域操作日志、语音频道成员移动和每日一言接口文档，并将 `General Service` 加入 Service 总览与文档导航。
+
+## 0.14.0
 
 ### 新增
 

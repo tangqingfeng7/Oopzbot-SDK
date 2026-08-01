@@ -115,6 +115,41 @@ for member in members:
 
 ---
 
+## `get_area_operate_logs(area, offset=0, op_types=None)`
+
+获取指定域的操作日志。
+
+```python
+logs = await client.areas.get_area_operate_logs(
+    area="域 ID"
+)
+
+for log in logs:
+    print(log.operator_uid, log.content, log.create_time)
+```
+
+=== "参数"
+
+    | 参数 | 类型 | 必填 | 默认值 | 说明 |
+    | --- | --- | --- | --- | --- |
+    | `area` | `str` | 是 | - | 域 ID，不能为空。 |
+    | `offset` | `int` | 否 | `0` | 分页偏移量；负数会按 `0` 处理。 |
+    | `op_types` | `list[str] \| None` | 否 | `None` | 要筛选的操作类型列表；不传时查询全部类型。 |
+
+=== "返回值"
+
+    返回：`list[AreaOperateLogEntry]`。
+
+    对应模型：`oopz_sdk.models.AreaOperateLogEntry`
+
+    | 字段 | 类型 | 默认值 | 说明 |
+    | --- | --- | --- | --- |
+    | `operator_uid` | `str` | `""` | 操作者 UID。 |
+    | `content` | `str` | `""` | 操作信息。 |
+    | `create_time` | `int` | `0` | 操作发生时间，由接口返回的时间戳归一化而来。 |
+
+---
+
 ## `get_joined_areas()`
 
 获取当前用户已加入的域列表。

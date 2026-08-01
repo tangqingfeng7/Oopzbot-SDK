@@ -513,3 +513,33 @@ class Channel(BaseService):
                 if m.uid == user_uid:
                     return ch_id
         return None
+
+    async def drag_member(
+            self,
+            area: str,
+            target: str,
+            to_channel: str,
+            from_channel: str = "",
+    ) -> models.OperationResult:
+        if not area.strip():
+            raise ValueError("area is required for drag_member")
+        if not target.strip():
+            raise ValueError("target is required for drag_member")
+        if not to_channel.strip():
+            raise ValueError("to_channel is required for drag_member")
+        source = from_channel.strip() or await self.get_voice_channel_for_user(area, target) or ""
+        if not source:
+            raise ValueError("target is not in a voice channel")
+        if source == to_channel:
+            raise ValueError("target is already in the destination channel")
+        data = await self._request_data(
+            "PUT",
+            "/client/v1/area/v1/member/v1/dragInto",
+            body={
+                "area": area,
+                "channel": source,
+                "toChannel": to_channel,
+                "target": target,
+            },
+        )
+        return models.OperationResult.from_api(data)

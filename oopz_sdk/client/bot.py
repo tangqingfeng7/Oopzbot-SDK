@@ -77,6 +77,7 @@ class OopzBot:
         self.person = self.rest.person
         self.members = self.person
         self.moderation = self.rest.moderation
+        self.general = self.rest.general
         self.voice: voice_service.Voice = voice_service.Voice(
             self,
             config,

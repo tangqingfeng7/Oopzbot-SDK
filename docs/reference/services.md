@@ -10,6 +10,7 @@ client.areas
 client.channels
 client.person       # 也可以使用 client.members（别名）
 client.moderation
+client.general
 ```
 
 `OopzBot` 额外挂载：
@@ -28,6 +29,7 @@ bot.voice
 | `channels` | `Channel` | 频道设置、创建、修改、删除、进入频道、语音成员。 |
 | `person`（别名 `members`） | `Person` | 用户资料、好友、好友请求。 |
 | `moderation` | `Moderation` | 禁言、解禁、禁麦、踢人、拉黑、黑名单。 |
+| `general` | `General` | 获取每日一言等通用平台信息。 |
 | `voice` | `Voice` | 进入语音频道、推流播放、暂停、恢复、音量、退出。仅 `OopzBot` 默认挂载。 |
 
 ## 调用约定

@@ -145,6 +145,37 @@ class AreaMembersPage(BaseModel):
         return cls.model_validate(data)
 
 
+class AreaOperateLogEntry(BaseModel):
+    operator_uid: str = Field(default="", alias="optUid")
+    content: str = ""
+    create_time: int = Field(default=0, alias="createTime")
+
+    @model_validator(mode="before")
+    @classmethod
+    def validate_and_normalize(cls, data: Any) -> Any:
+        if not isinstance(data, Mapping):
+            raise OopzApiError("invalid area operate log payload: expected object", payload=data)
+        normalized = dict(data)
+        normalized["optUid"] = str(normalized.get("optUid") or normalized.get("uid") or "")
+        normalized["content"] = str(normalized.get("content") or "")
+        try:
+            normalized["createTime"] = int(
+                normalized.get("createTime") or normalized.get("time") or normalized.get("timestamp") or 0
+            )
+        except (TypeError, ValueError):
+            normalized["createTime"] = 0
+        return normalized
+
+    @classmethod
+    def from_api(cls, data: Mapping[str, Any]) -> "AreaOperateLogEntry":
+        return cls.model_validate(data)
+
+
+class NamePopulationResult(BaseModel):
+    areas_named: int = 0
+    channels_named: int = 0
+
+
 class ChannelInfoSettings(BaseModel):
     disable_text_levels: list[int] | None = Field(default=None, alias="disableTextLevels")
     disable_voice_levels: list[int] | None = Field(default=None, alias="disableVoiceLevels")
