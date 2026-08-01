@@ -464,6 +464,52 @@ else:
 
 ---
 
+## `drag_member(area, target, to_channel, from_channel="")`
+
+将指定成员从当前语音频道移动到另一个语音频道。
+
+如果不传 `from_channel`，SDK 会先调用 `get_voice_channel_for_user()` 自动查询该成员当前所在的语音频道。
+
+```python
+result = await client.channels.drag_member(
+    area="域 ID",
+    target="用户 UID",
+    to_channel="目标语音频道 ID",
+)
+
+print(result.ok)
+```
+
+=== "参数"
+
+    | 参数 | 类型 | 必填 | 默认值 | 说明 |
+    | --- | --- | --- | --- | --- |
+    | `area` | `str` | 是 | - | 域 ID，不能为空。 |
+    | `target` | `str` | 是 | - | 要移动的成员 UID，不能为空。 |
+    | `to_channel` | `str` | 是 | - | 目标语音频道 ID，不能为空。 |
+    | `from_channel` | `str` | 否 | `""` | 成员当前所在的语音频道 ID；不传时由 SDK 自动查询。 |
+
+=== "返回值"
+
+    返回：`OperationResult`。
+
+    对应模型：`oopz_sdk.models.OperationResult`
+
+    | 字段 | 类型 | 默认值 | 说明 |
+    | --- | --- | --- | --- |
+    | `ok` | `bool` | `True` | 操作是否成功。 |
+    | `message` | `str` | `""` | 操作消息或错误信息。 |
+
+=== "说明"
+
+    下列情况会抛出 `ValueError`：
+
+    - `area`、`target` 或 `to_channel` 为空。
+    - 未传 `from_channel`，且 SDK 无法查询到成员当前所在的语音频道。
+    - 来源频道与目标频道相同。
+
+---
+
 ## 常见任务：创建文字频道
 
 ```python

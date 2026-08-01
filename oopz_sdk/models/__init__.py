@@ -1,4 +1,6 @@
-from .area import JoinedAreaInfo, AreaInfo, ChannelGroupInfo, AreaMembersPage, AreaUserDetail, RoleInfo, AreaMemberInfo
+from .area import (JoinedAreaInfo, AreaInfo, ChannelGroupInfo, AreaMembersPage,
+                   AreaUserDetail, RoleInfo, AreaMemberInfo, AreaOperateLogEntry,
+                    NamePopulationResult)
 from .attachment import (
     Attachment,
     AudioAttachment,
@@ -9,7 +11,9 @@ from .attachment import (
 )
 from .base import OperationResult
 from .channel import (ChannelSetting, ChannelType,
-                      CreateChannelResult, ChannelEdit, ChannelSign, VoiceChannelMembersResult)
+                      CreateChannelResult, ChannelEdit, ChannelSign, VoiceChannelMembersResult,
+                      VoiceChannelMemberInfo)
+from .general import DailySpeech
 from .event import Event, MessageEvent
 from .person import UserInfo, Profile, UserLevelInfo, Friendship, FriendshipRequest, UserRemarkNamesResponse
 from .message import Message, MessageSendResult, PrivateSession, MessageEmojiItem, VoiceInteractionSticker
@@ -46,6 +50,7 @@ __all__ = [
     "MessageSendResult",
     "OperationResult",
     "VoiceChannelMembersResult",
+    "VoiceChannelMemberInfo",
     "PrivateSession",
     "TextMuteInterval",
     "VoiceMuteInterval",
@@ -58,5 +63,8 @@ __all__ = [
     "UserRemarkNamesResponse",
     "MessageEmojiItem",
     "AreaMemberInfo",
-    "VoiceInteractionSticker"
+    "VoiceInteractionSticker",
+    "AreaOperateLogEntry",
+    "DailySpeech",
+    "NamePopulationResult",
 ]

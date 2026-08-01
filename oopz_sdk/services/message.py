@@ -7,6 +7,7 @@ from typing import Optional, Any, List, Literal
 from oopz_sdk import models
 from oopz_sdk.exceptions import OopzApiError
 from oopz_sdk.models.segment import Image, Segment
+from oopz_sdk.models.message import MentionInfo
 from oopz_sdk.services import BaseService
 from oopz_sdk.utils.image import get_image_info, guess_image_ext, get_image_info_from_bytes, guess_image_ext_from_bytes, \
     read_image_bytes
@@ -14,6 +15,12 @@ from oopz_sdk.models import build_segments, normalize_message_parts
 from oopz_sdk.utils.reaction_emoji import normalize_reaction_emoji
 
 logger = logging.getLogger(__name__)
+
+
+def _raise_invalid_mention(value):
+    raise TypeError(
+        f"mention_list must contain MentionInfo models, got {type(value).__name__}"
+    )
 
 
 class Message(BaseService):
@@ -26,7 +33,11 @@ class Message(BaseService):
         统一处理文本 / Segment / 附件输入，输出最终 text 和 attachments。
         """
         message_parts = list(parts)
-        manual_attachments = attachments or []
+        manual_attachments = []
+        for attachment in attachments or []:
+            if not isinstance(attachment, models.Attachment):
+                raise TypeError("attachments must contain Attachment models")
+            manual_attachments.append(attachment.to_payload())
         # todo 已知问题: mentionList没有处理, 但是不影响使用
         has_segment_parts = any(not isinstance(part, str) for part in message_parts)
         if has_segment_parts and manual_attachments:
@@ -70,7 +81,12 @@ class Message(BaseService):
             "clientMessageId": client_message_id,
             "timestamp": timestamp,
             "isMentionAll": is_mention_all,
-            "mentionList": mention_list or [],
+            "mentionList": [
+                mention.to_payload()
+                if isinstance(mention, MentionInfo)
+                else _raise_invalid_mention(mention)
+                for mention in (mention_list or [])
+            ],
             "styleTags": style_tags or [],
             "referenceMessageId": reference_message_id,
             "animated": animated,

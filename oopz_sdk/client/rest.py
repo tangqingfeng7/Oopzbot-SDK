@@ -8,6 +8,7 @@ from oopz_sdk.services.media import Media
 from oopz_sdk.services.person import Person
 from oopz_sdk.services.message import Message
 from oopz_sdk.services.moderation import Moderation
+from oopz_sdk.services.general import General
 from oopz_sdk.state.cache import CacheStore
 from oopz_sdk.transport.http import HttpTransport
 
@@ -42,6 +43,7 @@ class OopzRESTClient:
         self.person = Person(owner, config, self.transport, self.signer, cache_store)
         self.members = self.person
         self.moderation = Moderation(owner, config, self.transport, self.signer, cache_store)
+        self.general = General(owner, config, self.transport, self.signer, cache_store)
 
     async def start(self) -> None:
         await self.transport.start()
