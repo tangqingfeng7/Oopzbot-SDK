@@ -61,6 +61,7 @@ nav:
       - Media Service: reference/media-service.md
       - Person Service: reference/person-service.md
       - Moderation Service: reference/moderation-service.md
+      - General Service: reference/general-service.md
       - Voice Service: reference/voice-service.md
       - Event 类型: reference/events.md
       - 数据模型: reference/models.md

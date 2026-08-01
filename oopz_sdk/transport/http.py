@@ -369,7 +369,7 @@ class HttpTransport(BaseTransport):
             return default
 
         message = payload.get("message", "").strip()
-        error = payload.get("error", "").strip()
+        error = (payload.get("error", "") or "").strip()
 
         if message and error and message != error:
             return f"{message}: {error}"

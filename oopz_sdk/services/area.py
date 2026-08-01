@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import inspect
+import json
 import logging
+from typing import List
 
 from oopz_sdk import models
 from oopz_sdk.exceptions import OopzApiError
@@ -116,6 +118,32 @@ class AreaService(BaseService):
             result.append(models.JoinedAreaInfo.from_api(item))
         return result
 
+    async def get_area_operate_logs(
+            self,
+            area: str,
+            offset: int = 0,
+            op_types: list[str] | None = None,
+    ) -> List[models.AreaOperateLogEntry]:
+        if not area.strip():
+            raise ValueError("area is required for get_area_operate_logs")
+        data = await self._request_data(
+            "GET",
+            "/client/v1/area/v1/operateLogs",
+            params={
+                "area": area,
+                "offset": str(max(0, int(offset))),
+                "opTypes": json.dumps(op_types or [], ensure_ascii=False, separators=(",", ":")),
+            },
+        )
+        logs = data.get("logs", {})
+        if not isinstance(logs, list):
+            raise OopzApiError("invalid area operate logs payload: expected list", payload=data)
+
+        result: list[models.AreaOperateLogEntry] = []
+        for i, item in enumerate(logs):
+            result.append(models.AreaOperateLogEntry.from_api(item))
+        return result
+
     async def get_area_info(self, area: str) -> models.AreaInfo:
         """获取域详细信息（含角色列表、主页频道等）。"""
         if area.strip() == "":
@@ -137,7 +165,7 @@ class AreaService(BaseService):
         })
         return models.OperationResult.from_api(data)
 
-    async def enter_area(self, area: str, recover: bool = False) -> dict:
+    async def enter_area(self, area: str, recover: bool = False) -> models.OperationResult:
         """进入指定域。"""
         if area.strip() == "":
             raise ValueError("area is required for enter_area")
@@ -148,7 +176,7 @@ class AreaService(BaseService):
             params={"area": area, "recover": str(recover).lower()},
             body={"area": area, "recover": recover},
         )
-        return data if isinstance(data, dict) else {}
+        return models.OperationResult.from_api(data)
 
 
 
@@ -336,7 +364,7 @@ class AreaService(BaseService):
     #     raise NotImplementedError("unknown usage method")
 
 
-    async def populate_names(self, *, set_area=None, set_channel=None) -> dict:
+    async def populate_names(self, *, set_area=None, set_channel=None) -> models.NamePopulationResult:
         """从 API 获取已加入域列表及各域频道列表，通过回调填充名称。
 
         Args:
@@ -370,4 +398,7 @@ class AreaService(BaseService):
                             channels_count += 1
 
         logger.info("Name population completed: %d areas, %d channels", areas_count, channels_count)
-        return {"areas_named": areas_count, "channels_named": channels_count}
+        return models.NamePopulationResult(
+            areas_named=areas_count,
+            channels_named=channels_count,
+        )
