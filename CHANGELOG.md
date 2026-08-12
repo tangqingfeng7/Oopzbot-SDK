@@ -1,5 +1,15 @@
 # Changelog
 
+## 未发布
+
+### 修复
+
+- `OopzConfig._require_env()` 校验通过后没有返回值，`OopzConfig.from_env()` 走凭据分支时读到的 `device_id` / `person_uid` / `jwt_token` / `private_key` 全部为空，配置对象创建成功但凭据为空，直到首个请求鉴权失败才暴露；`strip` 参数同时一直未生效，PEM 私钥和密码的首尾空白现在按原样保留。
+- `OopzRateLimitError` 把 `status_code=429` 写死后再转发 `**kwargs`，与调用方传入的同名参数冲突，命中 429 时抛出的是 `TypeError` 而不是 `OopzRateLimitError`，`request_data_with_retry` 的退避重试因此从未生效，下游按 `except OopzRateLimitError` 编写的限流处理同样不生效。`status_code` 改为默认值 429 的关键字参数，显式传入时以传入值为准。
+- 模型层对可选字段收到的显式 `null` 统一按缺省处理：`default_factory` 只在键缺失时生效，接口对空频道分组返回 `"channels": null` 会抛 `ValidationError`，只要账号加入的任意一个域里存在空分组，`AreaService.populate_names()` 就会中断、客户端无法启动。必填字段收到 `null` 仍照常报错。
+- `HttpTransport._error_message()` 对 `message` 字段直接调 `.strip()`，键存在且值为 `null` 时抛 `AttributeError` 并覆盖服务端返回的真实错误信息；该方法是 429、鉴权失败、非 200 和业务失败四个分支的公共出口。相邻 `error` 字段的同类问题已在 0.15.0 修复，本次补上遗漏的 `message`。
+- `oopz_sdk/version.py` 的 `__version__` 自 0.9.0 起未随发版更新，与 `pyproject.toml` 声明的版本号不一致，导致 `oopz_sdk.__version__` 长期报告过时版本；现已同步，并新增测试防止两处再次跑偏。
+
 ## 0.15.0
 
 ### 新增
