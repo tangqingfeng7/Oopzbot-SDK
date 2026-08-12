@@ -237,6 +237,8 @@ class OopzConfig:
         raw = os.environ.get(name, "")
         if not raw or not raw.strip():
             raise ValueError(f"{name} environment variable is required")
+        # strip=False 保留原值：PEM 私钥依赖换行，密码可能含首尾空格。
+        return raw.strip() if strip else raw
 
     @staticmethod
     def _fallback_private_key() -> Any:
