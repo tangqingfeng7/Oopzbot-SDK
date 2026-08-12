@@ -368,7 +368,7 @@ class HttpTransport(BaseTransport):
         if not isinstance(payload, dict):
             return default
 
-        message = payload.get("message", "").strip()
+        message = (payload.get("message", "") or "").strip()
         error = (payload.get("error", "") or "").strip()
 
         if message and error and message != error:
