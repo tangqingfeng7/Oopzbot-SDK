@@ -171,7 +171,11 @@ class AuthManager:
                 last_error = exc
                 if attempt >= self._relogin_max_attempts:
                     break
-                backoff = self._relogin_backoff_seconds * attempt
+                # 限流响应带 Retry-After 时以服务端给的时长为准，别抢在它前面重试。
+                backoff = max(
+                    self._relogin_backoff_seconds * attempt,
+                    getattr(exc, "retry_after", 0) or 0,
+                )
                 logger.warning(
                     "AuthManager 重登遇瞬时错误，%.1fs 后第 %d 次重试: %s",
                     backoff,

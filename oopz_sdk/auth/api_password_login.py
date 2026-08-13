@@ -122,6 +122,15 @@ def _build_oopz_sign(
     return base64.b64encode(signature).decode("utf-8")
 
 
+def _parse_retry_after(value: str | None) -> int:
+    """解析 Retry-After 头，只认秒数形式；缺失或非法一律返回 0。"""
+    try:
+        seconds = int(str(value or "").strip())
+    except (TypeError, ValueError):
+        return 0
+    return seconds if seconds > 0 else 0
+
+
 def _build_password_login_body(
     *,
     phone: str,
@@ -239,6 +248,13 @@ def login_with_api_password(
         # 网络错误/超时属瞬时故障：抛 OopzConnectionError（非 OopzAuthError 子类），
         # 让 AuthManager 续期时按「可重试」处理，而非误判为凭据失效而永久停机。
         raise OopzConnectionError(f"OOPZ 登录请求失败: {exc}") from exc
+
+    # 429 是限流，和 5xx 一样属临时状态而非凭据问题。若归入下面的 4xx 分支会变成
+    # OopzAuthError，AuthManager 便直接上报停机，无人值守的 Bot 会被一次限流打死。
+    if response.status_code == 429:
+        error = OopzConnectionError(f"OOPZ 登录接口限流 (HTTP 429)")
+        error.retry_after = _parse_retry_after(response.headers.get("Retry-After"))
+        raise error
 
     # 5xx 属服务端瞬时不可用，同样按可重试处理，避免无人值守续期被一次抖动打死。
     if response.status_code >= 500:
