@@ -38,6 +38,18 @@ bot.voice
 - 参数为空时通常抛出 `ValueError`
 - API 响应格式异常时通常抛出 `OopzApiError`
 
+## 错误与限流
+
+- 业务 HTTP 请求返回 429 时抛出 `OopzRateLimitError`，可读取 `status_code` 和
+  `retry_after` 判断状态与等待秒数。仅使用了限流重试入口的接口会自动退避，
+  配置 `RetryConfig` 不会让所有请求自动重试。
+- 401/428 作为鉴权失效处理；`OopzBot` 配置了续期能力时，会先尝试重登并重试请求一次。
+  直接创建的 `OopzRESTClient` 默认不携带 `AuthManager`。403 等其他状态按普通 API 错误处理。
+- 错误响应中的 `message` 或 `error` 为 `null` 时按空值处理，继续使用其他可用错误字段或默认说明，
+  不再因 `.strip()` 异常掩盖 API 错误。
+
+密码登录接口的 429 与业务请求使用不同异常类型，详见 [认证与凭据](auth.md)。
+
 ## REST 使用模式
 
 ```python

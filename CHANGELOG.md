@@ -2,6 +2,11 @@
 
 ## 未发布
 
+### 新增
+
+- 官方 HTTP 与 WebSocket 网关自动配对：构造 `OopzConfig` 时，未指定 `ws_url` 会按 `base_url` 选择主线路、`gateway1/ws1`、`gateway2/ws2` 或 `gateway-web1/ws-web1`。显式 `ws_url` 优先，自定义 HTTP 地址不推测事件域名，默认回退到主 WebSocket 线路。
+- `OopzConfig.from_env()` / `from_env_async()` 支持读取 `OOPZ_BASE_URL` 与 `OOPZ_WS_URL`，支持自定义前缀，关键字参数覆盖对应环境变量。线路设置适用于登录后的 API 和事件连接，不改变密码登录接口；运行中切换线路需重新创建配置与客户端。
+
 ### 修复
 
 - `OopzConfig._require_env()` 校验通过后没有返回值，`OopzConfig.from_env()` 走凭据分支时读到的 `device_id` / `person_uid` / `jwt_token` / `private_key` 全部为空，配置对象创建成功但凭据为空，直到首个请求鉴权失败才暴露；`strip` 参数同时一直未生效，PEM 私钥和密码的首尾空白现在按原样保留。
