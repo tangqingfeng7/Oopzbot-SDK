@@ -100,12 +100,40 @@ asyncio.run(main())
 | 字段            | 默认值                       | 说明                   |
 |---------------|---------------------------|----------------------|
 | `base_url`    | `https://gateway.oopz.cn` | Oopz的HTTP API 地址。    |
-| `ws_url`      | `wss://ws.oopz.cn`        | Oopz的WebSocket 网关地址。 |
+| `ws_url`      | 空，构造时自动配对             | 按 `base_url` 选择官方 WebSocket 网关；显式地址优先。 |
 | `app_version` | `69514`                   | 客户端版本标识。             |
 | `channel`     | `Web`                     | 客户端渠道。               |
 | `platform`    | `windows`                 | 平台标识。                |
 | `web`         | `True`                    | 是否按 Web 客户端行为发送。     |
 | `headers`     | `{}`                      | 额外请求头，会覆盖默认头。        |
+
+### 官方备用线路
+
+当主线路出现 HTTP 567 安全拦截时，可以显式选择官方备用 HTTP/WebSocket 配对：
+
+```python
+config = OopzConfig.from_env(base_url="https://gateway1.oopz.cn")
+assert config.ws_url == "wss://ws1.oopz.cn"
+```
+
+也可设置 `OOPZ_BASE_URL=https://gateway1.oopz.cn`；可选的 `OOPZ_WS_URL`
+显式指定事件地址。`from_env(prefix="CUSTOM_")` 会读取对应前缀，代码中的
+关键字参数优先于环境变量。这些设置选择登录完成后的 API 与事件线路，
+不会修改账号密码登录接口。
+
+自动配对仅在构造 `OopzConfig` 时执行；运行中切换线路应重新创建配置与客户端。
+支持的官方配对如下，默认仍使用主线路：
+
+| HTTP 网关 | WebSocket 网关 |
+|-----------|----------------|
+| `https://gateway.oopz.cn` | `wss://ws.oopz.cn` |
+| `https://gateway1.oopz.cn` | `wss://ws1.oopz.cn` |
+| `https://gateway2.oopz.cn` | `wss://ws2.oopz.cn` |
+| `https://gateway-web1.oopz.cn` | `wss://ws-web1.oopz.cn` |
+
+自定义 HTTP 网关不会被猜测为新的 WebSocket 域名，未指定 `ws_url` 时使用主线路。
+备用线路的可用性取决于实际网络；切换成功不能证明 HTTP 凭据有效。
+如果 WebSocket 已连接但 HTTP 返回 401/428，仍需检查凭据或重新登录。
 
 ## 重试配置 `RetryConfig`
 
