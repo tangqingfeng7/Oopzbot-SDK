@@ -64,6 +64,18 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
+需要选择登录后的 API 与事件线路时，可使用：
+
+```python
+config = await OopzConfig.from_env_async(
+    base_url="https://gateway1.oopz.cn",
+    ws_url="",  # 清除环境中的显式事件地址，使用自动配对。
+)
+```
+
+也可以在启动进程前设置 `OOPZ_BASE_URL` 和可选的 `OOPZ_WS_URL`。
+这些配置不改变密码登录接口；完整规则见 [配置方法](../guide/configuration.md)。
+
 这段代码默认读取 `OOPZ_LOGIN_PHONE` 和 `OOPZ_LOGIN_PASSWORD`，走**纯 API 登录**（不再自动回退浏览器）。
 
 如果确实需要浏览器登录来处理验证码/风控，请显式设置 `OOPZ_LOGIN_METHOD=password_browser`，此时才会启用 Playwright；配合 `OOPZ_LOGIN_HEADFUL=1`（也接受 `true` / `yes` / `on`）显示窗口，或在调用时显式传 `headless=False`。命令行工具 `oopz-login` 始终走浏览器登录。

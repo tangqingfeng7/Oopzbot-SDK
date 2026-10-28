@@ -9,6 +9,7 @@ import warnings
 from dataclasses import dataclass, field
 from typing import Any, ClassVar
 from .constants import DEFAULT_HEADERS
+from .routes import resolve_ws_url
 
 logger = logging.getLogger(__name__)
 
@@ -154,7 +155,7 @@ class OopzConfig:
     private_key: Any = None
 
     base_url: str = "https://gateway.oopz.cn"
-    ws_url: str = "wss://ws.oopz.cn"
+    ws_url: str = ""  # 留空时在构造配置时按 HTTP 网关选择配套线路。
     app_version: str = "69514"
     channel: str = "Web"
     platform: str = "windows"
@@ -200,6 +201,8 @@ class OopzConfig:
     _auth_relogin: Any = field(default=None, init=False, repr=False, compare=False)
 
     def __post_init__(self) -> None:
+        self.base_url = str(self.base_url or "").strip().rstrip("/")
+        self.ws_url = resolve_ws_url(self.base_url, self.ws_url)
         self.device_id = str(self.device_id or "").strip()
         self.person_uid = str(self.person_uid or "").strip()
         self.jwt_token = self._normalize_jwt_token(self.jwt_token)
@@ -237,6 +240,8 @@ class OopzConfig:
         raw = os.environ.get(name, "")
         if not raw or not raw.strip():
             raise ValueError(f"{name} environment variable is required")
+        # strip=False 保留原值：PEM 私钥依赖换行，密码可能含首尾空格。
+        return raw.strip() if strip else raw
 
     @staticmethod
     def _fallback_private_key() -> Any:
@@ -561,6 +566,15 @@ class OopzConfig:
         **overrides: Any,
     ) -> "OopzConfig":
         method = cls._normalize_login_method(os.environ.get("OOPZ_LOGIN_METHOD", "auto"))
+
+        # 线路环境变量适用于凭据登录与密码登录，显式参数仍具有更高优先级。
+        route_overrides = {
+            field: os.environ[f"{prefix}{suffix}"].strip()
+            for field, suffix in (("base_url", "BASE_URL"), ("ws_url", "WS_URL"))
+            if os.environ.get(f"{prefix}{suffix}", "").strip()
+        }
+        route_overrides.update(overrides)
+        overrides = route_overrides
 
         device_id = os.environ.get(f"{prefix}DEVICE_ID", "")
         person_uid = os.environ.get(f"{prefix}PERSON_UID", "")

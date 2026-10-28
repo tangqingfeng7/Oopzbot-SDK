@@ -12,6 +12,13 @@ class OopzApiError(OopzError):
 
 
 class OopzRateLimitError(OopzApiError):
-    def __init__(self, message: str = "HTTP 429", retry_after: int = 0, **kwargs):
-        super().__init__(message, status_code=429, **kwargs)
+    def __init__(
+        self,
+        message: str = "HTTP 429",
+        retry_after: int = 0,
+        *,
+        status_code: int | None = 429,
+        **kwargs,
+    ):
+        super().__init__(message, status_code=status_code, **kwargs)
         self.retry_after = retry_after

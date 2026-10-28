@@ -87,7 +87,7 @@ if __name__ == "__main__":
 |--------------------|---------------------------------|
 | `auto`             | 默认值。优先使用完整凭据；如果提供了账号密码，则执行密码登录。 |
 | `credentials`      | 只使用已有底层凭据，不进行账号密码登录。            |
-| `password`         | 使用账号密码登录，由 SDK 自动选择合适的密码登录流程。   |
+| `password`         | 使用纯 API 账号密码登录，与 `password_api` 相同，不自动回退浏览器。 |
 | `password_api`     | 使用账号密码接口登录。                     |
 | `password_browser` | 使用浏览器自动登录流程。                    |
 
@@ -132,6 +132,16 @@ config.login(
 | `OOPZ_LOGIN_PHONE` | 登录的手机号。     |
 | `OOPZ_LOGIN_PASSWORD` | 登录的密码。      |
 | `OOPZ_APP_VERSION` | 可选，客户端版本。   |
+| `OOPZ_BASE_URL` | 可选，登录后的 HTTP API 网关，默认 `https://gateway.oopz.cn`。 |
+| `OOPZ_WS_URL` | 可选，WebSocket 网关；未设置时按 HTTP 网关自动配对。 |
+
+`from_env()` 和 `from_env_async()` 读取进程环境，不会自动加载 `.env` 或 `test.env` 文件。
+`OOPZ_PRIVATE_KEY_FILE` 是仓库 smoke 脚本使用的变量，不是这两个入口的配置字段；
+应用需要自行读取 PEM 文件并通过 `private_key=` 传入，或设置 `OOPZ_PRIVATE_KEY`。
+私钥中的换行及密码的首尾空白会保留。
+
+`prefix="CUSTOM_"` 可改变上述变量的前缀；登录方式开关 `OOPZ_LOGIN_METHOD`
+和浏览器窗口开关 `OOPZ_LOGIN_HEADFUL` 仍使用固定名称。
 
 `from_env`同样可以指定登录方式：
 
@@ -187,6 +197,10 @@ config = OopzConfig.from_env()
 ```
 
 ### 通过 override 修改其他配置项
+
+关键字参数优先于同名配置字段的环境变量。指定 `base_url` 时，环境中的显式
+`OOPZ_WS_URL` 仍生效；传入 `ws_url=""` 可以覆盖它并重新按 HTTP 网关配对。
+线路规则与示例见 [网关与请求配置](../guide/configuration.md#网关与请求配置)。
 
 ```python
 from oopz_sdk import OopzConfig, RetryConfig, HeartbeatConfig, ProxyConfig
@@ -264,6 +278,14 @@ bot = OopzBot(config, auth_relogin=relogin)
 | `auth_refresh_threshold_seconds` | `float \| None`   | `300` | 临期阈值（秒）。token 剩余有效期低于该值即触发主动续期。                            |
 
 ### 高级用法
+
+续期请求遇到网络错误、超时、HTTP 429 或 5xx 时，按 `OopzConnectionError`
+进行有限次退避重试。429 响应的 `Retry-After` 支持秒数形式，等待时间取它与递增退避的较大值；
+缺失或非法时沿用原有退避。重试耗尽后本次续期失败，不把该瞬时错误升级成永久凭据错误。
+账号密码被拒绝等 `OopzAuthError` 则不走这类重试。
+
+直接调用登录函数或首次执行 `from_env()` / `from_env_async()` 时，登录异常会交给调用方处理；
+上述自动退避属于 `AuthManager` 的重登流程。选择备用 API 网关不会改变密码登录或续期所用的登录接口。
 
 如果需要在自定义客户端里复用，可直接从顶层导入：
 

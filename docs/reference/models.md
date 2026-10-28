@@ -4,6 +4,13 @@ SDK 使用 `pydantic v2` 对响应和事件进行建模。常用入口模型通�
 
 > 除 Segment 分段类型外，响应、事件和附件等 Pydantic 模型都继承自内部 `BaseModel`（`extra="ignore"` + `populate_by_name=True`），调用 `model.model_dump(by_alias=True)` 可以拿到接近 API 的 camelCase 数据。
 
+## 缺失字段与 `null`
+
+内部 `BaseModel` 对声明了默认值或 `default_factory` 的字段，将显式 `null` 按缺省处理，
+使用该字段自己的默认值。例如频道分组的 `channels: null` 会得到空列表，
+不再因为空分组导致整个域列表解析失败。默认值本身为 `None` 的字段仍为 `None`。
+必填字段收到 `null` 时仍按类型校验；该规则不会把错误类型自动转换成默认值。
+
 ## 消息相关
 
 | 模型                  | 导入路径 | 说明                                                                                                                            |
