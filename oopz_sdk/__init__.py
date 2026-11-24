@@ -58,6 +58,7 @@ from .models import (
     VoiceChannelMembersResult,
 )
 from .services.area import AreaService
+from .services.article import Article
 from .services.channel import Channel
 from .services.media import Media
 from .services.person import Person
@@ -75,6 +76,7 @@ Message = MessageService
 __all__ = [
     "AreaMembersPage",
     "AreaService",
+    "Article",
     "Attachment",
     "AuthManager",
     "Channel",

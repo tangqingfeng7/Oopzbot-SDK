@@ -58,6 +58,7 @@ nav:
       - Message Service: reference/message-service.md
       - Area Service: reference/area-service.md
       - Channel Service: reference/channel-service.md
+      - Article Service: reference/article-service.md
       - Media Service: reference/media-service.md
       - Person Service: reference/person-service.md
       - Moderation Service: reference/moderation-service.md

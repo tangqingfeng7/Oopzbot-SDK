@@ -38,8 +38,10 @@ class Channel(BaseService):
         name: str,
         group_id: str = "",
         channel_type: models.ChannelType | str = models.ChannelType.TEXT,
+        *,
+        secret: bool = False,
     ) -> models.CreateChannelResult:
-        """创建频道。"""
+        """创建频道。支持文字（TEXT）、语音（VOICE）与帖子（ARTICLE）频道。"""
         if area.strip() == "":
             raise ValueError("area cannot be empty")
         if name.strip() == "":
@@ -73,9 +75,12 @@ class Channel(BaseService):
             "group": group_id,
             "name": name,
             "type": channel_type,
-            "secret": False,
-            "maxMember": 100,
+            "secret": bool(secret),
         }
+        if channel_type == models.ChannelType.ARTICLE.value:
+            body["vender"] = "TR"
+        else:
+            body["maxMember"] = 100
         # if channel_type == "VOICE":
         #     body["isTemp"] = False
 
@@ -89,17 +94,21 @@ class Channel(BaseService):
             *,
             name: str | None = None,
             text_gap_second: int | None = None,
+            article_gap_second: int | None = None,
+            comment_gap_second: int | None = None,
             voice_quality: str | None = None,
             voice_delay: str | None = None,
             max_member: int | None = None,
             voice_control_enabled: bool | None = None,
             text_control_enabled: bool | None = None,
+            article_control_enabled: bool | None = None,
             access_control_enabled: bool | None = None,
             secret: bool | None = None,
             has_password: bool | None = None,
             password: str | None = None,
             text_roles: list[int] | None = None,
             voice_roles: list[int] | None = None,
+            article_roles: list[int] | None = None,
             accessible_roles: list[int] | None = None,
             accessible_members: list[str] | None = None,
     ) -> models.OperationResult:
@@ -145,6 +154,12 @@ class Channel(BaseService):
         if text_gap_second is not None:
             editable_setting.text_gap_second = int(text_gap_second)
 
+        if article_gap_second is not None:
+            editable_setting.article_gap_second = int(article_gap_second)
+
+        if comment_gap_second is not None:
+            editable_setting.comment_gap_second = int(comment_gap_second)
+
         if voice_quality is not None:
             editable_setting.voice_quality = str(voice_quality)
 
@@ -159,6 +174,9 @@ class Channel(BaseService):
 
         if text_control_enabled is not None:
             editable_setting.text_control_enabled = bool(text_control_enabled)
+
+        if article_control_enabled is not None:
+            editable_setting.article_control_enabled = bool(article_control_enabled)
 
         if access_control_enabled is not None:
             editable_setting.access_control_enabled = bool(access_control_enabled)
@@ -185,6 +203,10 @@ class Channel(BaseService):
         # 可以加入语音的group
         if voice_roles is not None:
             editable_setting.voice_roles = _normalize_int_list(voice_roles, "voice_roles")
+
+        # 可以发帖的group
+        if article_roles is not None:
+            editable_setting.article_roles = _normalize_int_list(article_roles, "article_roles")
 
         final_secret = bool(secret) if secret is not None else bool(editable_setting.secret)
 

@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.17.0
+
+### 新增
+
+- 新增 `Article` 帖子频道服务，并挂载至 `OopzRESTClient.articles` 与 `OopzBot.articles`（同时从顶层 `oopz_sdk` 导出 `Article`）：
+  - 帖子频道管理：`create_channel()`、`update_channel()`、`delete_channel()`。
+  - 分区管理：`get_sections()`、`create_section()`、`edit_section()`、`delete_section()`。
+  - 媒体上传：`get_upload_presign()`、`upload_image()`，支持帖子正文、封面与评论图片上传。
+  - 帖子与点赞：`get_articles()`、`get_article_detail()`、`create_article()`、`edit_article()`、`delete_article()`、`like_article()`、`unlike_article()`、`get_article_likes()`。
+  - 评论与互动：`get_comments()`、`create_comment()`、`reply_comment()`、`delete_comment()`、`like_comment()`、`unlike_comment()`。
+- `ChannelType` 新增 `ARTICLE`；`Channel.create_channel()` 支持创建帖子频道与 `secret` 参数，`Channel.update_channel()` 支持配置发帖/评论频率与发帖权限控制；`ChannelSetting`、`ChannelEdit`、`ChannelInfoSettings`、`ChannelCreateEvent`、`ChannelUpdateEvent` 同步补充 `article_gap_second`、`comment_gap_second`、`article_control_enabled`、`article_roles` 字段。
+- `oopz_sdk.models` 新增并导出 13 个帖子相关模型：`ArticleSection`、`ArticlePresignResult`、`ArticleAttachment`、`ArticleCover`、`ArticlePublishResult`、`ArticleInfo`、`ArticleListPage`、`ArticleLikeUser`、`ArticleLikeListPage`、`ArticleCommentImage`、`ArticleComment`、`ArticleCommentCreateResult`、`ArticleCommentListPage`。
+
+### 文档
+
+- 新增 `docs/reference/article-service.md` 并接入 `mkdocs.yml` 导航；同步补充 `channel-service.md`、`services.md`、`models.md`、`events.md` 中帖子频道与帖子模型说明。
+
 ## 0.16.0
 
 ### 新增

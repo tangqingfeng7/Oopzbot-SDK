@@ -74,6 +74,7 @@ class OopzBot:
         self.media = self.rest.media
         self.areas = self.rest.areas
         self.channels = self.rest.channels
+        self.articles = self.rest.articles
         self.person = self.rest.person
         self.members = self.person
         self.moderation = self.rest.moderation

@@ -3,6 +3,7 @@ from __future__ import annotations
 from oopz_sdk.auth.signer import Signer
 from oopz_sdk.config.settings import OopzConfig
 from oopz_sdk.services.area import AreaService
+from oopz_sdk.services.article import Article
 from oopz_sdk.services.channel import Channel
 from oopz_sdk.services.media import Media
 from oopz_sdk.services.person import Person
@@ -40,6 +41,7 @@ class OopzRESTClient:
         self.media = Media(owner, config, self.transport, self.signer, cache_store)
         self.areas = AreaService(owner, config, self.transport, self.signer, cache_store)
         self.channels = Channel(owner, config, self.transport, self.signer, cache_store)
+        self.articles = Article(owner, config, self.transport, self.signer, cache_store)
         self.person = Person(owner, config, self.transport, self.signer, cache_store)
         self.members = self.person
         self.moderation = Moderation(owner, config, self.transport, self.signer, cache_store)

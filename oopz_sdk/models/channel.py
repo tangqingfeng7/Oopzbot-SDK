@@ -15,10 +15,12 @@ class ChannelType(Enum):
     - ``TEXT``：文字频道
     - ``VOICE`` / ``AUDIO``：语音频道。协议在不同版本里同时出现过这两个值，
       二者都代表语音类型；``_get_voice_channel_ids`` 也一并视作语音。
+    - ``ARTICLE``：帖子频道
     """
     TEXT = "TEXT"
     VOICE = "VOICE"
     AUDIO = "AUDIO"
+    ARTICLE = "ARTICLE"
 
 
 class ChannelSetting(BaseModel):
@@ -31,15 +33,19 @@ class ChannelSetting(BaseModel):
     channel_type: str = Field(default="", alias="type")
 
     text_gap_second: int = Field(default=0, alias="textGapSecond")
+    article_gap_second: int = Field(default=0, alias="articleGapSecond")
+    comment_gap_second: int = Field(default=0, alias="commentGapSecond")
     voice_quality: str = Field(default="64k", alias="voiceQuality")
     voice_delay: str = Field(default="LOW", alias="voiceDelay")
     max_member: int = Field(default=30000, alias="maxMember")
 
     voice_control_enabled: bool = Field(default=False, alias="voiceControlEnabled")
     text_control_enabled: bool = Field(default=False, alias="textControlEnabled")
+    article_control_enabled: bool = Field(default=False, alias="articleControlEnabled")
 
     text_roles: list[Any] = Field(default_factory=list, alias="textRoles")
     voice_roles: list[Any] = Field(default_factory=list, alias="voiceRoles")
+    article_roles: list[Any] = Field(default_factory=list, alias="articleRoles")
 
     access_control_enabled: bool = Field(default=False, alias="accessControlEnabled")
     accessible_roles: list[int] = Field(default_factory=list, alias="accessibleRoles")
@@ -67,10 +73,11 @@ class ChannelSetting(BaseModel):
         normalized["voiceDelay"] = str(normalized.get("voiceDelay") or "LOW")
         normalized["password"] = str(normalized.get("password") or "")
 
-        try:
-            normalized["textGapSecond"] = int(normalized.get("textGapSecond") or 0)
-        except (TypeError, ValueError):
-            normalized["textGapSecond"] = 0
+        for _int_key in ("textGapSecond", "articleGapSecond", "commentGapSecond"):
+            try:
+                normalized[_int_key] = int(normalized.get(_int_key) or 0)
+            except (TypeError, ValueError):
+                normalized[_int_key] = 0
 
         try:
             normalized["maxMember"] = int(normalized.get("maxMember") or 30000)
@@ -80,6 +87,7 @@ class ChannelSetting(BaseModel):
         for _bool_key in (
             "voiceControlEnabled",
             "textControlEnabled",
+            "articleControlEnabled",
             "accessControlEnabled",
             "memberPublic",
             "secret",
@@ -92,6 +100,9 @@ class ChannelSetting(BaseModel):
 
         voice_roles = normalized.get("voiceRoles", [])
         normalized["voiceRoles"] = voice_roles if isinstance(voice_roles, list) else []
+
+        article_roles = normalized.get("articleRoles", [])
+        normalized["articleRoles"] = article_roles if isinstance(article_roles, list) else []
 
         # 读设置接口与编辑 body 的字段名可能不一致：有的返回 accessibleRoles，有的与
         # 编辑时一致用 accessible。只认一个会把可见角色读成空，随后只改名称也会把
@@ -129,15 +140,19 @@ class ChannelEdit(BaseModel):
     name: str = ""
 
     text_gap_second: int = Field(default=0, alias="textGapSecond")
+    article_gap_second: int = Field(default=0, alias="articleGapSecond")
+    comment_gap_second: int = Field(default=0, alias="commentGapSecond")
     voice_quality: str = Field(default="64k", alias="voiceQuality")
     voice_delay: str = Field(default="LOW", alias="voiceDelay")
     max_member: int = Field(default=30000, alias="maxMember")
 
     voice_control_enabled: bool = Field(default=False, alias="voiceControlEnabled")
     text_control_enabled: bool = Field(default=False, alias="textControlEnabled")
+    article_control_enabled: bool = Field(default=False, alias="articleControlEnabled")
 
     text_roles: list[int] = Field(default_factory=list, alias="textRoles")
     voice_roles: list[int] = Field(default_factory=list, alias="voiceRoles")
+    article_roles: list[int] = Field(default_factory=list, alias="articleRoles")
 
     access_control_enabled: bool = Field(default=False, alias="accessControlEnabled")
     accessible_roles: list[int] = Field(default_factory=list, alias="accessible")
@@ -160,13 +175,17 @@ class ChannelEdit(BaseModel):
             area=area or setting.area_id,
             name=setting.name,
             textGapSecond=setting.text_gap_second,
+            articleGapSecond=setting.article_gap_second,
+            commentGapSecond=setting.comment_gap_second,
             voiceQuality=setting.voice_quality,
             voiceDelay=setting.voice_delay,
             maxMember=setting.max_member,
             voiceControlEnabled=setting.voice_control_enabled,
             textControlEnabled=setting.text_control_enabled,
+            articleControlEnabled=setting.article_control_enabled,
             textRoles=[int(x) for x in setting.text_roles],
             voiceRoles=[int(x) for x in setting.voice_roles],
+            articleRoles=[int(x) for x in setting.article_roles],
             accessControlEnabled=setting.access_control_enabled,
             accessible=[int(x) for x in setting.accessible_roles],
             accessibleMembers=[str(x) for x in setting.accessible_members],
@@ -294,16 +313,19 @@ class CreateChannelResult(BaseModel):
 
         normalized = dict(data)
 
-        normalized["area"] = str(normalized.get("area") or "")
+        normalized["area"] = str(normalized.get("area") or normalized.get("areaId") or "")
         # 将 id / channel / channelId 归一成模型字段 `id`（见 channel_id 的 alias）
         cid = cls._coerce_new_channel_id(normalized)
         normalized["id"] = cid
 
-        normalized["group"] = str(normalized.get("group") or "")
+        normalized["group"] = str(normalized.get("group") or normalized.get("groupId") or "")
         normalized["name"] = str(normalized.get("name") or "").strip()
 
+        raw_max_member = normalized.get("maxMember")
+        if raw_max_member is None and isinstance(normalized.get("settings"), Mapping):
+            raw_max_member = normalized["settings"].get("maxMember")
         try:
-            normalized["maxMember"] = int(normalized.get("maxMember") or 100)
+            normalized["maxMember"] = int(raw_max_member or 100)
         except (TypeError, ValueError):
             normalized["maxMember"] = 100
 
