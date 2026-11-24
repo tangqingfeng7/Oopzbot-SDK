@@ -34,15 +34,19 @@ print(setting.secret)
     | `area_id` | `str` | `""` | 所属域 ID。 |
     | `group_id` | `str` | `""` | 所属频道分组 ID。 |
     | `name` | `str` | `""` | 频道名称。 |
-    | `channel_type` | `str` | `""` | 频道类型，例如 `TEXT`、`VOICE`。 |
+    | `channel_type` | `str` | `""` | 频道类型，例如 `TEXT`、`VOICE`、`ARTICLE`。 |
     | `text_gap_second` | `int` | `0` | 文本消息发送间隔秒数。 |
+    | `article_gap_second` | `int` | `0` | 帖子频道发帖间隔秒数。 |
+    | `comment_gap_second` | `int` | `0` | 帖子频道评论间隔秒数。 |
     | `voice_quality` | `str` | `"64k"` | 语音质量。 |
     | `voice_delay` | `str` | `"LOW"` | 语音延迟模式。 |
     | `max_member` | `int` | `30000` | 最大成员数。 |
     | `voice_control_enabled` | `bool` | `False` | 是否启用语音权限控制。 |
     | `text_control_enabled` | `bool` | `False` | 是否启用文字权限控制。 |
+    | `article_control_enabled` | `bool` | `False` | 是否启用发帖权限控制。 |
     | `text_roles` | `list[Any]` | `[]` | 可发送文字消息的身份组列表。 |
     | `voice_roles` | `list[Any]` | `[]` | 可进入语音的身份组列表。 |
+    | `article_roles` | `list[Any]` | `[]` | 可发布帖子的身份组列表。 |
     | `access_control_enabled` | `bool` | `False` | 是否启用访问控制。 |
     | `accessible_roles` | `list[int]` | `[]` | 可访问该频道的身份组 ID 列表。 |
     | `accessible_members` | `list[str]` | `[]` | 可访问该频道的成员 UID 列表。 |
@@ -53,7 +57,7 @@ print(setting.secret)
 
 ---
 
-## `create_channel(area, name, group_id="", channel_type=ChannelType.TEXT)`
+## `create_channel(area, name, group_id="", channel_type=ChannelType.TEXT, *, secret=False)`
 
 创建频道。
 
@@ -80,7 +84,8 @@ print(result.channel_type)
     | `area` | `str` | 是 | - | 域 ID，不能为空。 |
     | `name` | `str` | 是 | - | 频道名称，不能为空。 |
     | `group_id` | `str` | 否 | `""` | 频道分组 ID；不传时自动使用第一个频道分组。 |
-    | `channel_type` | `ChannelType \| str` | 否 | `ChannelType.TEXT` | 频道类型。支持 `TEXT`、`VOICE`；`AUDIO` 是历史协议里的语音别名，建议使用 `VOICE`。 |
+    | `channel_type` | `ChannelType \| str` | 否 | `ChannelType.TEXT` | 频道类型。支持 `TEXT`、`VOICE`、`ARTICLE`；`AUDIO` 是历史协议里的语音别名，建议使用 `VOICE`。 |
+    | `secret` | `bool` | 否 | `False` | 是否创建为私密频道。 |
 
 === "返回值"
 
@@ -90,9 +95,9 @@ print(result.channel_type)
 
     | 字段 | 类型 | 默认值 | 说明 |
     | --- | --- | --- | --- |
-    | `area` | `str` | `""` | 所属域 ID。 |
+    | `area` | `str` | `""` | 所属域 ID。底层接口返回 `area` 或 `areaId` 时会自动归一。 |
     | `channel_id` | `str` | `""` | 新创建频道的 ID。底层接口可能返回 `id` / `channel` / `channelId`，SDK 会归一到该字段。 |
-    | `group_id` | `str` | `""` | 所属频道分组 ID。 |
+    | `group_id` | `str` | `""` | 所属频道分组 ID。底层接口返回 `group` 或 `groupId` 时会自动归一。 |
     | `max_member` | `int` | `100` | 最大成员数。 |
     | `name` | `str` | `""` | 频道名称。 |
     | `secret` | `bool` | `False` | 是否为私密频道。 |
@@ -105,7 +110,8 @@ print(result.channel_type)
     ```python
     ChannelType.TEXT
     ChannelType.VOICE
-    ChannelType.AUDIO  # 历史别名，等价于语音频道
+    ChannelType.AUDIO    # 历史别名，等价于语音频道
+    ChannelType.ARTICLE  # 帖子频道
     ```
 
     也可以传字符串：
@@ -113,10 +119,13 @@ print(result.channel_type)
     ```python
     "TEXT"
     "VOICE"
-    "AUDIO"  # 历史别名，等价于语音频道
+    "AUDIO"    # 历史别名，等价于语音频道
+    "ARTICLE"  # 帖子频道
     ```
 
     如果字符串不属于允许值，SDK 会抛出 `ValueError`。
+
+    帖子频道的分区、发帖、点赞与评论能力见 [Article Service](article-service.md)。
 
 ---
 
@@ -147,17 +156,21 @@ print(result.ok)
     | `channel_id` | `str` | 是 | - | 频道 ID，不能为空。 |
     | `name` | `str \| None` | 否 | `None` | 频道名称。 |
     | `text_gap_second` | `int \| None` | 否 | `None` | 发言间隔秒数。 |
+    | `article_gap_second` | `int \| None` | 否 | `None` | 帖子频道发帖间隔秒数。 |
+    | `comment_gap_second` | `int \| None` | 否 | `None` | 帖子频道评论间隔秒数。 |
     | `voice_quality` | `str \| None` | 否 | `None` | 语音质量。 |
     | `voice_delay` | `str \| None` | 否 | `None` | 语音延迟模式。 |
     | `max_member` | `int \| None` | 否 | `None` | 最大成员数。 |
     | `voice_control_enabled` | `bool \| None` | 否 | `None` | 是否启用语音权限控制。 |
     | `text_control_enabled` | `bool \| None` | 否 | `None` | 是否启用文字权限控制。 |
+    | `article_control_enabled` | `bool \| None` | 否 | `None` | 是否启用帖子频道发帖权限控制。 |
     | `access_control_enabled` | `bool \| None` | 否 | `None` | 是否启用访问控制。 |
     | `secret` | `bool \| None` | 否 | `None` | 是否为私密频道。需要同accessible_roles和accessible_members配合使用。 |
     | `has_password` | `bool \| None` | 否 | `None` | 是否设置频道密码。 |
     | `password` | `str \| None` | 否 | `None` | 频道密码。传 `password` 时必须同时设置 `has_password=True`。 |
     | `text_roles` | `list[int] \| None` | 否 | `None` | 可发送文字消息的身份组 ID 列表。 |
     | `voice_roles` | `list[int] \| None` | 否 | `None` | 可进入语音的身份组 ID 列表。 |
+    | `article_roles` | `list[int] \| None` | 否 | `None` | 可在帖子频道发帖的身份组 ID 列表。 |
     | `accessible_roles` | `list[int] \| None` | 否 | `None` | 可访问该频道的身份组 ID 列表，仅私密频道可设置。 |
     | `accessible_members` | `list[str] \| None` | 否 | `None` | 可访问该频道的成员 UID 列表，仅私密频道可设置。 |
 
@@ -539,5 +552,25 @@ result = await client.channels.create_channel(
 
 print(result.name)
 ```
+
+---
+
+## 常见任务：创建帖子频道
+
+```python
+from oopz_sdk.models.channel import ChannelType
+
+result = await client.channels.create_channel(
+    area="域 ID",
+    name="攻略交流区",
+    channel_type=ChannelType.ARTICLE,
+)
+
+# 或通过 Article Service：
+# result = await client.articles.create_channel(area="域 ID", name="攻略交流区")
+print(result.channel_id, result.channel_type)
+```
+
+更多分区、发帖、点赞与评论能力见 [Article Service](article-service.md)。
 
 ---

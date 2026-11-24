@@ -97,11 +97,29 @@ Segment 分段类型不是 Pydantic 模型，不提供 `model_dump()` 或 `to_di
 | `ChannelSettings`           | `oopz_sdk.models.area.ChannelSettings` | 频道分组场景下使用的频道设置。 |
 | `ChannelSetting`            | `oopz_sdk.models.ChannelSetting` | `Channel.get_channel_setting_info(channel)` 返回的频道设置。 |
 | `ChannelEdit`               | `oopz_sdk.models.ChannelEdit` | 频道编辑请求模型。SDK 内部用 `ChannelEdit.from_setting(setting, area=..., channel=...)` 在 `update_channel(...)` 里构造请求 body，正常情况下不需要直接调用。 |
-| `ChannelType`               | `oopz_sdk.models.ChannelType` | 枚举：`TEXT` / `VOICE` / `AUDIO`（`AUDIO` 是历史协议中语音类型的别名，与 `VOICE` 等价）。 |
+| `ChannelType`               | `oopz_sdk.models.ChannelType` | 枚举：`TEXT` / `VOICE` / `AUDIO` / `ARTICLE`（`AUDIO` 是历史协议中语音类型的别名，`ARTICLE` 为帖子频道）。 |
 | `CreateChannelResult`       | `oopz_sdk.models.CreateChannelResult` | 创建频道结果，含新频道 ID 和默认设置。 |
 | `ChannelSign`               | `oopz_sdk.models.ChannelSign` | 进入频道或语音频道时返回的 sign 信息（`agora_sign`、`room_id` 等）。 |
 | `VoiceChannelMemberInfo`    | `oopz_sdk.models.channel.VoiceChannelMemberInfo` | 单个语音频道成员信息。 |
 | `VoiceChannelMembersResult` | `oopz_sdk.models.VoiceChannelMembersResult` | 语音频道成员集合，按 `channel_id` 索引到成员列表。 |
+
+## 帖子与评论
+
+| 模型 | 导入路径 | 说明 |
+| --- | --- | --- |
+| `ArticleSection` | `oopz_sdk.models.ArticleSection` | 帖子频道分区信息（`section_id`、`name`、`sort`）。 |
+| `ArticlePresignResult` | `oopz_sdk.models.ArticlePresignResult` | 帖子/评论媒体上传预签名结果（`url`、`path`、`host_url`、`auth`、`expire_second`）。 |
+| `ArticleAttachment` | `oopz_sdk.models.ArticleAttachment` | 帖子附件（图片 / 短视频），含 `attachment_type`、`resource`、`cover`、`width`、`height`、`duration`、`size`。 |
+| `ArticleCover` | `oopz_sdk.models.ArticleCover` | 帖子封面元信息（`resource`、`width`、`height`）。 |
+| `ArticlePublishResult` | `oopz_sdk.models.ArticlePublishResult` | 发布或编辑帖子的结果（`article_id`、`state`）。 |
+| `ArticleInfo` | `oopz_sdk.models.ArticleInfo` | 帖子详情与列表项（标题、正文、分区 `section_id`、`show_cover`、附件、点赞/评论/浏览计数等）。 |
+| `ArticleListPage` | `oopz_sdk.models.ArticleListPage` | 帖子列表分页结果（`items`、`next_cursor`、`next_cursor_state`、`page_size`）。 |
+| `ArticleLikeUser` | `oopz_sdk.models.ArticleLikeUser` | 帖子点赞用户项（`uid`、`liked_at`）。 |
+| `ArticleLikeListPage` | `oopz_sdk.models.ArticleLikeListPage` | 帖子点赞列表分页结果（`article_id`、`like_count`、`items`、`next_cursor`）。 |
+| `ArticleCommentImage` | `oopz_sdk.models.ArticleCommentImage` | 评论附带的图片项（`url`、`type`、`width`、`height`）。 |
+| `ArticleComment` | `oopz_sdk.models.ArticleComment` | 帖子评论模型（`comment_id`、`uid`、`content`、`image_list`、`parent_id`、`reply_id`、`liked` 等）。 |
+| `ArticleCommentCreateResult` | `oopz_sdk.models.ArticleCommentCreateResult` | 发表或回复评论的返回值（`comment_id`、`ip_address`）。 |
+| `ArticleCommentListPage` | `oopz_sdk.models.ArticleCommentListPage` | 帖子评论列表分页结果（`comment_count`、`items`、`next_cursor`、`page_size`）。 |
 
 ## 用户与关系
 
@@ -129,7 +147,7 @@ Segment 分段类型不是 Pydantic 模型，不提供 `model_dump()` 或 `to_di
 
 | 枚举                  | 说明                                              |
 |---------------------|-------------------------------------------------|
-| `ChannelType`       | 频道类型，`TEXT` / `VOICE` / `AUDIO`（`AUDIO` 是 `VOICE` 的旧别名）。     |
+| `ChannelType`       | 频道类型，`TEXT` / `VOICE` / `AUDIO` / `ARTICLE`（`AUDIO` 是 `VOICE` 的旧别名，`ARTICLE` 为帖子频道）。     |
 | `TextMuteInterval`  | `Moderation.mute_user(...)` 用的预设禁言时长（`S60` / `M5` / `H1` / `D1` / `D3` / `D7`，对应 60 秒、5 分钟、1 小时、1 / 3 / 7 天）。 |
 | `VoiceMuteInterval` | `Moderation.mute_mic(...)` 用的预设禁麦时长（同上 `S60` / `M5` / `H1` / `D1` / `D3` / `D7`）。  |
 

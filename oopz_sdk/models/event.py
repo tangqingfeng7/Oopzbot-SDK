@@ -231,10 +231,14 @@ class ChannelUpdateEvent(Event):
     secret: bool = False
     member_public: bool = Field(default=False, alias="memberPublic")
     text_gap_second: int = Field(default=0, alias="textGapSecond")
+    article_gap_second: int = Field(default=0, alias="articleGapSecond")
+    comment_gap_second: int = Field(default=0, alias="commentGapSecond")
     voice_control_enabled: bool = Field(default=False, alias="voiceControlEnabled")
     text_control_enabled: bool = Field(default=False, alias="textControlEnabled")
+    article_control_enabled: bool = Field(default=False, alias="articleControlEnabled")
     voice_roles: list[Any] = Field(default_factory=list, alias="voiceRoles")
     text_roles: list[Any] = Field(default_factory=list, alias="textRoles")
+    article_roles: list[Any] = Field(default_factory=list, alias="articleRoles")
     accessible_roles: list[Any] = Field(default_factory=list, alias="accessibleRoles")
     accessible: list[Any] = Field(default_factory=list)
     disable_voice: list[Any] = Field(default_factory=list, alias="disableVoice")
@@ -257,6 +261,7 @@ class ChannelUpdateEvent(Event):
         for key in (
                 "voiceRoles",
                 "textRoles",
+                "articleRoles",
                 "accessibleRoles",
                 "accessible",
                 "disableVoice",
@@ -270,6 +275,7 @@ class ChannelUpdateEvent(Event):
                 "memberPublic",
                 "voiceControlEnabled",
                 "textControlEnabled",
+                "articleControlEnabled",
                 "accessControlEnabled",
                 "hasPassword",
         ):
@@ -277,6 +283,8 @@ class ChannelUpdateEvent(Event):
 
         for key, default in (
                 ("textGapSecond", 0),
+                ("articleGapSecond", 0),
+                ("commentGapSecond", 0),
                 ("maxMember", 30000),
         ):
             try:
@@ -327,9 +335,13 @@ class ChannelCreateEvent(Event):
     member_public: bool = Field(default=False, alias="memberPublic")
     voice_control_enabled: bool = Field(default=False, alias="voiceControlEnabled")
     text_control_enabled: bool = Field(default=False, alias="textControlEnabled")
+    article_control_enabled: bool = Field(default=False, alias="articleControlEnabled")
     voice_roles: list[Any] = Field(default_factory=list, alias="voiceRoles")
     text_roles: list[Any] = Field(default_factory=list, alias="textRoles")
+    article_roles: list[Any] = Field(default_factory=list, alias="articleRoles")
     text_gap_second: int = Field(default=0, alias="textGapSecond")
+    article_gap_second: int = Field(default=0, alias="articleGapSecond")
+    comment_gap_second: int = Field(default=0, alias="commentGapSecond")
     channel_type: str = Field(default="", alias="channelType")
     password: str = ""
     voice_quality: str = Field(default="64k", alias="voiceQuality")
@@ -374,6 +386,7 @@ class ChannelCreateEvent(Event):
                 "memberPublic",
                 "voiceControlEnabled",
                 "textControlEnabled",
+                "articleControlEnabled",
                 "secret",
                 "hasPassword",
                 "accessControlEnabled",
@@ -383,6 +396,8 @@ class ChannelCreateEvent(Event):
 
         for key, default in (
                 ("textGapSecond", 0),
+                ("articleGapSecond", 0),
+                ("commentGapSecond", 0),
                 ("maxMember", 0),
         ):
             try:
@@ -392,10 +407,12 @@ class ChannelCreateEvent(Event):
 
         vr = normalized.get("voiceRoles", [])
         tr = normalized.get("textRoles", [])
+        ar = normalized.get("articleRoles", [])
         am = normalized.get("accessibleMembers", [])
 
         normalized["voiceRoles"] = vr if isinstance(vr, list) else []
         normalized["textRoles"] = tr if isinstance(tr, list) else []
+        normalized["articleRoles"] = ar if isinstance(ar, list) else []
         normalized["accessibleRoles"] = _merge_accessible_roles_keys(normalized)
         normalized["accessibleMembers"] = [str(x) for x in am] if isinstance(am, list) else []
 

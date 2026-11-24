@@ -78,14 +78,18 @@
 | `area`                   | `str`       | 域 ID。                         |
 | `channel`                | `str`       | 频道 ID。                        |
 | `name`                   | `str`       | 频道名称。                         |
-| `channel_type`           | `str`       | 频道类型，例如 `TEXT` / `VOICE`。对应 body 里的 `type`。 |
+| `channel_type`           | `str`       | 频道类型，例如 `TEXT` / `VOICE` / `ARTICLE`。对应 body 里的 `type`。 |
 | `secret`                 | `bool`      | 是否私密频道。                       |
 | `member_public`          | `bool`      | 成员列表是否公开。                     |
 | `text_gap_second`        | `int`       | 发言间隔秒数。                       |
+| `article_gap_second`     | `int`       | 帖子频道发帖间隔秒数。                   |
+| `comment_gap_second`     | `int`       | 帖子频道评论间隔秒数。                   |
 | `voice_control_enabled`  | `bool`      | 是否启用语音权限控制。                   |
 | `text_control_enabled`   | `bool`      | 是否启用文字权限控制。                   |
+| `article_control_enabled`| `bool`      | 是否启用帖子频道发帖权限控制。               |
 | `voice_roles`            | `list[Any]` | 可语音身份组 ID 列表。                 |
 | `text_roles`             | `list[Any]` | 可发言身份组 ID 列表。                 |
+| `article_roles`          | `list[Any]` | 可在帖子频道发帖的身份组 ID 列表。           |
 | `accessible_roles`       | `list[Any]` | 可访问该频道的身份组 ID 列表。             |
 | `accessible`             | `list[Any]` | 可访问该频道的身份组 ID 列表的另一种 payload 键名。当前模型会分别保留 `accessible_roles` 与 `accessible`，不会自动合并；读取时请兼顾两个字段。 |
 | `disable_voice`          | `list[Any]` | 禁麦列表。                         |
@@ -103,14 +107,18 @@
 | `area`                   | `str`        | 域 ID。                           |
 | `channel`                | `str`        | 新频道 ID。                         |
 | `type`                   | `str`        | 频道类型归一值。SDK 会优先使用 body 里的 `channelType`，没有时回退到 `type`。 |
-| `channel_type`           | `str`        | 同 `type`，通常为 `TEXT` / `VOICE`。当前模型不会单独保留原始操作类型。 |
+| `channel_type`           | `str`        | 同 `type`，通常为 `TEXT` / `VOICE` / `ARTICLE`。当前模型不会单独保留原始操作类型。 |
 | `name`                   | `str`        | 频道名称。                           |
 | `member_public`          | `bool`       | 成员列表是否公开。                       |
 | `voice_control_enabled`  | `bool`       | 是否启用语音权限控制。                     |
 | `text_control_enabled`   | `bool`       | 是否启用文字权限控制。                     |
+| `article_control_enabled`| `bool`       | 是否启用帖子频道发帖权限控制。                 |
 | `voice_roles`            | `list[Any]`  | 可语音身份组列表，可能为 `null` → 空 list。   |
 | `text_roles`             | `list[Any]`  | 可发言身份组列表，可能为 `null` → 空 list。   |
+| `article_roles`          | `list[Any]`  | 可发帖身份组列表，可能为 `null` → 空 list。   |
 | `text_gap_second`        | `int`        | 发言间隔秒数。                         |
+| `article_gap_second`     | `int`        | 帖子频道发帖间隔秒数。                     |
+| `comment_gap_second`     | `int`        | 帖子频道评论间隔秒数。                     |
 | `password`               | `str`        | 频道密码。                           |
 | `voice_quality`          | `str`        | 语音质量，默认 `64k`。                  |
 | `voice_delay`            | `str`        | 语音延迟模式，默认 `LOW`。                |
