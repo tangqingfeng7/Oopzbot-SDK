@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.17.1
+
+### 变更
+
+- 删除 `Article` 上的 `create_channel()`、`update_channel()`、`delete_channel()`，帖子频道统一用 `Channel` 服务创建、修改和删除。
+- `Channel.create_channel()` 新增的 `secret` 参数以及 `Channel.update_channel()` 新增的帖子频道参数（`article_gap_second`、`comment_gap_second`、`article_control_enabled`、`article_roles`）在发请求前先检查类型和范围，不再把 `"false"` 等传错的类型强转成布尔值或整数。
+
+### 修复
+
+- 发帖和改帖没有附件时，`cover_index` 传非 `0` 会直接报错。
+- 发评论时 `image_list`、`mention_list` 里有空字符串不再忽略，直接报错。
+- `show_cover` 类型传错时改抛 `TypeError`，整数不是 `0`/`1` 时抛 `ValueError`。
+- `Article.upload_image()` 上传时带上图片对应的 `Content-Type`，传入 `"MP4"` 等非图片类型时直接报错。
+
 ## 0.17.0
 
 ### 新增

@@ -28,7 +28,7 @@ bot.voice
 | `media` | `Media` | 文件上传。 |
 | `areas` | `AreaService` | 域信息、域成员、域频道、域身份组。 |
 | `channels` | `Channel` | 频道设置、创建、修改、删除、进入频道、语音成员。 |
-| `articles` | `Article` | 帖子频道管理、分区增删改查、图片上传、发帖/改帖/删帖、点赞、评论与回复。 |
+| `articles` | `Article` | 帖子频道分区增删改查、图片上传、发帖/改帖/删帖、点赞、评论与回复。 |
 | `person`（别名 `members`） | `Person` | 用户资料、好友、好友请求。 |
 | `moderation` | `Moderation` | 禁言、解禁、禁麦、踢人、拉黑、黑名单。 |
 | `general` | `General` | 获取每日一言等通用平台信息。 |

@@ -49,7 +49,6 @@ class _RecordingArticle(Article):
         self,
         responses: list[Any] | None = None,
         raw_responses: list[HttpResponse] | None = None,
-        channel_service: _RecordingChannel | None = None,
     ) -> None:
         self.calls: list[dict[str, Any]] = []
         self.raw_calls: list[dict[str, Any]] = []
@@ -57,7 +56,6 @@ class _RecordingArticle(Article):
         self._raw_responses = list(raw_responses or [])
         self._config = SimpleNamespace(person_uid="bot-uid")
         self.cache = CacheStore(None)
-        self._bot = SimpleNamespace(channels=channel_service)
 
     async def _request_data(self, method: str, path: str, *, params=None, body=None) -> Any:
         self.calls.append({"method": method, "path": path, "params": params, "body": body})
@@ -77,8 +75,33 @@ def _make_png_bytes(width: int = 16, height: int = 12) -> bytes:
 
 
 # ---------------------------------------------------------------------------
-# 帖子频道：创建 / 编辑 / 删除
+# 帖子频道：通过 Channel service 创建 / 编辑
 # ---------------------------------------------------------------------------
+
+
+_ARTICLE_CHANNEL_SETTING: dict[str, Any] = {
+    "channel": "ch-art-1",
+    "name": "旧名称",
+    "type": "ARTICLE",
+    "textGapSecond": 0,
+    "articleGapSecond": 5,
+    "commentGapSecond": 10,
+    "voiceQuality": "64k",
+    "voiceDelay": "LOW",
+    "maxMember": 30000,
+    "voiceControlEnabled": False,
+    "textControlEnabled": False,
+    "articleControlEnabled": True,
+    "textRoles": [],
+    "voiceRoles": [],
+    "articleRoles": [101],
+    "accessControlEnabled": False,
+    "accessibleRoles": [],
+    "accessibleMembers": [],
+    "secret": False,
+    "hasPassword": False,
+    "password": "",
+}
 
 
 def test_create_article_channel_payload_and_response() -> None:
@@ -95,9 +118,8 @@ def test_create_article_channel_payload_and_response() -> None:
             }
         ]
     )
-    article_svc = _RecordingArticle(channel_service=channel_svc)
 
-    result = _run(article_svc.create_channel("area-1", "公告帖"))
+    result = _run(channel_svc.create_channel("area-1", "公告帖", channel_type=models.ChannelType.ARTICLE))
 
     assert result.channel_id == "ch-art-1"
     assert result.area == "area-1"
@@ -122,38 +144,10 @@ def test_create_article_channel_payload_and_response() -> None:
 
 
 def test_update_article_channel_preserves_and_updates_article_fields() -> None:
-    channel_svc = _RecordingChannel(
-        responses=[
-            {
-                "channel": "ch-art-1",
-                "name": "旧名称",
-                "type": "ARTICLE",
-                "textGapSecond": 0,
-                "articleGapSecond": 5,
-                "commentGapSecond": 10,
-                "voiceQuality": "64k",
-                "voiceDelay": "LOW",
-                "maxMember": 30000,
-                "voiceControlEnabled": False,
-                "textControlEnabled": False,
-                "articleControlEnabled": True,
-                "textRoles": [],
-                "voiceRoles": [],
-                "articleRoles": [101],
-                "accessControlEnabled": False,
-                "accessibleRoles": [],
-                "accessibleMembers": [],
-                "secret": False,
-                "hasPassword": False,
-                "password": "",
-            },
-            True,
-        ]
-    )
-    article_svc = _RecordingArticle(channel_service=channel_svc)
+    channel_svc = _RecordingChannel(responses=[dict(_ARTICLE_CHANNEL_SETTING), True])
 
     res = _run(
-        article_svc.update_channel(
+        channel_svc.update_channel(
             "area-1",
             "ch-art-1",
             name="新名称",
@@ -175,21 +169,66 @@ def test_update_article_channel_preserves_and_updates_article_fields() -> None:
     assert edit_body["articleRoles"] == [201, 202]
 
 
-def test_delete_article_channel() -> None:
-    channel_svc = _RecordingChannel(responses=[True])
-    article_svc = _RecordingArticle(channel_service=channel_svc)
+@pytest.mark.parametrize(
+    ("kwargs", "error"),
+    [
+        ({"article_gap_second": "10"}, TypeError),
+        ({"article_gap_second": -1}, ValueError),
+        ({"comment_gap_second": True}, TypeError),
+        ({"comment_gap_second": -1}, ValueError),
+        ({"article_control_enabled": "false"}, TypeError),
+        ({"article_roles": ["101"]}, TypeError),
+        ({"article_roles": [True]}, TypeError),
+        ({"article_roles": 101}, TypeError),
+    ],
+)
+def test_update_channel_rejects_invalid_article_params_before_network(
+    kwargs: dict[str, Any], error: type
+) -> None:
+    channel_svc = _RecordingChannel(responses=[])
 
-    res = _run(article_svc.delete_channel("area-1", "ch-art-1"))
+    with pytest.raises(error):
+        _run(channel_svc.update_channel("area-1", "ch-art-1", **kwargs))
+    assert channel_svc.calls == []
 
-    assert res.ok is True
-    assert channel_svc.calls == [
-        {
-            "method": "DELETE",
-            "path": "/client/v1/area/v1/channel/v1/delete",
-            "params": {"channel": "ch-art-1", "area": "area-1"},
-            "body": None,
-        }
-    ]
+
+def test_create_channel_rejects_non_bool_secret_before_network() -> None:
+    channel_svc = _RecordingChannel(responses=[])
+
+    with pytest.raises(TypeError):
+        _run(
+            channel_svc.create_channel(
+                "area-1", "公告帖", channel_type=models.ChannelType.ARTICLE, secret="false"  # type: ignore[arg-type]
+            )
+        )
+    assert channel_svc.calls == []
+
+
+def test_article_service_no_longer_wraps_channel_methods() -> None:
+    for name in ("create_channel", "update_channel", "delete_channel"):
+        assert not hasattr(Article, name)
+
+
+def test_attachment_mapping_and_bare_domain_url_rejected() -> None:
+    from oopz_sdk.models.article import normalize_article_resource_path
+
+    svc = _RecordingArticle()
+    with pytest.raises(TypeError):
+        _run(
+            svc.create_article(
+                "area-1",
+                "ch-1",
+                "标题",
+                "正文",
+                attachments={"resource": "/community/a.webp"},  # type: ignore[arg-type]
+            )
+        )
+    assert svc.calls == []
+
+    with pytest.raises(ValueError):
+        normalize_article_resource_path("https://resourcecdn.oopz.cn")
+    with pytest.raises(ValueError):
+        normalize_article_resource_path("https://resourcecdn.oopz.cn/")
 
 
 # ---------------------------------------------------------------------------
@@ -558,6 +597,7 @@ def test_upload_image_with_operations_sets_pic_operations_header() -> None:
     assert len(svc.raw_calls) == 1
     headers = svc.raw_calls[0]["headers"]
     assert headers["Authorization"] == "cos-auth-token"
+    assert headers["Content-Type"] == "image/webp"
     assert json.loads(headers["Pic-Operations"]) == {
         "is_pic_info": 1,
         "rules": [{"fileid": "demo.webp", "rule": "imageMogr2/cut/16x12x0x0"}],
@@ -715,7 +755,7 @@ def test_edit_article_preserves_cover_index_and_validates_before_network() -> No
         _run(svc_bad.create_article("area-1", "ch-1", "标题", "正文", section_id=True))
     with pytest.raises(TypeError):
         _run(svc_bad.create_article("area-1", "ch-1", "标题", None))  # type: ignore[arg-type]
-    with pytest.raises(ValueError):
+    with pytest.raises(TypeError):
         _run(svc_bad.create_article("area-1", "ch-1", "标题", "正文", show_cover="false"))  # type: ignore[arg-type]
     with pytest.raises(ValueError):
         _run(svc_bad.create_article("area-1", "ch-1", "标题", "正文", show_cover=2))
@@ -788,3 +828,101 @@ def test_article_models_and_sections_fail_fast_on_invalid_payloads() -> None:
     svc = _RecordingArticle(responses=[{}])
     with pytest.raises(OopzApiError):
         _run(svc.get_sections("area-1", "ch-1"))
+
+
+def test_cover_index_without_attachments_must_be_zero() -> None:
+    svc = _RecordingArticle()
+
+    with pytest.raises(ValueError):
+        _run(svc.create_article("area-1", "ch-1", "标题", "正文", cover_index=1))
+    with pytest.raises(ValueError):
+        _run(
+            svc.edit_article(
+                "area-1",
+                "ch-1",
+                "art-1",
+                title="标题",
+                content="正文",
+                section_id=0,
+                attachments=[],
+                cover_index=2,
+                show_cover=True,
+            )
+        )
+    assert svc.calls == []
+
+
+def test_edit_article_rejects_cover_index_out_of_range_of_original_attachments() -> None:
+    svc = _RecordingArticle(
+        responses=[
+            {
+                "articleId": "art-1",
+                "title": "原标题",
+                "content": "原正文",
+                "attachments": [
+                    {"attachmentType": "IMAGE", "resource": "/community/area_article/a.webp", "width": 1, "height": 1}
+                ],
+            }
+        ]
+    )
+
+    with pytest.raises(ValueError):
+        _run(svc.edit_article("area-1", "ch-1", "art-1", cover_index=1))
+    assert [call["path"] for call in svc.calls] == ["/uni/area/article/v1/detail"]
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "error"),
+    [
+        ({"image_list": ["/community/area_article/a.webp", "  "]}, ValueError),
+        ({"mention_list": [""]}, ValueError),
+        ({"mention_list": [123]}, TypeError),
+    ],
+)
+def test_create_comment_rejects_invalid_list_items(kwargs: dict[str, Any], error: type) -> None:
+    svc = _RecordingArticle()
+
+    with pytest.raises(error):
+        _run(svc.create_comment("area-1", "ch-1", "art-1", "hi", **kwargs))
+    assert svc.calls == []
+
+
+@pytest.mark.parametrize(
+    ("media_type", "file_ext", "expected_type", "expected_content_type"),
+    [
+        (None, "png", "PNG", "image/png"),
+        ("webp", "png", "WEBP", "image/webp"),
+        ("JPG", "png", "JPG", "image/jpeg"),
+    ],
+)
+def test_upload_image_sets_content_type_from_media_type(
+    media_type: str | None, file_ext: str, expected_type: str, expected_content_type: str
+) -> None:
+    svc = _RecordingArticle(
+        responses=[{"url": "https://cos.example/upload", "path": f"/community/area_article/x.{file_ext}", "auth": "tok"}],
+        raw_responses=[HttpResponse(status_code=200, text="", content=b"", headers={})],
+    )
+
+    _run(svc.upload_image("area-1", "ch-1", _make_png_bytes(), media_type=media_type))
+
+    assert svc.calls[0]["body"]["mediaType"] == expected_type
+    assert svc.raw_calls[0]["headers"]["Content-Type"] == expected_content_type
+
+
+def test_upload_image_rejects_non_image_media_type_before_network() -> None:
+    svc = _RecordingArticle()
+
+    with pytest.raises(ValueError):
+        _run(svc.upload_image("area-1", "ch-1", _make_png_bytes(), media_type="MP4"))
+    assert svc.calls == []
+    assert svc.raw_calls == []
+
+
+def test_show_cover_type_and_value_errors() -> None:
+    svc = _RecordingArticle()
+
+    with pytest.raises(TypeError):
+        _run(svc.create_article("area-1", "ch-1", "标题", "正文", show_cover="1"))  # type: ignore[arg-type]
+    with pytest.raises(ValueError):
+        _run(svc.create_article("area-1", "ch-1", "标题", "正文", show_cover=-1))
+    assert svc.calls == []

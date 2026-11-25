@@ -16,10 +16,36 @@ from oopz_sdk.utils.image import (
     guess_image_ext_from_bytes,
     read_image_bytes,
 )
-
 from . import BaseService
 
 logger = logging.getLogger(__name__)
+
+
+def _require_str(value: Any, field_name: str) -> str:
+    if not isinstance(value, str):
+        raise TypeError(f"{field_name} must be str, got {type(value).__name__}")
+    return value
+
+
+def _require_non_empty_str(value: Any, field_name: str) -> str:
+    text = _require_str(value, field_name).strip()
+    if not text:
+        raise ValueError(f"{field_name} cannot be empty")
+    return text
+
+
+def _require_int(value: Any, field_name: str, *, min_value: int | None = None) -> int:
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise TypeError(f"{field_name} must be int, got {type(value).__name__}")
+    if min_value is not None and value < min_value:
+        raise ValueError(f"{field_name} must be >= {min_value}")
+    return value
+
+
+def _require_non_empty_str_list(value: Any, field_name: str) -> list[str]:
+    if isinstance(value, (str, bytes, bytearray)) or not isinstance(value, Sequence):
+        raise TypeError(f"{field_name} must be a list or tuple, got {type(value).__name__}")
+    return [_require_non_empty_str(item, f"{field_name} item") for item in value]
 
 _EXT_TO_MEDIA_TYPE: dict[str, str] = {
     ".webp": "WEBP",
@@ -28,50 +54,41 @@ _EXT_TO_MEDIA_TYPE: dict[str, str] = {
     ".jpeg": "JPG",
     ".gif": "GIF",
     ".bmp": "BMP",
-    ".mp4": "MP4",
 }
 
-
-def _require_non_empty_str(value: str, field_name: str) -> str:
-    if not isinstance(value, str):
-        raise TypeError(f"{field_name} must be str, got {type(value).__name__}")
-    text = value.strip()
-    if not text:
-        raise ValueError(f"{field_name} cannot be empty")
-    return text
-
-
-def _require_str(value: str, field_name: str) -> str:
-    if not isinstance(value, str):
-        raise TypeError(f"{field_name} must be str, got {type(value).__name__}")
-    return value
-
-
-def _require_int(value: int, field_name: str, *, min_value: int | None = None) -> int:
-    if isinstance(value, bool) or not isinstance(value, int):
-        raise TypeError(f"{field_name} must be int, got {type(value).__name__}")
-    if min_value is not None and value < min_value:
-        raise ValueError(f"{field_name} must be >= {min_value}")
-    return value
+_IMAGE_CONTENT_TYPES: dict[str, str] = {
+    "WEBP": "image/webp",
+    "PNG": "image/png",
+    "JPG": "image/jpeg",
+    "GIF": "image/gif",
+    "BMP": "image/bmp",
+}
 
 
 def _require_show_cover(value: bool | int) -> int:
     if isinstance(value, bool):
-        return 1 if value else 0
-    if isinstance(value, int) and value in (0, 1):
-        return value
-    raise ValueError(f"show_cover must be bool or 0/1, got {value!r}")
-
-
-def _require_str_sequence(value: Sequence[str] | None, field_name: str) -> Sequence[str]:
-    if value is None:
-        return ()
-    if isinstance(value, (str, bytes, bytearray)):
-        raise TypeError(f"{field_name} must be a sequence of strings, not {type(value).__name__}")
-    for item in value:
-        if not isinstance(item, str):
-            raise TypeError(f"{field_name} items must be str, got {type(item).__name__}")
+        return int(value)
+    if not isinstance(value, int):
+        raise TypeError(f"show_cover must be bool or int, got {type(value).__name__}")
+    if value not in (0, 1):
+        raise ValueError(f"show_cover must be 0 or 1, got {value!r}")
     return value
+
+
+def _require_image_media_type(value: str) -> str:
+    media_type = _require_non_empty_str(value, "media_type").upper()
+    if media_type not in _IMAGE_CONTENT_TYPES:
+        allowed = ", ".join(_IMAGE_CONTENT_TYPES)
+        raise ValueError(f"unsupported image media_type: {value!r}, allowed: {allowed}")
+    return media_type
+
+
+def _check_cover_index(cover_index: int, attachment_count: int) -> None:
+    """封面索引必须落在附件范围内；没有附件时只能为 0。"""
+    if cover_index >= max(attachment_count, 1):
+        raise ValueError(
+            f"cover_index {cover_index} out of range for {attachment_count} attachments"
+        )
 
 
 def _serialize_attachments(
@@ -79,8 +96,8 @@ def _serialize_attachments(
 ) -> list[dict[str, Any]]:
     if attachments is None:
         return []
-    if isinstance(attachments, (str, bytes, bytearray)):
-        raise TypeError(f"attachments must be a sequence, not {type(attachments).__name__}")
+    if isinstance(attachments, (str, bytes, bytearray)) or not isinstance(attachments, Sequence):
+        raise TypeError(f"attachments must be a list or tuple, got {type(attachments).__name__}")
     result: list[dict[str, Any]] = []
     for item in attachments:
         if isinstance(item, models.ArticleAttachment):
@@ -95,72 +112,7 @@ def _serialize_attachments(
 
 
 class Article(BaseService):
-    """帖子频道能力：频道管理、分区、发帖、编辑、删除、点赞、评论与回复。"""
-
-    # ------------------------------------------------------------------
-    # 帖子频道（委托给 Channel service）
-    # ------------------------------------------------------------------
-
-    async def create_channel(
-        self,
-        area: str,
-        name: str,
-        group_id: str = "",
-        *,
-        secret: bool = False,
-    ) -> models.CreateChannelResult:
-        """创建帖子频道。"""
-        return await self._bot.channels.create_channel(
-            area=area,
-            name=name,
-            group_id=group_id,
-            channel_type=models.ChannelType.ARTICLE,
-            secret=secret,
-        )
-
-    async def update_channel(
-        self,
-        area: str,
-        channel_id: str,
-        *,
-        name: str | None = None,
-        article_gap_second: int | None = None,
-        comment_gap_second: int | None = None,
-        text_gap_second: int | None = None,
-        article_control_enabled: bool | None = None,
-        text_control_enabled: bool | None = None,
-        access_control_enabled: bool | None = None,
-        secret: bool | None = None,
-        has_password: bool | None = None,
-        password: str | None = None,
-        article_roles: list[int] | None = None,
-        text_roles: list[int] | None = None,
-        accessible_roles: list[int] | None = None,
-        accessible_members: list[str] | None = None,
-    ) -> models.OperationResult:
-        """编辑帖子频道设置。"""
-        return await self._bot.channels.update_channel(
-            area=area,
-            channel_id=channel_id,
-            name=name,
-            article_gap_second=article_gap_second,
-            comment_gap_second=comment_gap_second,
-            text_gap_second=text_gap_second,
-            article_control_enabled=article_control_enabled,
-            text_control_enabled=text_control_enabled,
-            access_control_enabled=access_control_enabled,
-            secret=secret,
-            has_password=has_password,
-            password=password,
-            article_roles=article_roles,
-            text_roles=text_roles,
-            accessible_roles=accessible_roles,
-            accessible_members=accessible_members,
-        )
-
-    async def delete_channel(self, area: str, channel: str) -> models.OperationResult:
-        """删除帖子频道。"""
-        return await self._bot.channels.delete_channel(area=area, channel=channel)
+    """帖子频道内容能力：分区、图片上传、发帖、编辑、删除、点赞、评论与回复。"""
 
     # ------------------------------------------------------------------
     # 帖子频道分区（Section）
@@ -302,19 +254,20 @@ class Article(BaseService):
         area = _require_non_empty_str(area, "area")
         channel = _require_non_empty_str(channel, "channel")
         op_text = _require_non_empty_str(operations, "operations") if operations is not None else None
+        explicit_media_type = _require_image_media_type(media_type) if media_type is not None else None
 
         payload, filename = await asyncio.to_thread(read_image_bytes, file)
         if not payload:
             raise ValueError("upload image payload is empty")
 
         width, height, file_size = await asyncio.to_thread(get_image_info_from_bytes, payload)
-        if media_type is None:
+        if explicit_media_type is None:
             ext = await asyncio.to_thread(guess_image_ext_from_bytes, payload, filename)
             resolved_media_type = _EXT_TO_MEDIA_TYPE.get(ext.lower())
             if resolved_media_type is None:
                 raise ValueError(f"unsupported image extension: {ext!r}")
         else:
-            resolved_media_type = _require_non_empty_str(media_type, "media_type").upper()
+            resolved_media_type = explicit_media_type
 
         presign = await self.get_upload_presign(
             area=area,
@@ -323,7 +276,7 @@ class Article(BaseService):
             operations=op_text,
         )
 
-        headers: dict[str, str] = {}
+        headers: dict[str, str] = {"Content-Type": _IMAGE_CONTENT_TYPES[resolved_media_type]}
         if presign.auth:
             headers["Authorization"] = presign.auth
         if op_text is not None:
@@ -431,8 +384,7 @@ class Article(BaseService):
         cover_index = _require_int(cover_index, "cover_index", min_value=0)
         show_cover_int = _require_show_cover(show_cover)
         serialized_attachments = _serialize_attachments(attachments)
-        if serialized_attachments and cover_index >= len(serialized_attachments):
-            raise ValueError("cover_index out of range for attachments")
+        _check_cover_index(cover_index, len(serialized_attachments))
 
         body: dict[str, Any] = {
             "areaId": area,
@@ -474,63 +426,50 @@ class Article(BaseService):
         if cover_index is not None:
             cover_index = _require_int(cover_index, "cover_index", min_value=0)
         show_cover_int = _require_show_cover(show_cover) if show_cover is not None else None
-        serialized_explicit_attachments = (
+        serialized_attachments = (
             _serialize_attachments(attachments) if attachments is not None else None
         )
 
         # 只有确实有未提供的字段需要从原帖回填时才发 GET /detail；
         # 当 attachments 已显式替换且 cover_index 未传时默认取 0，无需拉旧封面。
-        need_detail = any(
-            value is None for value in (title, content, section_id, attachments, show_cover)
-        )
-        detail: models.ArticleInfo | None = None
-        if need_detail:
+        if any(value is None for value in (title, content, section_id, attachments, show_cover)):
             detail = await self.get_article_detail(area, channel, article_id)
+            if title is None:
+                title = _require_non_empty_str(detail.title, "title")
+            if content is None:
+                content = detail.content
+            if section_id is None:
+                section_id = detail.section_id
+            if show_cover_int is None:
+                show_cover_int = int(detail.show_cover)
+            if serialized_attachments is None:
+                serialized_attachments = _serialize_attachments(detail.attachments)
+                # 沿用原附件时，在原附件中定位原封面的位置
+                if cover_index is None and detail.cover is not None and detail.cover.resource:
+                    cover_path = normalize_article_resource_path(detail.cover.resource)
+                    cover_index = next(
+                        (
+                            idx
+                            for idx, att in enumerate(serialized_attachments)
+                            if att["resource"] == cover_path
+                        ),
+                        0,
+                    )
 
-        final_title = title if title is not None else _require_non_empty_str(
-            detail.title if detail is not None else "", "title"
-        )
-        final_content = content if content is not None else (detail.content if detail is not None else "")
-        final_section_id = (
-            section_id if section_id is not None else (detail.section_id if detail is not None else 0)
-        )
-        final_attachments = (
-            serialized_explicit_attachments
-            if serialized_explicit_attachments is not None
-            else _serialize_attachments(detail.attachments if detail is not None else [])
-        )
-
-        if cover_index is not None:
-            final_cover_index = cover_index
-        elif attachments is None and detail is not None and detail.cover and detail.cover.resource:
-            final_cover_index = 0
-            cover_path = normalize_article_resource_path(detail.cover.resource)
-            for idx, att in enumerate(final_attachments):
-                if att.get("resource") == cover_path:
-                    final_cover_index = idx
-                    break
-        else:
-            final_cover_index = 0
-
-        if final_attachments and final_cover_index >= len(final_attachments):
-            raise ValueError("cover_index out of range for attachments")
-
-        final_show_cover = (
-            show_cover_int
-            if show_cover_int is not None
-            else (1 if (detail.show_cover if detail is not None else True) else 0)
-        )
+        if cover_index is None:
+            cover_index = 0
+        _check_cover_index(cover_index, len(serialized_attachments))
 
         body: dict[str, Any] = {
             "articleId": article_id,
             "areaId": area,
             "channelId": channel,
-            "sectionId": final_section_id,
-            "title": final_title,
-            "content": final_content,
-            "attachments": final_attachments,
-            "coverIndex": final_cover_index,
-            "showCover": final_show_cover,
+            "sectionId": section_id,
+            "title": title,
+            "content": content,
+            "attachments": serialized_attachments,
+            "coverIndex": cover_index,
+            "showCover": show_cover_int,
         }
         data = await self._request_data("POST", "/uni/area/article/v1/edit", body=body)
         return models.ArticlePublishResult.from_api(data)
@@ -679,14 +618,13 @@ class Article(BaseService):
 
         normalized_images = [
             normalize_article_resource_path(item)
-            for item in _require_str_sequence(image_list, "image_list")
-            if item.strip()
+            for item in (
+                _require_non_empty_str_list(image_list, "image_list") if image_list is not None else []
+            )
         ]
-        normalized_mentions = [
-            item.strip()
-            for item in _require_str_sequence(mention_list, "mention_list")
-            if item.strip()
-        ]
+        normalized_mentions = (
+            _require_non_empty_str_list(mention_list, "mention_list") if mention_list is not None else []
+        )
 
         if not text.strip() and not normalized_images:
             raise ValueError("content or image_list is required for create_comment")
