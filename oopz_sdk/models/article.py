@@ -19,7 +19,9 @@ def normalize_article_resource_path(value: str) -> str:
         return ""
     if text.startswith(("http://", "https://")):
         parsed = urlparse(text)
-        return parsed.path or text
+        if not parsed.path or parsed.path == "/":
+            raise ValueError(f"invalid article resource url: {value!r}")
+        return parsed.path
     return text
 
 

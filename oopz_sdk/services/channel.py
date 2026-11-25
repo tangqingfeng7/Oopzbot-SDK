@@ -11,6 +11,29 @@ from . import BaseService
 logger = logging.getLogger(__name__)
 
 
+def _require_article_int(value: int, field_name: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise TypeError(f"{field_name} must be int, got {type(value).__name__}")
+    if value < 0:
+        raise ValueError(f"{field_name} must be >= 0")
+    return value
+
+
+def _require_article_bool(value: bool, field_name: str) -> bool:
+    if not isinstance(value, bool):
+        raise TypeError(f"{field_name} must be bool, got {type(value).__name__}")
+    return value
+
+
+def _require_article_roles(value: list[int]) -> list[int]:
+    if not isinstance(value, list):
+        raise TypeError(f"article_roles must be list[int], got {type(value).__name__}")
+    for item in value:
+        if isinstance(item, bool) or not isinstance(item, int):
+            raise TypeError(f"article_roles item must be int, got {type(item).__name__}")
+    return list(value)
+
+
 class Channel(BaseService):
     """Channel-related platform capabilities."""
 
@@ -42,6 +65,7 @@ class Channel(BaseService):
         secret: bool = False,
     ) -> models.CreateChannelResult:
         """创建频道。支持文字（TEXT）、语音（VOICE）与帖子（ARTICLE）频道。"""
+        secret = _require_article_bool(secret, "secret")
         if area.strip() == "":
             raise ValueError("area cannot be empty")
         if name.strip() == "":
@@ -75,7 +99,7 @@ class Channel(BaseService):
             "group": group_id,
             "name": name,
             "type": channel_type,
-            "secret": bool(secret),
+            "secret": secret,
         }
         if channel_type == models.ChannelType.ARTICLE.value:
             body["vender"] = "TR"
@@ -122,6 +146,17 @@ class Channel(BaseService):
         if channel_id == "":
             raise ValueError("channel_id cannot be empty")
 
+        if article_gap_second is not None:
+            article_gap_second = _require_article_int(article_gap_second, "article_gap_second")
+        if comment_gap_second is not None:
+            comment_gap_second = _require_article_int(comment_gap_second, "comment_gap_second")
+        if article_control_enabled is not None:
+            article_control_enabled = _require_article_bool(
+                article_control_enabled, "article_control_enabled"
+            )
+        if article_roles is not None:
+            article_roles = _require_article_roles(article_roles)
+
         setting = await self.get_channel_setting_info(channel_id)
         editable_setting = models.ChannelEdit.from_setting(setting, area=area, channel=channel_id)
 
@@ -155,10 +190,10 @@ class Channel(BaseService):
             editable_setting.text_gap_second = int(text_gap_second)
 
         if article_gap_second is not None:
-            editable_setting.article_gap_second = int(article_gap_second)
+            editable_setting.article_gap_second = article_gap_second
 
         if comment_gap_second is not None:
-            editable_setting.comment_gap_second = int(comment_gap_second)
+            editable_setting.comment_gap_second = comment_gap_second
 
         if voice_quality is not None:
             editable_setting.voice_quality = str(voice_quality)
@@ -176,7 +211,7 @@ class Channel(BaseService):
             editable_setting.text_control_enabled = bool(text_control_enabled)
 
         if article_control_enabled is not None:
-            editable_setting.article_control_enabled = bool(article_control_enabled)
+            editable_setting.article_control_enabled = article_control_enabled
 
         if access_control_enabled is not None:
             editable_setting.access_control_enabled = bool(access_control_enabled)
@@ -206,7 +241,7 @@ class Channel(BaseService):
 
         # 可以发帖的group
         if article_roles is not None:
-            editable_setting.article_roles = _normalize_int_list(article_roles, "article_roles")
+            editable_setting.article_roles = article_roles
 
         final_secret = bool(secret) if secret is not None else bool(editable_setting.secret)
 

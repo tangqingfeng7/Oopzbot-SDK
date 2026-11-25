@@ -1,106 +1,8 @@
 # Article Service
 
-`Article Service` 挂载在 `client.articles` / `bot.articles`，用于管理帖子频道、分区、媒体上传、帖子 CRUD、帖子点赞，以及帖子评论、回复、点赞与删除。
+`Article Service` 挂载在 `client.articles` / `bot.articles`，用于管理帖子频道下的分区、图片上传、帖子 CRUD、帖子点赞，以及帖子评论、回复、点赞与删除。
 
----
-
-## 帖子频道管理
-
-以下三个方法内部委托给 [Channel Service](channel-service.md)，也可直接通过 `client.channels` 调用。
-
-### `create_channel(area, name, group_id="", *, secret=False)`
-
-创建帖子频道（`ChannelType.ARTICLE`）。不传 `group_id` 时自动使用该域下的第一个频道分组。
-
-```python
-ch = await client.articles.create_channel(
-    area="域 ID",
-    name="攻略交流区",
-)
-
-print(ch.channel_id)
-print(ch.channel_type)  # ChannelType.ARTICLE
-```
-
-=== "参数"
-
-    | 参数 | 类型 | 必填 | 默认值 | 说明 |
-    | --- | --- | --- | --- | --- |
-    | `area` | `str` | 是 | - | 域 ID，不能为空。 |
-    | `name` | `str` | 是 | - | 频道名称，不能为空。 |
-    | `group_id` | `str` | 否 | `""` | 频道分组 ID；不传时自动取第一个分组。 |
-    | `secret` | `bool` | 否 | `False` | 是否创建为私密帖子频道。 |
-
-=== "返回值"
-
-    返回：`CreateChannelResult`（`oopz_sdk.models.CreateChannelResult`），字段定义见 [Channel Service](channel-service.md)。
-
----
-
-### `update_channel(area, channel_id, **kwargs)`
-
-修改帖子频道设置。SDK 会先拉取原频道配置，仅覆盖你传入的字段。
-
-```python
-result = await client.articles.update_channel(
-    area="域 ID",
-    channel_id="帖子频道 ID",
-    name="精华攻略",
-    article_gap_second=10,
-    comment_gap_second=5,
-    article_control_enabled=True,
-    article_roles=[26480728],
-)
-```
-
-=== "参数"
-
-    | 参数 | 类型 | 必填 | 默认值 | 说明 |
-    | --- | --- | --- | --- | --- |
-    | `area` | `str` | 是 | - | 域 ID，不能为空。 |
-    | `channel_id` | `str` | 是 | - | 帖子频道 ID，不能为空。 |
-    | `name` | `str \| None` | 否 | `None` | 频道名称。 |
-    | `article_gap_second` | `int \| None` | 否 | `None` | 发帖间隔秒数。 |
-    | `comment_gap_second` | `int \| None` | 否 | `None` | 评论间隔秒数。 |
-    | `text_gap_second` | `int \| None` | 否 | `None` | 文字消息间隔秒数。 |
-    | `article_control_enabled` | `bool \| None` | 否 | `None` | 是否启用发帖身份组控制。 |
-    | `article_roles` | `list[int] \| None` | 否 | `None` | 允许发帖的身份组 ID 列表。 |
-    | `text_control_enabled` | `bool \| None` | 否 | `None` | 是否启用文字控制。 |
-    | `text_roles` | `list[int] \| None` | 否 | `None` | 文字控制身份组 ID 列表。 |
-    | `access_control_enabled` | `bool \| None` | 否 | `None` | 是否启用访问控制。 |
-    | `secret` | `bool \| None` | 否 | `None` | 是否设为私密频道。 |
-    | `has_password` | `bool \| None` | 否 | `None` | 是否启用密码。 |
-    | `password` | `str \| None` | 否 | `None` | 频道密码（需同时传 `has_password=True`）。 |
-    | `accessible_roles` | `list[int] \| None` | 否 | `None` | 可访问身份组 ID 列表（仅私密频道）。 |
-    | `accessible_members` | `list[str] \| None` | 否 | `None` | 可访问成员 UID 列表（仅私密频道）。 |
-
-=== "返回值"
-
-    返回：`OperationResult`（`oopz_sdk.models.OperationResult`）。
-
----
-
-### `delete_channel(area, channel)`
-
-删除帖子频道。
-
-```python
-result = await client.articles.delete_channel(
-    area="域 ID",
-    channel="帖子频道 ID",
-)
-```
-
-=== "参数"
-
-    | 参数 | 类型 | 必填 | 说明 |
-    | --- | --- | --- | --- |
-    | `area` | `str` | 是 | 域 ID，不能为空。 |
-    | `channel` | `str` | 是 | 帖子频道 ID，不能为空。 |
-
-=== "返回值"
-
-    返回：`OperationResult`（`oopz_sdk.models.OperationResult`）。
+帖子频道本身的创建、设置修改与删除统一通过 [Channel Service](channel-service.md) 调用（例如 `await client.channels.create_channel(area, name, channel_type=ChannelType.ARTICLE)`、`client.channels.update_channel(...)`、`client.channels.delete_channel(...)`）。
 
 ---
 
@@ -265,7 +167,7 @@ print(att.resource, att.width, att.height)
     | `area` | `str` | 是 | - | 域 ID。 |
     | `channel` | `str` | 是 | - | 帖子频道 ID。 |
     | `file` | `ImageInput` | 是 | - | 本地路径、`Path`、`bytes`、base64 / data URL 或 file-like 对象。 |
-    | `media_type` | `str \| None` | 否 | `None` | 媒体类型；不传时按文件内容自动推断。 |
+    | `media_type` | `str \| None` | 否 | `None` | 图片类型（`WEBP`、`PNG`、`JPG`、`GIF`、`BMP`）；不传时按文件内容自动推断，上传时自动携带对应的 `Content-Type`。 |
     | `operations` | `str \| None` | 否 | `None` | 可选图片裁剪规则；传入时会自动附带 `Pic-Operations` 请求头。 |
 
 === "返回值"
@@ -391,7 +293,7 @@ print(post.article_id, post.state)
     | `content` | `str` | 是 | - | 帖子正文。 |
     | `section_id` | `int` | 否 | `0` | 发布到的分区 ID，`0` 表示不指定分区。 |
     | `attachments` | `Sequence[ArticleAttachment \| Mapping] \| None` | 否 | `None` | 附件列表（通过 `upload_image` 获取）。 |
-    | `cover_index` | `int` | 否 | `0` | 作为封面的附件索引。 |
+    | `cover_index` | `int` | 否 | `0` | 作为封面的附件索引；无附件时只能为 `0`。 |
     | `show_cover` | `bool \| int` | 否 | `True` | 是否在帖子详情内显示封面（`True`/`1` 显示，`False`/`0` 不显示）。 |
 
 === "返回值"
@@ -646,12 +548,14 @@ await client.articles.unlike_comment(area, channel, article_id, comment_id)
 ## 完整示例
 
 ```python
+from oopz_sdk.models import ChannelType
+
 async with OopzRESTClient(config) as client:
     await client.start()
 
     # 1. 创建并配置帖子频道与分区
-    ch = await client.articles.create_channel(area, "活动专区")
-    await client.articles.update_channel(area, ch.channel_id, article_gap_second=10)
+    ch = await client.channels.create_channel(area, "活动专区", channel_type=ChannelType.ARTICLE)
+    await client.channels.update_channel(area, ch.channel_id, article_gap_second=10)
     sec = await client.articles.create_section(area, ch.channel_id, "官方公告")
 
     # 2. 上传封面并发布帖子（不显示帖内封面）
@@ -676,5 +580,5 @@ async with OopzRESTClient(config) as client:
     await client.articles.delete_comment(area, ch.channel_id, post.article_id, c2.comment_id)
     await client.articles.delete_article(area, ch.channel_id, post.article_id)
     await client.articles.delete_section(area, ch.channel_id, sec.section_id)
-    await client.articles.delete_channel(area, ch.channel_id)
+    await client.channels.delete_channel(area, ch.channel_id)
 ```
