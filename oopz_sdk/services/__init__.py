@@ -13,6 +13,27 @@ if TYPE_CHECKING:
     from oopz_sdk import OopzBot
 
 
+def _require_str(value: Any, field_name: str) -> str:
+    if not isinstance(value, str):
+        raise TypeError(f"{field_name} must be str, got {type(value).__name__}")
+    return value
+
+
+def _require_non_empty_str(value: Any, field_name: str) -> str:
+    text = _require_str(value, field_name).strip()
+    if not text:
+        raise ValueError(f"{field_name} cannot be empty")
+    return text
+
+
+def _require_int(value: Any, field_name: str, *, min_value: int | None = None) -> int:
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise TypeError(f"{field_name} must be int, got {type(value).__name__}")
+    if min_value is not None and value < min_value:
+        raise ValueError(f"{field_name} must be >= {min_value}")
+    return value
+
+
 class BaseService:
     """所有 service 的公共基类。
 

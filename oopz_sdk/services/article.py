@@ -16,30 +16,9 @@ from oopz_sdk.utils.image import (
     guess_image_ext_from_bytes,
     read_image_bytes,
 )
-from . import BaseService
+from . import BaseService, _require_int, _require_non_empty_str, _require_str
 
 logger = logging.getLogger(__name__)
-
-
-def _require_str(value: Any, field_name: str) -> str:
-    if not isinstance(value, str):
-        raise TypeError(f"{field_name} must be str, got {type(value).__name__}")
-    return value
-
-
-def _require_non_empty_str(value: Any, field_name: str) -> str:
-    text = _require_str(value, field_name).strip()
-    if not text:
-        raise ValueError(f"{field_name} cannot be empty")
-    return text
-
-
-def _require_int(value: Any, field_name: str, *, min_value: int | None = None) -> int:
-    if isinstance(value, bool) or not isinstance(value, int):
-        raise TypeError(f"{field_name} must be int, got {type(value).__name__}")
-    if min_value is not None and value < min_value:
-        raise ValueError(f"{field_name} must be >= {min_value}")
-    return value
 
 
 def _require_non_empty_str_list(value: Any, field_name: str) -> list[str]:
