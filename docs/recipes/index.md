@@ -9,3 +9,4 @@
 | 撤回消息 | [撤回消息](recall-message.md) |
 | 查询已加入域和频道 ID | [列出 area 和 channel](list-areas-and-channels.md) |
 | 发送私信 | [发送私信](private-message.md) |
+| 展示游戏或听歌动态 | [设置和读取当前动态](playing-state.md) |

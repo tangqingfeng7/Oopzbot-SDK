@@ -41,6 +41,7 @@ nav:
       - 撤回消息: recipes/recall-message.md
       - 列出 area 和 channel: recipes/list-areas-and-channels.md
       - 发送私信: recipes/private-message.md
+      - 设置和读取当前动态: recipes/playing-state.md
   - 适配器:
       - 适配器总览: adapters/index.md
       - OneBot:

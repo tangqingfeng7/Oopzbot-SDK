@@ -127,6 +127,7 @@ Segment 分段类型不是 Pydantic 模型，不提供 `model_dump()` 或 `to_di
 |---------------------|---------------------------------------------------|
 | `UserInfo`          | 用户基本信息（公开资料）。                                     |
 | `Profile`           | 用户完整资料，包含设置与隐私选项。                                 |
+| `PlayingState`      | 用户当前动态的展示类型、游戏文案与图标、游戏时间、音乐软件、歌名。 |
 | `UserLevelInfo`     | 用户等级信息。                                           |
 | `Friendship`        | 好友关系，字段：`uid`、`name`、`online`。                                       |
 | `FriendshipRequest` | 好友请求记录。                                           |

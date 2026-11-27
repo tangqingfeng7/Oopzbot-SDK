@@ -1,6 +1,6 @@
 # Person Service
 
-`Person Service` 用于获取用户基本信息、用户完整资料，以及当前用户等级信息。
+`Person` 提供用户资料、当前动态、等级和好友关系接口。
 
 
 ---
@@ -156,7 +156,7 @@ print(profile.ip_address)
     | `default_name` | `bool` | `False` | 是否使用默认名称 |
     | `disabled_end_time` | `int` | `0` | 禁用结束时间 |
     | `disabled_start_time` | `int` | `0` | 禁用开始时间 |
-    | `display_playing_state` | `Any` | `None` | 暂未使用 |
+    | `display_playing_state` | `Any` | `None` | 动态展示开关，公开资料可能为空。 |
     | `display_type` | `str` | `""` | 展示状态类型`GAME`, `MUSIC` |
     | `fans_count` | `int` | `0` | 粉丝数 |
     | `fixed_private_message` | `bool` | `False` |  |
@@ -253,6 +253,31 @@ print(profile.user_level)
 
 ---
 
+
+## 当前动态
+
+通过 `client.person` 或 `bot.person` 调用。写入方法只修改当前登录账号的动态，返回 `OperationResult`。
+
+| 方法 | 用途 |
+| --- | --- |
+| `get_playing_state(uid=None)` | 从 Oopz 读取最新动态，返回 `PlayingState`。省略 UID 或传入自己的 UID 时读取本人资料，其他 UID 读取公开资料。 |
+| `set_game_state(name, *, game_id=0)` | 展示「正在玩」和自定义文案。传入正整数可以指定官方游戏图标，传 `0` 或省略时由 Oopz 选择图标。 |
+| `set_music_state(app, song="")` | 展示「正在听」的音乐软件和歌名。省略歌名时只展示软件。 |
+| `clear_playing_state()` | 清空正在展示的游戏或音乐动态。 |
+
+```python
+await bot.person.set_game_state("组队中", game_id=116)
+await bot.person.set_music_state("QQ音乐", "七里香")
+state = await bot.person.get_playing_state()
+print(state.display_type, state.music_state, state.song_state)
+await bot.person.clear_playing_state()
+```
+
+`state.display_type` 为 `"GAME"` 时，游戏文案和图标地址在 `playing_state` 和 `playing_game_image` 中。为 `"MUSIC"` 时，音乐软件和歌名在 `music_state` 和 `song_state` 中。空字符串表示没有动态。`display_playing_state` 表示是否对外展示，服务端未公开该开关时为 `None`。
+
+写入返回 `ok=False` 表示操作失败，`message` 包含服务端提供的说明。响应的 `status` 为假或缺少 `data` 字段时，SDK 抛出 `OopzApiError`。
+
+---
 
 ## `update_self_introduction(introduction)`
 
