@@ -4,6 +4,7 @@ import logging
 import time
 import copy
 from collections import OrderedDict
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Generic, TypeVar, Optional, Hashable
 
@@ -68,8 +69,11 @@ class TTLCache(Generic[T]):
     def clear(self) -> None:
         self._store.clear()
 
-    def delete_where(self, predicate) -> int:
+    def delete_where(self, predicate: Callable[[Hashable], bool]) -> int:
         keys = [key for key in self._store if predicate(key)]
         for key in keys:
             self._store.pop(key, None)
         return len(keys)
+
+    def delete_values_where(self, predicate: Callable[[T], bool]) -> int:
+        return self.delete_where(lambda key: predicate(self._store[key].value))

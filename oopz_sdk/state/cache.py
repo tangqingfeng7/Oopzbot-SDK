@@ -127,6 +127,11 @@ class CacheStore:
             and key[0] == area
         )
 
+    def invalidate_area_members_pages_for_user(self, uid: str) -> None:
+        self._area_members_pages.delete_values_where(
+            lambda page: any(member.uid == uid for member in page.members)
+        )
+
     # area user nicknames
     def get_area_user_nickname(self, area: str, uid: str) -> str | None:
         return self._area_user_nicknames.get((area, uid))
