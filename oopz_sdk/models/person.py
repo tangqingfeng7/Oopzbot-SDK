@@ -79,6 +79,24 @@ class UserInfo(BaseModel):
         return cls.model_validate(data)
 
 
+class PlayingState(BaseModel):
+    """个人资料中展示的游戏或音乐动态。"""
+
+    display_type: str = Field(default="", alias="displayType")
+    playing_state: str = Field(default="", alias="playingState")
+    playing_game_image: str = Field(default="", alias="playingGameImage")
+    playing_time: int = Field(default=0, alias="playingTime")
+    music_state: str = Field(default="", alias="musicState")
+    song_state: str = Field(default="", alias="songState")
+    display_playing_state: bool | None = Field(default=None, alias="displayPlayingState")
+
+    @classmethod
+    def from_api(cls, data: Mapping[str, Any]) -> "PlayingState":
+        if not isinstance(data, Mapping):
+            raise OopzApiError("invalid playing state payload: expected dict", payload=data)
+        return cls.model_validate(data)
+
+
 class Profile(BaseModel):
     area_avatar: str = Field(default="", alias="areaAvatar")
     area_max_num: int = Field(default=0, alias="areaMaxNum")

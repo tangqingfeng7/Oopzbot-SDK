@@ -30,7 +30,15 @@ from .channel import (ChannelSetting, ChannelType,
                       VoiceChannelMemberInfo)
 from .general import DailySpeech
 from .event import Event, MessageEvent
-from .person import UserInfo, Profile, UserLevelInfo, Friendship, FriendshipRequest, UserRemarkNamesResponse
+from .person import (
+    Friendship,
+    FriendshipRequest,
+    PlayingState,
+    Profile,
+    UserInfo,
+    UserLevelInfo,
+    UserRemarkNamesResponse,
+)
 from .message import Message, MessageSendResult, PrivateSession, MessageEmojiItem, VoiceInteractionSticker
 from .moderation import TextMuteInterval, VoiceMuteInterval
 from .segment import build_segments, normalize_message_parts
@@ -69,6 +77,7 @@ __all__ = [
     "PrivateSession",
     "TextMuteInterval",
     "VoiceMuteInterval",
+    "PlayingState",
     "Profile",
     "UserLevelInfo",
     "build_segments",

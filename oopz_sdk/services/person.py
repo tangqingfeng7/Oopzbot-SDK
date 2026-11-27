@@ -2,16 +2,20 @@ from __future__ import annotations
 
 import logging
 from typing import Optional
+
 from oopz_sdk import models
 from oopz_sdk.exceptions import OopzApiError
 
-from . import BaseService
+from . import BaseService, _require_int, _require_non_empty_str, _require_str
 
 logger = logging.getLogger(__name__)
 
+_PERSON_DETAIL_PATH = "/client/v1/person/v1/personDetail"
+_SELF_DETAIL_PATH = "/client/v1/person/v2/selfDetail"
+
 
 class Person(BaseService):
-    """用户相关能力：个人资料、成员搜索、身份组分配等。"""
+    """管理个人资料、当前动态和好友关系。"""
 
     async def get_person_infos_batch(
             self,
@@ -117,7 +121,7 @@ class Person(BaseService):
 
         data = await self._request_data(
             "GET",
-            "/client/v1/person/v1/personDetail",
+            _PERSON_DETAIL_PATH,
             params={"uid": uid},
         )
 
@@ -145,13 +149,62 @@ class Person(BaseService):
 
         data = await self._request_data(
             "GET",
-            "/client/v1/person/v2/selfDetail",
+            _SELF_DETAIL_PATH,
             params={"uid": str(uid)},
         )
 
         profile = models.Profile.from_api(data)
         self.cache.set_identity(profile)
         return profile
+
+    async def get_playing_state(self, uid: str | None = None) -> models.PlayingState:
+        """实时读取用户的游戏或音乐动态，省略 uid 时读取当前账号。"""
+        self_uid = self._config.person_uid
+        uid = _require_non_empty_str(self_uid if uid is None else uid, "uid")
+        path = _SELF_DETAIL_PATH if uid == self_uid else _PERSON_DETAIL_PATH
+        data = await self._request_data("GET", path, params={"uid": uid})
+        return models.PlayingState.from_api(data)
+
+    async def set_game_state(self, name: str, *, game_id: int = 0) -> models.OperationResult:
+        """展示「正在玩」文案，可通过 game_id 指定官方游戏图标。"""
+        name = _require_non_empty_str(name, "name")
+        game_id = _require_int(game_id, "game_id", min_value=0)
+        return await self._save_playing_state("GAME", playing_state=name, game_id=game_id)
+
+    async def set_music_state(self, app: str, song: str = "") -> models.OperationResult:
+        """展示「正在听」的音乐软件和歌名，歌名可留空。"""
+        app = _require_non_empty_str(app, "app")
+        song = _require_str(song, "song").strip()
+        return await self._save_playing_state("MUSIC", music_state=app, song_state=song)
+
+    async def clear_playing_state(self) -> models.OperationResult:
+        """清空当前账号展示的动态。"""
+        return await self._save_playing_state("")
+
+    async def _save_playing_state(
+        self,
+        display: str,
+        *,
+        playing_state: str = "",
+        music_state: str = "",
+        song_state: str = "",
+        game_id: int = 0,
+    ) -> models.OperationResult:
+        body: dict[str, str | int] = {
+            "display": display,
+            "playingState": playing_state,
+            "musicState": music_state,
+            "songState": song_state,
+        }
+        if game_id:
+            body["gameId"] = game_id
+        data = await self._request_data("POST", "/person/v1/playingState/save", body=body)
+        result = models.OperationResult.from_api(data)
+        if result.ok:
+            self.cache.invalidate_identity()
+            self.cache.invalidate_person_profile(self._config.person_uid)
+            self.cache.invalidate_area_members_pages_for_user(self._config.person_uid)
+        return result
 
     async def update_self_introduction(self, introduction: str) -> models.OperationResult:
         if not isinstance(introduction, str):
